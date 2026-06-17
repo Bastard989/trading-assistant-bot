@@ -32,12 +32,21 @@ from trading_bot.repositories import (
     JournalRepository,
     MarketContextRepository,
     PendingTradeRepository,
+    TemplateRepository,
     TradeRepository,
     TradeReviewRepository,
     UserRepository,
     WatchlistRepository,
 )
 from trading_bot.risk import RiskInputError, calculate_risk
+from trading_bot.templates import (
+    base_values,
+    enrich_trade_math,
+    parse_key_values,
+    placeholders,
+    render_template,
+    valid_template_name,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +66,7 @@ class BotHandlers:
         daily_plans: DailyPlanRepository,
         pending_trades: PendingTradeRepository,
         trade_reviews: TradeReviewRepository,
+        templates: TemplateRepository,
         market: MarketClient,
         top_limit: int,
         alert_poll_seconds: int,
@@ -71,6 +81,7 @@ class BotHandlers:
         self.daily_plans = daily_plans
         self.pending_trades = pending_trades
         self.trade_reviews = trade_reviews
+        self.templates = templates
         self.market = market
         self.top_limit = top_limit
         self.alert_poll_seconds = alert_poll_seconds
@@ -100,6 +111,9 @@ class BotHandlers:
         application.add_handler(CommandHandler("watch", self.watch))
         application.add_handler(CommandHandler("plan", self.plan))
         application.add_handler(CommandHandler("miniapp", self.miniapp))
+        application.add_handler(CommandHandler("templates", self.templates_list))
+        application.add_handler(CommandHandler("template", self.template_save))
+        application.add_handler(CommandHandler("render", self.template_render))
         application.add_handler(CallbackQueryHandler(self.on_callback))
         application.add_handler(MessageHandler(filters.PHOTO, self.on_photo))
         application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.on_text))
@@ -140,6 +154,9 @@ class BotHandlers:
             "/context BTC 1D long levels=64000,68000 - старший контекст\n"
             "/watch BTC ETH SOL - watchlist на сегодня\n"
             "/plan BTC,ETH,SOL 3 50 текст - план дня: монеты, риск %, дневной стоп USDT\n"
+            "/templates - список макетов\n"
+            "/template name текст - сохранить макет с {symbol}, {entry}, {stop}\n"
+            "/render name key=value или trade=12 - заполнить макет\n"
             "/miniapp - открыть кабинет трейдера\n\n"
             "Скрин можно отправить фото с caption: /journal BTC loss описание или /context BTC 4H long levels=64000"
         )
@@ -490,6 +507,49 @@ class BotHandlers:
             ),
         )
 
+    async def templates_list(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        rows = self.templates.list_for_user(update.effective_user.id)
+        if not rows:
+            await update.message.reply_text("Макетов пока нет.")
+            return
+        lines = ["Макеты:"]
+        for row in rows:
+            fields = ", ".join(placeholders(row["body"])) or "без полей"
+            lines.append(f"{row['name']} ({row['source']}): {fields}")
+        lines.append("\nПример: /render entry symbol=BTC side=long entry=65000 stop=64000 target=68000 qty=0.01 reason=пробой")
+        await update.message.reply_text("\n".join(lines))
+
+    async def template_save(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        if len(context.args) < 2:
+            await update.message.reply_text(
+                "Формат: /template scalp План {symbol} {side_upper}: вход {entry}, стоп {stop}, тейк {target}"
+            )
+            return
+        name = context.args[0].lower()
+        if not valid_template_name(name):
+            await update.message.reply_text("Имя макета: только буквы, цифры, _ или -, до 32 символов.")
+            return
+        body = " ".join(context.args[1:]).replace("\\n", "\n")
+        self.templates.upsert(update.effective_user.id, name, body)
+        fields = ", ".join(placeholders(body)) or "без полей"
+        await update.message.reply_text(f"Макет `{name}` сохранен.\nПоля: {fields}", parse_mode="Markdown")
+
+    async def template_render(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        if len(context.args) < 1:
+            await update.message.reply_text("Формат: /render entry symbol=BTC entry=65000 stop=64000 target=68000 qty=0.01")
+            return
+        name = context.args[0].lower()
+        body = self.templates.get(update.effective_user.id, name)
+        if not body:
+            await update.message.reply_text("Не нашел такой макет. Посмотри /templates.")
+            return
+        try:
+            rendered = await self._render_template_for_user(update.effective_user.id, body, context.args[1:])
+        except ValueError as exc:
+            await update.message.reply_text(str(exc))
+            return
+        await update.message.reply_text(rendered)
+
     async def on_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         query = update.callback_query
         await query.answer()
@@ -753,6 +813,42 @@ class BotHandlers:
             screenshot_file_id=screenshot_file_id,
             confidence=confidence,
         )
+
+    async def _render_template_for_user(self, user_id: int, body: str, args: list[str]) -> str:
+        raw_values = parse_key_values(args)
+        values = base_values()
+
+        trade_id = raw_values.pop("trade", raw_values.pop("trade_id", ""))
+        if trade_id:
+            if not trade_id.isdigit():
+                raise ValueError("trade должен быть ID сделки, например trade=12.")
+            trade = self.trades.get(user_id, int(trade_id))
+            if not trade:
+                raise ValueError("Не нашел сделку с таким ID.")
+            from trading_bot.templates import trade_values
+
+            values.update(trade_values(trade))
+
+        values.update(raw_values)
+        if "quantity" in values and "qty" not in values:
+            values["qty"] = values["quantity"]
+        if "qty" in values and "quantity" not in values:
+            values["quantity"] = values["qty"]
+        if "current_price" in values and "price" not in values:
+            values["price"] = values["current_price"]
+
+        symbol = str(values.get("symbol") or "").strip()
+        if symbol:
+            normalized_symbol = normalize_symbol(symbol)
+            values["symbol"] = normalized_symbol
+            if values.get("price") in {"", "-"}:
+                try:
+                    values["price"] = await self.market.get_price(normalized_symbol)
+                except Exception:
+                    logger.info("Template current price unavailable", exc_info=True)
+
+        values = enrich_trade_math(values)
+        return render_template(body, values)
 
 
 def parse_float(value: str) -> float:

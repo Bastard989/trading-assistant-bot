@@ -6,6 +6,7 @@ from datetime import date
 
 from trading_bot.db import Database
 from trading_bot.models import TradeDraft, TradeReview
+from trading_bot.templates import DEFAULT_TEMPLATES
 
 
 class UserRepository:
@@ -604,6 +605,68 @@ class TradeReviewRepository:
                 ),
             )
             return int(cursor.lastrowid)
+
+
+class TemplateRepository:
+    def __init__(self, db: Database) -> None:
+        self.db = db
+
+    def upsert(self, user_id: int, name: str, body: str) -> None:
+        with self.db.connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO note_templates (user_id, name, body)
+                VALUES (?, ?, ?)
+                ON CONFLICT(user_id, name) DO UPDATE SET
+                    body = excluded.body,
+                    updated_at = CURRENT_TIMESTAMP
+                """,
+                (user_id, name.lower(), body.strip()),
+            )
+
+    def get(self, user_id: int, name: str) -> str | None:
+        name = name.lower()
+        with self.db.connect() as connection:
+            row = connection.execute(
+                """
+                SELECT body
+                FROM note_templates
+                WHERE user_id = ? AND name = ?
+                """,
+                (user_id, name),
+            ).fetchone()
+        if row:
+            return row["body"]
+        return DEFAULT_TEMPLATES.get(name)
+
+    def delete(self, user_id: int, name: str) -> bool:
+        with self.db.connect() as connection:
+            cursor = connection.execute(
+                "DELETE FROM note_templates WHERE user_id = ? AND name = ?",
+                (user_id, name.lower()),
+            )
+            return cursor.rowcount > 0
+
+    def list_for_user(self, user_id: int) -> list[dict[str, str]]:
+        rows: list[dict[str, str]] = [
+            {"name": name, "body": body, "source": "default"}
+            for name, body in sorted(DEFAULT_TEMPLATES.items())
+        ]
+        with self.db.connect() as connection:
+            custom = connection.execute(
+                """
+                SELECT name, body
+                FROM note_templates
+                WHERE user_id = ?
+                ORDER BY name ASC
+                """,
+                (user_id,),
+            ).fetchall()
+        custom_names = {row["name"] for row in custom}
+        rows = [row for row in rows if row["name"] not in custom_names]
+        rows.extend({"name": row["name"], "body": row["body"], "source": "custom"} for row in custom)
+        rows.sort(key=lambda row: row["name"])
+        return rows
 
 
 class JournalRepository:

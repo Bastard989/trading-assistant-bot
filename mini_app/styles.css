@@ -76,6 +76,7 @@ p { margin: 4px 0 0; color: var(--muted); }
 .chip { border: 1px solid var(--line); border-radius: 999px; padding: 6px 10px; color: var(--text); background: var(--surface); }
 
 .table { display: grid; gap: 8px; }
+.template-list { display: grid; gap: 10px; }
 .row {
   display: grid;
   grid-template-columns: minmax(120px, 1.1fr) repeat(4, minmax(80px, 1fr));
@@ -114,6 +115,15 @@ pre {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   color: var(--text);
 }
+.template-card {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+  padding: 12px;
+}
+.template-card strong { display: block; margin-bottom: 8px; }
+.template-card code { color: var(--blue); word-break: break-word; }
+.template-card pre { color: var(--muted); margin-top: 8px; }
 
 @media (max-width: 760px) {
   .metrics, .form-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }

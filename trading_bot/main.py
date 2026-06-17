@@ -13,6 +13,7 @@ from trading_bot.repositories import (
     JournalRepository,
     MarketContextRepository,
     PendingTradeRepository,
+    TemplateRepository,
     TradeRepository,
     TradeReviewRepository,
     UserRepository,
@@ -38,6 +39,7 @@ def main() -> None:
     daily_plans = DailyPlanRepository(db)
     pending_trades = PendingTradeRepository(db)
     trade_reviews = TradeReviewRepository(db)
+    templates = TemplateRepository(db)
     market = MarketClient(settings.market)
 
     application = ApplicationBuilder().token(settings.telegram_bot_token).build()
@@ -51,6 +53,7 @@ def main() -> None:
         daily_plans=daily_plans,
         pending_trades=pending_trades,
         trade_reviews=trade_reviews,
+        templates=templates,
         market=market,
         top_limit=settings.top_limit,
         alert_poll_seconds=settings.alert_poll_seconds,

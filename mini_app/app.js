@@ -76,6 +76,21 @@ async function loadJournal() {
   `).join("") || emptyRow("Дневник пуст");
 }
 
+async function loadTemplates() {
+  const data = await api(`/api/templates?user_id=${userId}`);
+  document.getElementById("templatesList").innerHTML = data.items.map(row => {
+    const fields = [...row.body.matchAll(/{([a-zA-Z_][a-zA-Z0-9_]*)}/g)].map(match => match[1]);
+    const unique = [...new Set(fields)].sort();
+    return `
+      <div class="template-card">
+        <strong>${row.name} <small>${row.source}</small></strong>
+        <code>${unique.join(", ") || "без полей"}</code>
+        <pre>${row.body}</pre>
+      </div>
+    `;
+  }).join("") || "<div class='template-card'>Макетов пока нет</div>";
+}
+
 function renderTrades(targetId, rows) {
   document.getElementById(targetId).innerHTML = rows.map(row => `
     <div class="row">
@@ -114,7 +129,7 @@ async function calculateRisk() {
 }
 
 async function loadAll() {
-  await Promise.all([loadDashboard(), loadTrades(), loadContexts(), loadJournal()]);
+  await Promise.all([loadDashboard(), loadTrades(), loadContexts(), loadJournal(), loadTemplates()]);
   await calculateRisk();
 }
 

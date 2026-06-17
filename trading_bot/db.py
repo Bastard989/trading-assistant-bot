@@ -146,6 +146,17 @@ CREATE TABLE IF NOT EXISTS trade_reviews (
     FOREIGN KEY(user_id) REFERENCES users(telegram_id),
     FOREIGN KEY(trade_id) REFERENCES trades(id)
 );
+
+CREATE TABLE IF NOT EXISTS note_templates (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    name TEXT NOT NULL,
+    body TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(user_id, name),
+    FOREIGN KEY(user_id) REFERENCES users(telegram_id)
+);
 """
 
 

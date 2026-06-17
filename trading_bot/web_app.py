@@ -14,6 +14,7 @@ from trading_bot.repositories import (
     DailyPlanRepository,
     JournalRepository,
     MarketContextRepository,
+    TemplateRepository,
     TradeRepository,
     UserRepository,
     WatchlistRepository,
@@ -35,6 +36,7 @@ journal = JournalRepository(db)
 contexts = MarketContextRepository(db)
 watchlist = WatchlistRepository(db)
 daily_plans = DailyPlanRepository(db)
+templates = TemplateRepository(db)
 
 app = FastAPI(title="Trading Assistant Mini App")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
@@ -95,6 +97,11 @@ def alerts_api(user_id: int = Query(...)) -> dict:
 @app.get("/api/journal")
 def journal_api(user_id: int = Query(...), symbol: str = "") -> dict:
     return {"items": [row_to_dict(row) for row in journal.list_for_user(user_id, symbol=symbol, limit=50)]}
+
+
+@app.get("/api/templates")
+def templates_api(user_id: int = Query(...)) -> dict:
+    return {"items": templates.list_for_user(user_id)}
 
 
 @app.get("/api/risk")

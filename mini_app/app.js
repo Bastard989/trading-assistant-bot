@@ -25,6 +25,7 @@ document.querySelectorAll(".seg").forEach(button => {
 
 document.getElementById("refreshBtn").addEventListener("click", loadAll);
 document.getElementById("riskForm").addEventListener("input", calculateRisk);
+document.getElementById("reviewBtn").addEventListener("click", reviewTrade);
 
 async function api(path) {
   const response = await fetch(path);
@@ -98,7 +99,9 @@ function renderTrades(targetId, rows) {
       <span>Entry ${fmt(row.entry_price, 6)}<small>Stop ${fmt(row.stop_price, 6)}</small></span>
       <span>Target ${row.target_price ? fmt(row.target_price, 6) : "-"}</span>
       <span>Risk ${fmt(row.risk_amount)}<small>x${fmt(row.leverage, 1)}</small></span>
-      <span class="${Number(row.pnl || 0) >= 0 ? "positive" : "negative"}">${row.pnl == null ? "-" : signed(row.pnl)}</span>
+      <span class="${Number(row.pnl || 0) >= 0 ? "positive" : "negative"}">${row.pnl == null ? "-" : signed(row.pnl)}
+        ${row.status === "open" ? `<small><button class="mini-action" onclick="closeTrade(${row.id})">Закрыть</button><button class="mini-action" onclick="cancelTrade(${row.id})">Отменить</button></small>` : ""}
+      </span>
     </div>
   `).join("") || emptyRow("Нет данных");
 }
@@ -128,9 +131,47 @@ async function calculateRisk() {
   }
 }
 
+async function reviewTrade() {
+  const form = new FormData(document.getElementById("riskForm"));
+  const query = new URLSearchParams(form);
+  query.set("user_id", userId);
+  document.getElementById("reviewResult").textContent = "Проверяю сделку...";
+  try {
+    const data = await api(`/api/review?${query.toString()}`);
+    const r = data.review;
+    const issues = r.issues.map(item => `- ${item.severity.toUpperCase()}: ${item.title}. ${item.detail}`).join("\n");
+    document.getElementById("reviewResult").textContent =
+      `Score: ${fmt(r.score, 0)}/100\n` +
+      `Вероятно зайдет: ${fmt(r.win_probability, 0)}%\n` +
+      `Вероятно не зайдет: ${fmt(r.loss_probability, 0)}%\n` +
+      `Severity: ${r.severity.toUpperCase()}\n` +
+      `${r.summary}\n\n` +
+      `${issues || "Критичных замечаний нет"}`;
+  } catch (error) {
+    document.getElementById("reviewResult").textContent = "Не удалось проверить сделку";
+  }
+}
+
 async function loadAll() {
   await Promise.all([loadDashboard(), loadTrades(), loadContexts(), loadJournal(), loadTemplates()]);
   await calculateRisk();
+}
+
+async function closeTrade(id) {
+  const exitPrice = prompt("Цена закрытия:");
+  if (!exitPrice) return;
+  const response = await fetch(`/api/trades/${id}/close?user_id=${userId}&exit_price=${encodeURIComponent(exitPrice)}&note=miniapp`, { method: "POST" });
+  const data = await response.json();
+  if (!data.ok) alert("Не удалось закрыть сделку");
+  await loadAll();
+}
+
+async function cancelTrade(id) {
+  if (!confirm("Отменить открытую сделку?")) return;
+  const response = await fetch(`/api/trades/${id}/cancel?user_id=${userId}`, { method: "POST" });
+  const data = await response.json();
+  if (!data.ok) alert("Не удалось отменить сделку");
+  await loadAll();
 }
 
 loadAll();

@@ -8,15 +8,20 @@ from typing import Any
 
 DEFAULT_TEMPLATES: dict[str, str] = {
     "entry": (
-        "План сделки {symbol} {side_upper}\n"
+        "План сделки\n"
+        "Монета: {symbol}\n"
+        "Направление: {side_upper}\n"
         "Текущая цена: {price}\n"
-        "Вход: {entry}\n"
-        "Стоп: {stop} ({stop_distance}%)\n"
-        "Тейк: {target} ({target_distance}%)\n"
+        "Цена входа: {entry}\n"
+        "Стоп лосс: {stop} ({stop_distance}%)\n"
+        "Тейк профит: {target} ({target_distance}%)\n"
         "Qty: {qty}\n"
         "Риск: {risk} USDT\n"
         "R/R: {rr}\n"
-        "Причина входа: {reason}\n"
+        "\n"
+        "Почему открыл сделку:\n"
+        "{reason}\n"
+        "\n"
         "Что отменяет идею: {invalidation}"
     ),
     "journal": (

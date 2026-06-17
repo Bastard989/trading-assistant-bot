@@ -20,6 +20,11 @@ from trading_bot.repositories import (
     WatchlistRepository,
 )
 from trading_bot.telegram_handlers import BotHandlers
+from trading_bot.telegram_handlers import BOT_COMMANDS
+
+
+async def post_init(application) -> None:
+    await application.bot.set_my_commands(BOT_COMMANDS)
 
 
 def main() -> None:
@@ -29,6 +34,7 @@ def main() -> None:
     )
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("httpcore").setLevel(logging.WARNING)
+    logging.getLogger("apscheduler").setLevel(logging.WARNING)
     settings = load_settings()
     db = Database(settings.database_path)
 
@@ -44,7 +50,7 @@ def main() -> None:
     templates = TemplateRepository(db)
     market = MarketClient(settings.market)
 
-    application = ApplicationBuilder().token(settings.telegram_bot_token).build()
+    application = ApplicationBuilder().token(settings.telegram_bot_token).post_init(post_init).build()
     BotHandlers(
         users=users,
         alerts=alerts,

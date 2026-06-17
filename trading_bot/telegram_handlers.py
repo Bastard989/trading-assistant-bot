@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import logging
-from datetime import date
+import re
+from datetime import date, datetime
 
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, WebAppInfo
+from telegram import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, Update, WebAppInfo
 from telegram.ext import (
     Application,
     CallbackQueryHandler,
@@ -12,6 +13,7 @@ from telegram.ext import (
     MessageHandler,
     filters,
 )
+from telegram.error import TelegramError
 
 from trading_bot.formatting import (
     format_distance,
@@ -47,11 +49,33 @@ from trading_bot.templates import (
     render_template,
     valid_template_name,
 )
+from trading_bot.timeframe_analyzer import analyze_klines
 
 logger = logging.getLogger(__name__)
 
 AWAITING_PROFILE = "awaiting_profile"
 OUTCOMES = {"win", "loss", "breakeven", "idea"}
+BOT_COMMANDS = [
+    BotCommand("start", "старт и краткая инструкция"),
+    BotCommand("menu", "основное меню"),
+    BotCommand("help", "список команд"),
+    BotCommand("miniapp", "открыть кабинет трейдера"),
+    BotCommand("price", "цена монеты"),
+    BotCommand("top", "топ активных монет"),
+    BotCommand("risk", "расчет позиции"),
+    BotCommand("trade", "проверить и внести сделку"),
+    BotCommand("trades", "список сделок"),
+    BotCommand("stats", "статистика"),
+    BotCommand("alert", "ценовой алерт"),
+    BotCommand("context", "сохранить контекст таймфрейма"),
+    BotCommand("contexts", "список контекстов"),
+    BotCommand("autocontext", "обновить контекст по свечам Binance"),
+    BotCommand("watch", "watchlist"),
+    BotCommand("plan", "план дня"),
+    BotCommand("templates", "макеты заметок"),
+    BotCommand("render", "заполнить макет"),
+]
+ALBUMS_KEY = "pending_media_groups"
 
 
 class BotHandlers:
@@ -89,6 +113,7 @@ class BotHandlers:
 
     def register(self, application: Application) -> None:
         application.add_handler(CommandHandler("start", self.start))
+        application.add_handler(CommandHandler("menu", self.menu))
         application.add_handler(CommandHandler("help", self.help))
         application.add_handler(CommandHandler("profile", self.profile))
         application.add_handler(CommandHandler("defaults", self.defaults))
@@ -108,6 +133,7 @@ class BotHandlers:
         application.add_handler(CommandHandler("entries", self.entries))
         application.add_handler(CommandHandler("context", self.context_entry))
         application.add_handler(CommandHandler("contexts", self.contexts_list))
+        application.add_handler(CommandHandler("autocontext", self.autocontext))
         application.add_handler(CommandHandler("watch", self.watch))
         application.add_handler(CommandHandler("plan", self.plan))
         application.add_handler(CommandHandler("miniapp", self.miniapp))
@@ -125,6 +151,12 @@ class BotHandlers:
                 first=5,
                 name="price-alerts",
             )
+            application.job_queue.run_repeating(
+                self.refresh_auto_contexts,
+                interval=3600,
+                first=20,
+                name="auto-timeframe-context",
+            )
 
     async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         self.users.ensure_user(update.effective_user.id)
@@ -133,6 +165,26 @@ class BotHandlers:
             "Сначала задай размер депозита и риск: /defaults 1000 1\n"
             "Потом добавь контекст: /context BTC 1D long levels=64000,68000 structure=uptrend\n"
             "И проверяй сделки через /trade."
+        )
+
+    async def menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        await update.message.reply_text(
+            "Быстрое меню:",
+            reply_markup=InlineKeyboardMarkup(
+                [
+                    [
+                        InlineKeyboardButton("Mini App", web_app=WebAppInfo(url=f"{self.web_app_url.rstrip('/')}/?user_id={update.effective_user.id}")),
+                    ],
+                    [
+                        InlineKeyboardButton("/templates", callback_data="cmd:templates"),
+                        InlineKeyboardButton("/top", callback_data="cmd:top"),
+                    ],
+                    [
+                        InlineKeyboardButton("/trades", callback_data="cmd:trades"),
+                        InlineKeyboardButton("/stats", callback_data="cmd:stats"),
+                    ],
+                ]
+            ),
         )
 
     async def help(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -152,6 +204,7 @@ class BotHandlers:
             "/alerts - активные алерты\n"
             "/journal BTC win описание - запись в дневник\n"
             "/context BTC 1D long levels=64000,68000 - старший контекст\n"
+            "/autocontext [BTC] - обновить контекст по свечам Binance\n"
             "/watch BTC ETH SOL - watchlist на сегодня\n"
             "/plan BTC,ETH,SOL 3 50 текст - план дня: монеты, риск %, дневной стоп USDT\n"
             "/templates - список макетов\n"
@@ -401,25 +454,38 @@ class BotHandlers:
     async def on_photo(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         caption = update.message.caption or ""
         file_id = update.message.photo[-1].file_id
-        if caption.startswith("/context"):
-            try:
-                context_id = self._create_context_from_args(update.effective_user.id, caption.split()[1:], screenshot_file_id=file_id)
-            except ValueError as exc:
-                await update.message.reply_text(f"{exc}\nCaption формат: /context BTC 4H long levels=64000,68000")
-                return
-            await update.message.reply_text(f"Контекст #{context_id} со скриншотом сохранен.")
+        if update.message.media_group_id:
+            albums = context.application.bot_data.setdefault(ALBUMS_KEY, {})
+            key = f"{update.effective_chat.id}:{update.message.media_group_id}"
+            album = albums.setdefault(
+                key,
+                {
+                    "chat_id": update.effective_chat.id,
+                    "user_id": update.effective_user.id,
+                    "caption": "",
+                    "file_ids": [],
+                    "scheduled": False,
+                },
+            )
+            if caption:
+                album["caption"] = caption
+            album["file_ids"].append(file_id)
+            if not album["scheduled"] and context.job_queue:
+                album["scheduled"] = True
+                context.job_queue.run_once(self.process_media_group, 1.2, data={"key": key}, name=f"media_group:{key}")
             return
 
-        if not caption.startswith("/journal"):
-            await update.message.reply_text("Фото получил. Чтобы сохранить в дневник, добавь caption: /journal BTC win описание")
+        text = await self._handle_photo_note(update.effective_user.id, caption, [file_id])
+        await update.message.reply_text(text)
+
+    async def process_media_group(self, context: ContextTypes.DEFAULT_TYPE) -> None:
+        key = context.job.data["key"]
+        albums = context.application.bot_data.setdefault(ALBUMS_KEY, {})
+        album = albums.pop(key, None)
+        if not album:
             return
-        args = caption.split()[1:]
-        try:
-            entry_id = self._create_journal_from_args(update.effective_user.id, args, screenshot_file_id=file_id)
-        except ValueError as exc:
-            await update.message.reply_text(f"{exc}\nCaption формат: /journal BTC win описание")
-            return
-        await update.message.reply_text(f"Скриншот и запись дневника #{entry_id} сохранены.")
+        text = await self._handle_photo_note(album["user_id"], album["caption"], album["file_ids"])
+        await context.bot.send_message(chat_id=album["chat_id"], text=text)
 
     async def entries(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         symbol = normalize_symbol(context.args[0]) if context.args else ""
@@ -462,6 +528,14 @@ class BotHandlers:
                 f"{row['note']}"
             )
         await update.message.reply_text("\n\n".join(lines))
+
+    async def autocontext(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        symbols = tuple(normalize_symbol(arg) for arg in context.args) if context.args else tuple(self.watchlist.list_symbols(update.effective_user.id))
+        if not symbols:
+            await update.message.reply_text("Сначала задай watchlist: /watch BTC ETH SOL или передай монету: /autocontext BTC")
+            return
+        lines = await self._update_auto_contexts_for_user(update.effective_user.id, symbols, ("1d", "1h", "15m"))
+        await update.message.reply_text("\n".join(lines))
 
     async def watch(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not context.args:
@@ -554,6 +628,25 @@ class BotHandlers:
         query = update.callback_query
         await query.answer()
         action, raw_id = query.data.split(":", 1)
+        if action == "cmd":
+            if raw_id == "templates":
+                rows = self.templates.list_for_user(update.effective_user.id)
+                lines = ["Макеты:"]
+                for row in rows:
+                    lines.append(f"{row['name']} ({row['source']})")
+                await query.message.reply_text("\n".join(lines))
+            elif raw_id == "top":
+                tickers = await self.market.top_by_activity(self.top_limit)
+                lines = ["Активные монеты сейчас:"]
+                lines.extend(format_ticker(ticker, index) for index, ticker in enumerate(tickers, 1))
+                await query.message.reply_text("\n".join(lines))
+            elif raw_id == "trades":
+                rows = self.trades.list_for_user(update.effective_user.id)
+                await query.message.reply_text("\n\n".join(format_trade(row) for row in rows) if rows else "Сделок пока нет.")
+            elif raw_id == "stats":
+                await query.message.reply_text("Статистика доступна командой /stats.")
+            return
+
         if action == "cancel_alert":
             ok = self.alerts.cancel(update.effective_user.id, int(raw_id))
             await query.edit_message_text("Алерт отменен." if ok else "Не нашел активный алерт.")
@@ -606,9 +699,11 @@ class BotHandlers:
 
     async def check_alerts(self, context: ContextTypes.DEFAULT_TYPE) -> None:
         rows = self.alerts.active()
-        if not rows:
+        open_trades = self.trades.open_all()
+        if not rows and not open_trades:
             return
         symbols = {row["symbol"] for row in rows}
+        symbols.update(row["symbol"] for row in open_trades)
         try:
             prices = await self.market.get_prices(symbols)
         except Exception:
@@ -626,10 +721,105 @@ class BotHandlers:
                 continue
             self.alerts.mark_triggered(row["id"], price)
             sign = ">=" if row["direction"] == "above" else "<="
-            await context.bot.send_message(
-                chat_id=row["user_id"],
-                text=f"Price alert #{row['id']}: {row['symbol']} {sign} {money(row['target_price'])}\nNow: {money(price)}",
+            try:
+                await context.bot.send_message(
+                    chat_id=row["user_id"],
+                    text=f"Price alert #{row['id']}: {row['symbol']} {sign} {money(row['target_price'])}\nNow: {money(price)}",
+                )
+            except TelegramError:
+                logger.info("Could not send price alert to user %s", row["user_id"])
+
+        for trade in open_trades:
+            price = prices.get(trade["symbol"])
+            if price is None:
+                continue
+            close_reason = ""
+            close_price = None
+            if trade["side"] == "long":
+                if price <= trade["stop_price"]:
+                    close_reason = "stop loss"
+                    close_price = trade["stop_price"]
+                elif trade["target_price"] is not None and price >= trade["target_price"]:
+                    close_reason = "take profit"
+                    close_price = trade["target_price"]
+            else:
+                if price >= trade["stop_price"]:
+                    close_reason = "stop loss"
+                    close_price = trade["stop_price"]
+                elif trade["target_price"] is not None and price <= trade["target_price"]:
+                    close_reason = "take profit"
+                    close_price = trade["target_price"]
+
+            if close_price is None:
+                continue
+            closed = self.trades.close(
+                trade["user_id"],
+                trade["id"],
+                close_price,
+                note=f"auto close by {close_reason}; market price {money(price)}",
             )
+            if not closed:
+                continue
+            result = "плюс" if float(closed["pnl"] or 0) >= 0 else "убыток"
+            try:
+                await context.bot.send_message(
+                    chat_id=trade["user_id"],
+                    text=(
+                        f"Сделка #{trade['id']} {trade['symbol']} закрылась по {close_reason}.\n"
+                        f"Открыта: {trade['opened_at']}\n"
+                        f"Выход: {money(close_price)}\n"
+                        f"PnL: {signed_money(closed['pnl'])} USDT ({result})"
+                    ),
+                )
+            except TelegramError:
+                logger.info("Could not send auto-close message to user %s", trade["user_id"])
+
+    async def refresh_auto_contexts(self, context: ContextTypes.DEFAULT_TYPE) -> None:
+        now = datetime.now()
+        intervals = ["15m"]
+        if now.hour % 4 == 0:
+            intervals.append("1h")
+        if now.hour == 10:
+            intervals.append("1d")
+
+        for user_id in self.users.list_user_ids():
+            symbols = tuple(self.watchlist.list_symbols(user_id))
+            if not symbols:
+                continue
+            lines = await self._update_auto_contexts_for_user(user_id, symbols, tuple(intervals))
+            if lines:
+                try:
+                    await context.bot.send_message(chat_id=user_id, text="\n".join(lines[:12]))
+                except TelegramError:
+                    logger.info("Could not send auto-context update to user %s", user_id)
+
+    async def _update_auto_contexts_for_user(self, user_id: int, symbols: tuple[str, ...], intervals: tuple[str, ...]) -> list[str]:
+        interval_labels = {"1d": "1D", "1h": "1H", "15m": "15M"}
+        lines = ["Auto context обновлен:"]
+        for symbol in symbols:
+            for interval in intervals:
+                try:
+                    klines = await self.market.get_klines(symbol, interval, limit=120)
+                    analysis = analyze_klines(symbol, interval_labels[interval], klines)
+                    context_id = self.contexts.create(
+                        user_id=user_id,
+                        symbol=symbol,
+                        timeframe=str(analysis["timeframe"]),
+                        bias=str(analysis["bias"]),
+                        structure=str(analysis["structure"]),
+                        levels=tuple(float(level) for level in analysis["levels"]),
+                        note=str(analysis["note"]),
+                        confidence=float(analysis["confidence"]),
+                    )
+                    levels = ",".join(f"{level:g}" for level in analysis["levels"])
+                    lines.append(
+                        f"#{context_id} {symbol} {analysis['timeframe']} {str(analysis['bias']).upper()} "
+                        f"{analysis['structure']} levels={levels}"
+                    )
+                except Exception:
+                    logger.exception("Auto context update failed for %s %s", symbol, interval)
+                    lines.append(f"{symbol} {interval_labels[interval]}: не смог обновить")
+        return lines
 
     def _parse_trade_args(self, args: list[str]) -> TradeDraft:
         if len(args) < 6:
@@ -814,6 +1004,61 @@ class BotHandlers:
             confidence=confidence,
         )
 
+    async def _handle_photo_note(self, user_id: int, caption: str, file_ids: list[str]) -> str:
+        joined_file_ids = ",".join(file_ids)
+        caption = caption.strip()
+        if caption.startswith("/context"):
+            try:
+                context_id = self._create_context_from_args(user_id, caption.split()[1:], screenshot_file_id=joined_file_ids)
+            except ValueError as exc:
+                return f"{exc}\nCaption формат: /context BTC 4H long levels=64000,68000"
+            return f"Контекст #{context_id} сохранен. Фото в записи: {len(file_ids)}."
+
+        if caption.startswith("/journal"):
+            args = caption.split()[1:]
+            try:
+                entry_id = self._create_journal_from_args(user_id, args, screenshot_file_id=joined_file_ids)
+            except ValueError as exc:
+                return f"{exc}\nCaption формат: /journal BTC win описание"
+            return f"Скриншоты и запись дневника #{entry_id} сохранены. Фото: {len(file_ids)}."
+
+        symbol = guess_symbol(caption)
+        entry_id = self.journal.create(
+            user_id=user_id,
+            symbol=symbol,
+            outcome="idea",
+            description=caption or "Фото без описания",
+            screenshot_file_id=joined_file_ids,
+        )
+        lines = [f"Сохранил как одну заметку дневника #{entry_id}. Фото: {len(file_ids)}."]
+        draft = parse_trade_caption(caption)
+        if draft:
+            price_text = "-"
+            try:
+                price = await self.market.get_price(draft["symbol"])
+                price_text = money(price)
+                draft["entry"] = draft.get("entry") or price
+            except Exception:
+                logger.info("Could not fetch current price for parsed photo note", exc_info=True)
+
+            lines.extend(
+                [
+                    "",
+                    "Я распознал возможный план сделки:",
+                    f"{draft['symbol']} {draft['side'].upper()}",
+                    f"Текущая цена: {price_text}",
+                    f"Вход: {money(draft['entry']) if draft.get('entry') else '-'}",
+                    f"Стоп: {money(draft['stop']) if draft.get('stop') else '-'}",
+                    f"Тейк: {money(draft['target']) if draft.get('target') else '-'}",
+                    "",
+                    "Чтобы внести в учет с PnL, отправь количество:",
+                    f"/trade {draft['symbol'].replace('USDT', '')} {draft['side']} {command_number(draft.get('entry'), 'ENTRY')} {command_number(draft.get('stop'), 'STOP')} {command_number(draft.get('target'), 'TARGET')} QTY 1",
+                ]
+            )
+        else:
+            lines.append("Для строгого учета сделки добавь qty через /trade или Mini App.")
+        return "\n".join(lines)
+
     async def _render_template_for_user(self, user_id: int, body: str, args: list[str]) -> str:
         raw_values = parse_key_values(args)
         values = base_values()
@@ -853,6 +1098,57 @@ class BotHandlers:
 
 def parse_float(value: str) -> float:
     return float(value.replace(",", "."))
+
+
+def guess_symbol(text: str) -> str:
+    value = text.lower()
+    if any(word in value for word in {"биткоин", "биток", "btc", "bitcoin"}):
+        return "BTCUSDT"
+    if any(word in value for word in {"эфир", "eth", "ethereum"}):
+        return "ETHUSDT"
+    if "sol" in value or "солана" in value:
+        return "SOLUSDT"
+    match = re.search(r"\b([a-zA-Z]{2,12})(?:usdt)?\b", text)
+    if match:
+        return normalize_symbol(match.group(1))
+    return ""
+
+
+def parse_trade_caption(text: str) -> dict[str, object] | None:
+    value = text.lower()
+    side = ""
+    if "лонг" in value or "long" in value:
+        side = "long"
+    if "шорт" in value or "short" in value:
+        side = "short"
+    symbol = guess_symbol(text)
+    stop = extract_price_after(value, ("стоп лосс", "стоплосс", "стоп", "sl"))
+    target = extract_price_after(value, ("тейк профит", "тейкпрофит", "тейкт профит", "тейк", "профит", "tp"))
+    entry = extract_price_after(value, ("вход", "entry", "открыл по", "цена входа"))
+    if not side or not symbol or (stop is None and target is None):
+        return None
+    return {"symbol": symbol, "side": side, "entry": entry, "stop": stop, "target": target}
+
+
+def extract_price_after(text: str, labels: tuple[str, ...]) -> float | None:
+    for label in labels:
+        pattern = rf"{re.escape(label)}[^\d]{{0,24}}(\d+(?:[,.]\d+)?)"
+        match = re.search(pattern, text)
+        if match:
+            try:
+                return parse_float(match.group(1))
+            except ValueError:
+                return None
+    return None
+
+
+def command_number(value: object, fallback: str) -> str:
+    if value in {None, ""}:
+        return fallback
+    try:
+        return f"{float(value):.10g}"
+    except (TypeError, ValueError):
+        return fallback
 
 
 def parse_optional_float(value: str) -> float | None:

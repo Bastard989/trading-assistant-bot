@@ -9,6 +9,9 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from trading_bot.db import Database
+from trading_bot.evaluator import review_trade
+from trading_bot.market import MarketClient, normalize_symbol
+from trading_bot.models import TradeDraft
 from trading_bot.repositories import (
     AlertRepository,
     DailyPlanRepository,
@@ -37,6 +40,7 @@ contexts = MarketContextRepository(db)
 watchlist = WatchlistRepository(db)
 daily_plans = DailyPlanRepository(db)
 templates = TemplateRepository(db)
+market = MarketClient(os.getenv("MARKET", "futures").strip().lower())
 
 app = FastAPI(title="Trading Assistant Mini App")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
@@ -84,6 +88,23 @@ def trades_api(user_id: int = Query(...), status: str | None = None) -> dict:
     return {"items": [row_to_dict(row) for row in trades.list_for_user(user_id, status=status, limit=100)]}
 
 
+@app.post("/api/trades/{trade_id}/close")
+def close_trade_api(
+    trade_id: int,
+    user_id: int = Query(...),
+    exit_price: float = Query(...),
+    fees: float = 0,
+    note: str = "",
+) -> dict:
+    row = trades.close(user_id, trade_id, exit_price, fees, note or "closed from mini app")
+    return {"ok": row is not None, "trade": row_to_dict(row) if row else None}
+
+
+@app.post("/api/trades/{trade_id}/cancel")
+def cancel_trade_api(trade_id: int, user_id: int = Query(...)) -> dict:
+    return {"ok": trades.cancel(user_id, trade_id)}
+
+
 @app.get("/api/contexts")
 def contexts_api(user_id: int = Query(...), symbol: str = "") -> dict:
     return {"items": [row_to_dict(row) for row in contexts.list_for_user(user_id, symbol=symbol, limit=100)]}
@@ -117,6 +138,65 @@ def risk_api(
 ) -> dict:
     calc = calculate_risk(symbol, side, entry, stop, account, risk_percent, target, leverage)
     return {"result": calc.__dict__}
+
+
+@app.get("/api/review")
+async def review_api(
+    user_id: int,
+    symbol: str,
+    side: str,
+    entry: float,
+    stop: float,
+    target: float | None = None,
+    account: float = 0,
+    risk_percent: float = 1,
+    leverage: float = 1,
+) -> dict:
+    calc = calculate_risk(symbol, side, entry, stop, account, risk_percent, target, leverage)
+    draft = TradeDraft(
+        symbol=normalize_symbol(symbol),
+        side=side.lower(),
+        entry_price=entry,
+        stop_price=stop,
+        target_price=target,
+        quantity=calc.quantity,
+        leverage=leverage,
+        risk_amount=calc.risk_amount,
+    )
+    sentiment = None
+    current_price = None
+    try:
+        sentiment = await market.get_sentiment(draft.symbol)
+    except Exception:
+        sentiment = None
+    try:
+        current_price = await market.get_price(draft.symbol)
+    except Exception:
+        current_price = None
+    defaults = users.get_defaults(user_id)
+    account_size = float(account or defaults["default_account_size"] or 0)
+    review = review_trade(
+        draft=draft,
+        contexts=contexts.latest_for_symbol(user_id, draft.symbol),
+        watchlist_symbols=watchlist.list_symbols(user_id),
+        daily_plan=daily_plans.latest(user_id),
+        account_size=account_size,
+        open_risk_total=trades.open_risk_total(user_id),
+        today_pnl=0,
+        sentiment=sentiment,
+        current_price=current_price,
+    )
+    return {
+        "review": {
+            "score": review.score,
+            "win_probability": review.win_probability,
+            "loss_probability": review.loss_probability,
+            "severity": review.severity,
+            "summary": review.summary,
+            "issues": [issue.__dict__ for issue in review.issues],
+            "distances": [distance.__dict__ for distance in review.distances],
+        }
+    }
 
 
 def row_to_dict(row) -> dict:

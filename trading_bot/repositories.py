@@ -61,6 +61,11 @@ class UserRepository:
                 (telegram_id,),
             ).fetchone()
 
+    def list_user_ids(self) -> list[int]:
+        with self.db.connect() as connection:
+            rows = connection.execute("SELECT telegram_id FROM users ORDER BY telegram_id").fetchall()
+        return [int(row["telegram_id"]) for row in rows]
+
 
 class AlertRepository:
     def __init__(self, db: Database) -> None:
@@ -251,6 +256,19 @@ class TradeRepository:
                     LIMIT ?
                     """,
                     params,
+                )
+            )
+
+    def open_all(self) -> list[sqlite3.Row]:
+        with self.db.connect() as connection:
+            return list(
+                connection.execute(
+                    """
+                    SELECT *
+                    FROM trades
+                    WHERE status = 'open'
+                    ORDER BY opened_at ASC
+                    """
                 )
             )
 

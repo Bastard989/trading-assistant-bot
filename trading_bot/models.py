@@ -49,3 +49,45 @@ class Sentiment:
     short_percent: float | None
     long_short_ratio: float | None
     source: str
+
+
+@dataclass(frozen=True)
+class TradeDraft:
+    symbol: str
+    side: str
+    entry_price: float
+    stop_price: float
+    target_price: float | None
+    quantity: float
+    leverage: float
+    risk_amount: float
+    setup: str = ""
+    tags: tuple[str, ...] = ()
+    note: str = ""
+
+
+@dataclass(frozen=True)
+class Distance:
+    label: str
+    price: float
+    distance_percent: float
+    direction: str
+
+
+@dataclass(frozen=True)
+class ReviewIssue:
+    severity: str
+    title: str
+    detail: str
+    penalty: float
+
+
+@dataclass(frozen=True)
+class TradeReview:
+    score: float
+    win_probability: float
+    loss_probability: float
+    severity: str
+    summary: str
+    issues: tuple[ReviewIssue, ...]
+    distances: tuple[Distance, ...]

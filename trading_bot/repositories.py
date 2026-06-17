@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import json
 import sqlite3
+from datetime import date
 
 from trading_bot.db import Database
+from trading_bot.models import TradeDraft, TradeReview
 
 
 class UserRepository:
@@ -148,6 +151,11 @@ class TradeRepository:
         target_price: float | None,
         quantity: float,
         leverage: float,
+        risk_amount: float = 0,
+        setup: str = "",
+        tags: tuple[str, ...] = (),
+        review_score: float | None = None,
+        ignored_warnings: bool = False,
         note: str = "",
     ) -> int:
         with self.db.connect() as connection:
@@ -155,9 +163,10 @@ class TradeRepository:
                 """
                 INSERT INTO trades (
                     user_id, symbol, side, entry_price, stop_price, target_price,
-                    quantity, leverage, note
+                    quantity, leverage, risk_amount, setup, tags, review_score,
+                    ignored_warnings, note
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     user_id,
@@ -168,6 +177,11 @@ class TradeRepository:
                     target_price,
                     quantity,
                     leverage,
+                    risk_amount,
+                    setup.strip(),
+                    ",".join(tags),
+                    review_score,
+                    1 if ignored_warnings else 0,
                     note.strip(),
                 ),
             )
@@ -278,6 +292,318 @@ class TradeRepository:
                     (user_id,),
                 )
             )
+
+    def open_risk_total(self, user_id: int) -> float:
+        with self.db.connect() as connection:
+            row = connection.execute(
+                """
+                SELECT COALESCE(SUM(risk_amount), 0) AS open_risk
+                FROM trades
+                WHERE user_id = ? AND status = 'open'
+                """,
+                (user_id,),
+            ).fetchone()
+        return float(row["open_risk"] or 0)
+
+    def closed_pnl_for_date(self, user_id: int, plan_date: date) -> float:
+        with self.db.connect() as connection:
+            row = connection.execute(
+                """
+                SELECT COALESCE(SUM(pnl), 0) AS pnl
+                FROM trades
+                WHERE user_id = ?
+                  AND status = 'closed'
+                  AND date(closed_at) = ?
+                """,
+                (user_id, plan_date.isoformat()),
+            ).fetchone()
+        return float(row["pnl"] or 0)
+
+
+class PendingTradeRepository:
+    def __init__(self, db: Database) -> None:
+        self.db = db
+
+    def create(self, user_id: int, draft: TradeDraft, review: TradeReview) -> int:
+        payload = {
+            "score": review.score,
+            "win_probability": review.win_probability,
+            "loss_probability": review.loss_probability,
+            "severity": review.severity,
+            "summary": review.summary,
+            "issues": [issue.__dict__ for issue in review.issues],
+            "distances": [distance.__dict__ for distance in review.distances],
+        }
+        with self.db.connect() as connection:
+            cursor = connection.execute(
+                """
+                INSERT INTO pending_trades (
+                    user_id, symbol, side, entry_price, stop_price, target_price,
+                    quantity, leverage, risk_amount, setup, tags, note,
+                    review_score, review_payload
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    user_id,
+                    draft.symbol,
+                    draft.side,
+                    draft.entry_price,
+                    draft.stop_price,
+                    draft.target_price,
+                    draft.quantity,
+                    draft.leverage,
+                    draft.risk_amount,
+                    draft.setup,
+                    ",".join(draft.tags),
+                    draft.note,
+                    review.score,
+                    json.dumps(payload, ensure_ascii=False),
+                ),
+            )
+            return int(cursor.lastrowid)
+
+    def get(self, user_id: int, pending_id: int) -> sqlite3.Row | None:
+        with self.db.connect() as connection:
+            return connection.execute(
+                "SELECT * FROM pending_trades WHERE id = ? AND user_id = ?",
+                (pending_id, user_id),
+            ).fetchone()
+
+    def delete(self, user_id: int, pending_id: int) -> None:
+        with self.db.connect() as connection:
+            connection.execute(
+                "DELETE FROM pending_trades WHERE id = ? AND user_id = ?",
+                (pending_id, user_id),
+            )
+
+
+class MarketContextRepository:
+    def __init__(self, db: Database) -> None:
+        self.db = db
+
+    def create(
+        self,
+        user_id: int,
+        symbol: str,
+        timeframe: str,
+        bias: str,
+        structure: str = "",
+        levels: tuple[float, ...] = (),
+        invalidation_level: float | None = None,
+        note: str = "",
+        screenshot_file_id: str = "",
+        confidence: float = 70,
+        expires_at: str | None = None,
+    ) -> int:
+        with self.db.connect() as connection:
+            cursor = connection.execute(
+                """
+                INSERT INTO market_contexts (
+                    user_id, symbol, timeframe, bias, structure, levels,
+                    invalidation_level, note, screenshot_file_id, confidence, expires_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    user_id,
+                    symbol.upper(),
+                    timeframe.upper(),
+                    bias,
+                    structure.strip(),
+                    ",".join(str(level) for level in levels),
+                    invalidation_level,
+                    note.strip(),
+                    screenshot_file_id,
+                    confidence,
+                    expires_at,
+                ),
+            )
+            return int(cursor.lastrowid)
+
+    def latest_for_symbol(self, user_id: int, symbol: str, limit: int = 8) -> list[sqlite3.Row]:
+        with self.db.connect() as connection:
+            return list(
+                connection.execute(
+                    """
+                    SELECT *
+                    FROM market_contexts
+                    WHERE user_id = ? AND symbol = ?
+                      AND (expires_at IS NULL OR datetime(expires_at) > datetime('now'))
+                    ORDER BY
+                        CASE timeframe
+                            WHEN '1D' THEN 1
+                            WHEN '4H' THEN 2
+                            WHEN '1H' THEN 3
+                            WHEN '15M' THEN 4
+                            WHEN '5M' THEN 5
+                            WHEN '1M' THEN 6
+                            ELSE 7
+                        END,
+                        created_at DESC
+                    LIMIT ?
+                    """,
+                    (user_id, symbol.upper(), limit),
+                )
+            )
+
+    def list_for_user(self, user_id: int, symbol: str = "", limit: int = 20) -> list[sqlite3.Row]:
+        symbol_filter = "AND symbol = ?" if symbol else ""
+        params: tuple[object, ...] = (user_id, symbol.upper(), limit) if symbol else (user_id, limit)
+        with self.db.connect() as connection:
+            return list(
+                connection.execute(
+                    f"""
+                    SELECT *
+                    FROM market_contexts
+                    WHERE user_id = ? {symbol_filter}
+                    ORDER BY created_at DESC
+                    LIMIT ?
+                    """,
+                    params,
+                )
+            )
+
+
+class WatchlistRepository:
+    def __init__(self, db: Database) -> None:
+        self.db = db
+
+    def replace(self, user_id: int, symbols: tuple[str, ...]) -> None:
+        with self.db.connect() as connection:
+            connection.execute("DELETE FROM watchlist WHERE user_id = ?", (user_id,))
+            for symbol in symbols:
+                connection.execute(
+                    """
+                    INSERT OR IGNORE INTO watchlist (user_id, symbol)
+                    VALUES (?, ?)
+                    """,
+                    (user_id, symbol.upper()),
+                )
+
+    def list_symbols(self, user_id: int) -> list[str]:
+        with self.db.connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT symbol
+                FROM watchlist
+                WHERE user_id = ?
+                ORDER BY priority ASC, symbol ASC
+                """,
+                (user_id,),
+            ).fetchall()
+        return [row["symbol"] for row in rows]
+
+    def contains(self, user_id: int, symbol: str) -> bool:
+        with self.db.connect() as connection:
+            row = connection.execute(
+                "SELECT 1 FROM watchlist WHERE user_id = ? AND symbol = ?",
+                (user_id, symbol.upper()),
+            ).fetchone()
+        return row is not None
+
+
+class DailyPlanRepository:
+    def __init__(self, db: Database) -> None:
+        self.db = db
+
+    def upsert(
+        self,
+        user_id: int,
+        plan_date: date,
+        allowed_symbols: tuple[str, ...],
+        max_daily_risk_percent: float,
+        max_daily_loss: float,
+        plan_text: str,
+    ) -> None:
+        with self.db.connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO daily_plans (
+                    user_id, plan_date, allowed_symbols, max_daily_risk_percent,
+                    max_daily_loss, plan_text
+                )
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(user_id, plan_date) DO UPDATE SET
+                    allowed_symbols = excluded.allowed_symbols,
+                    max_daily_risk_percent = excluded.max_daily_risk_percent,
+                    max_daily_loss = excluded.max_daily_loss,
+                    plan_text = excluded.plan_text
+                """,
+                (
+                    user_id,
+                    plan_date.isoformat(),
+                    ",".join(allowed_symbols),
+                    max_daily_risk_percent,
+                    max_daily_loss,
+                    plan_text.strip(),
+                ),
+            )
+
+    def get(self, user_id: int, plan_date: date) -> sqlite3.Row | None:
+        with self.db.connect() as connection:
+            return connection.execute(
+                """
+                SELECT *
+                FROM daily_plans
+                WHERE user_id = ? AND plan_date = ?
+                """,
+                (user_id, plan_date.isoformat()),
+            ).fetchone()
+
+    def latest(self, user_id: int) -> sqlite3.Row | None:
+        with self.db.connect() as connection:
+            return connection.execute(
+                """
+                SELECT *
+                FROM daily_plans
+                WHERE user_id = ?
+                ORDER BY plan_date DESC
+                LIMIT 1
+                """,
+                (user_id,),
+            ).fetchone()
+
+
+class TradeReviewRepository:
+    def __init__(self, db: Database) -> None:
+        self.db = db
+
+    def create(
+        self,
+        user_id: int,
+        symbol: str,
+        side: str,
+        review: TradeReview,
+        trade_id: int | None = None,
+    ) -> int:
+        payload = {
+            "issues": [issue.__dict__ for issue in review.issues],
+            "distances": [distance.__dict__ for distance in review.distances],
+        }
+        with self.db.connect() as connection:
+            cursor = connection.execute(
+                """
+                INSERT INTO trade_reviews (
+                    user_id, trade_id, symbol, side, score, win_probability,
+                    loss_probability, severity, summary, payload
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    user_id,
+                    trade_id,
+                    symbol.upper(),
+                    side,
+                    review.score,
+                    review.win_probability,
+                    review.loss_probability,
+                    review.severity,
+                    review.summary,
+                    json.dumps(payload, ensure_ascii=False),
+                ),
+            )
+            return int(cursor.lastrowid)
 
 
 class JournalRepository:

@@ -14,6 +14,9 @@ class Settings:
     market: str
     top_limit: int
     alert_poll_seconds: int
+    web_app_url: str
+    web_host: str
+    web_port: int
 
 
 def load_settings() -> Settings:
@@ -33,4 +36,7 @@ def load_settings() -> Settings:
         market=market,
         top_limit=int(os.getenv("TOP_LIMIT", "10")),
         alert_poll_seconds=int(os.getenv("ALERT_POLL_SECONDS", "30")),
+        web_app_url=os.getenv("WEB_APP_URL", "http://127.0.0.1:8080").strip(),
+        web_host=os.getenv("WEB_HOST", "127.0.0.1").strip(),
+        web_port=int(os.getenv("WEB_PORT", "8080")),
     )

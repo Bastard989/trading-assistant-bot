@@ -7,7 +7,17 @@ from telegram.ext import ApplicationBuilder
 from trading_bot.config import load_settings
 from trading_bot.db import Database
 from trading_bot.market import MarketClient
-from trading_bot.repositories import AlertRepository, JournalRepository, TradeRepository, UserRepository
+from trading_bot.repositories import (
+    AlertRepository,
+    DailyPlanRepository,
+    JournalRepository,
+    MarketContextRepository,
+    PendingTradeRepository,
+    TradeRepository,
+    TradeReviewRepository,
+    UserRepository,
+    WatchlistRepository,
+)
 from trading_bot.telegram_handlers import BotHandlers
 
 
@@ -23,6 +33,11 @@ def main() -> None:
     alerts = AlertRepository(db)
     trades = TradeRepository(db)
     journal = JournalRepository(db)
+    contexts = MarketContextRepository(db)
+    watchlist = WatchlistRepository(db)
+    daily_plans = DailyPlanRepository(db)
+    pending_trades = PendingTradeRepository(db)
+    trade_reviews = TradeReviewRepository(db)
     market = MarketClient(settings.market)
 
     application = ApplicationBuilder().token(settings.telegram_bot_token).build()
@@ -31,9 +46,15 @@ def main() -> None:
         alerts=alerts,
         trades=trades,
         journal=journal,
+        contexts=contexts,
+        watchlist=watchlist,
+        daily_plans=daily_plans,
+        pending_trades=pending_trades,
+        trade_reviews=trade_reviews,
         market=market,
         top_limit=settings.top_limit,
         alert_poll_seconds=settings.alert_poll_seconds,
+        web_app_url=settings.web_app_url,
     ).register(application)
 
     application.run_polling(allowed_updates=None)

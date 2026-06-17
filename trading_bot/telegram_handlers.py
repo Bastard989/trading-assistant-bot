@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import logging
+from datetime import date
 
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, WebAppInfo
 from telegram.ext import (
     Application,
     CallbackQueryHandler,
@@ -13,15 +14,29 @@ from telegram.ext import (
 )
 
 from trading_bot.formatting import (
+    format_distance,
     format_risk,
+    format_review,
     format_sentiment,
     format_ticker,
     format_trade,
     money,
     signed_money,
 )
+from trading_bot.evaluator import build_distances, percent_distance, review_trade
 from trading_bot.market import MarketClient, normalize_symbol
-from trading_bot.repositories import AlertRepository, JournalRepository, TradeRepository, UserRepository
+from trading_bot.models import TradeDraft
+from trading_bot.repositories import (
+    AlertRepository,
+    DailyPlanRepository,
+    JournalRepository,
+    MarketContextRepository,
+    PendingTradeRepository,
+    TradeRepository,
+    TradeReviewRepository,
+    UserRepository,
+    WatchlistRepository,
+)
 from trading_bot.risk import RiskInputError, calculate_risk
 
 logger = logging.getLogger(__name__)
@@ -37,17 +52,29 @@ class BotHandlers:
         alerts: AlertRepository,
         trades: TradeRepository,
         journal: JournalRepository,
+        contexts: MarketContextRepository,
+        watchlist: WatchlistRepository,
+        daily_plans: DailyPlanRepository,
+        pending_trades: PendingTradeRepository,
+        trade_reviews: TradeReviewRepository,
         market: MarketClient,
         top_limit: int,
         alert_poll_seconds: int,
+        web_app_url: str,
     ) -> None:
         self.users = users
         self.alerts = alerts
         self.trades = trades
         self.journal = journal
+        self.contexts = contexts
+        self.watchlist = watchlist
+        self.daily_plans = daily_plans
+        self.pending_trades = pending_trades
+        self.trade_reviews = trade_reviews
         self.market = market
         self.top_limit = top_limit
         self.alert_poll_seconds = alert_poll_seconds
+        self.web_app_url = web_app_url
 
     def register(self, application: Application) -> None:
         application.add_handler(CommandHandler("start", self.start))
@@ -57,6 +84,7 @@ class BotHandlers:
         application.add_handler(CommandHandler("price", self.price))
         application.add_handler(CommandHandler("top", self.top))
         application.add_handler(CommandHandler("sentiment", self.sentiment))
+        application.add_handler(CommandHandler("distance", self.distance))
         application.add_handler(CommandHandler("risk", self.risk))
         application.add_handler(CommandHandler("trade", self.trade))
         application.add_handler(CommandHandler("close", self.close_trade))
@@ -67,6 +95,11 @@ class BotHandlers:
         application.add_handler(CommandHandler("alerts", self.alerts_list))
         application.add_handler(CommandHandler("journal", self.journal_entry))
         application.add_handler(CommandHandler("entries", self.entries))
+        application.add_handler(CommandHandler("context", self.context_entry))
+        application.add_handler(CommandHandler("contexts", self.contexts_list))
+        application.add_handler(CommandHandler("watch", self.watch))
+        application.add_handler(CommandHandler("plan", self.plan))
+        application.add_handler(CommandHandler("miniapp", self.miniapp))
         application.add_handler(CallbackQueryHandler(self.on_callback))
         application.add_handler(MessageHandler(filters.PHOTO, self.on_photo))
         application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.on_text))
@@ -84,7 +117,8 @@ class BotHandlers:
         await update.message.reply_text(
             "Я твой торговый бот: считаю риск, веду сделки, дневник и ценовые алерты.\n\n"
             "Сначала задай размер депозита и риск: /defaults 1000 1\n"
-            "Потом можешь считать: /risk BTC long 65000 64000 68000 1000 1 5"
+            "Потом добавь контекст: /context BTC 1D long levels=64000,68000 structure=uptrend\n"
+            "И проверяй сделки через /trade."
         )
 
     async def help(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -94,16 +128,20 @@ class BotHandlers:
             "/price BTC - цена монеты\n"
             "/top - топ активных USDT-монет по ликвидности и волатильности\n"
             "/sentiment BTC - long/short настроение рынка\n"
+            "/distance BTC 64000 66000 - расстояние цены до уровней\n"
             "/risk BTC long entry stop target account risk% leverage - расчет позиции\n"
-            "/trade BTC long entry stop target qty leverage заметка - сохранить сделку\n"
+            "/trade BTC long entry stop target qty leverage заметка - review и сохранение сделки\n"
             "/close trade_id exit_price fees заметка - закрыть сделку\n"
             "/trades [open|closed] - список сделок\n"
             "/stats - статистика по сделкам и монетам\n"
             "/alert BTC >= 65000 - пуш при достижении цены\n"
             "/alerts - активные алерты\n"
             "/journal BTC win описание - запись в дневник\n"
-            "/entries [BTC] - последние записи дневника\n\n"
-            "Скриншот сделки можно отправить фото с caption: /journal BTC loss описание"
+            "/context BTC 1D long levels=64000,68000 - старший контекст\n"
+            "/watch BTC ETH SOL - watchlist на сегодня\n"
+            "/plan BTC,ETH,SOL 3 50 текст - план дня: монеты, риск %, дневной стоп USDT\n"
+            "/miniapp - открыть кабинет трейдера\n\n"
+            "Скрин можно отправить фото с caption: /journal BTC loss описание или /context BTC 4H long levels=64000"
         )
 
     async def profile(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -180,6 +218,26 @@ class BotHandlers:
             return
         await update.message.reply_text(format_sentiment(result))
 
+    async def distance(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        if len(context.args) < 2:
+            await update.message.reply_text("Формат: /distance BTC 64000 66000")
+            return
+        symbol = normalize_symbol(context.args[0])
+        try:
+            levels = [parse_float(arg) for arg in context.args[1:]]
+            current_price = await self.market.get_price(symbol)
+        except ValueError:
+            await update.message.reply_text("Уровни должны быть числами.")
+            return
+        except Exception:
+            logger.exception("Distance price request failed")
+            await update.message.reply_text("Не смог получить цену для расчета distance.")
+            return
+        distances = build_distances(current_price, {f"level {index}": level for index, level in enumerate(levels, 1)})
+        lines = [f"{symbol} price: {money(current_price)} USDT", "Distance от уровней:"]
+        lines.extend(format_distance(distance) for distance in distances)
+        await update.message.reply_text("\n".join(lines))
+
     async def risk(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         try:
             calc = self._parse_risk_args(update.effective_user.id, context.args)
@@ -192,45 +250,30 @@ class BotHandlers:
         await update.message.reply_text(format_risk(calc))
 
     async def trade(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        if len(context.args) < 6:
-            await update.message.reply_text("Формат: /trade BTC long 65000 64000 68000 0.01 5 заметка")
-            return
         try:
-            symbol = normalize_symbol(context.args[0])
-            side = context.args[1].lower()
-            entry = parse_float(context.args[2])
-            stop = parse_float(context.args[3])
-            target = parse_optional_float(context.args[4])
-            quantity = parse_float(context.args[5])
-            leverage = 1.0
-            note_start = 6
-            if len(context.args) > 6 and looks_number(context.args[6]):
-                leverage = parse_float(context.args[6])
-                note_start = 7
-            note = " ".join(context.args[note_start:])
-            validate_trade_input(side, entry, stop, quantity, leverage)
+            draft = self._parse_trade_args(context.args)
         except ValueError as exc:
-            await update.message.reply_text(f"Ошибка в параметрах сделки: {exc}")
+            await update.message.reply_text(f"Ошибка в параметрах сделки: {exc}\nФормат: /trade BTC long 65000 64000 68000 0.01 5 заметка")
             return
 
-        trade_id = self.trades.create(
-            update.effective_user.id,
-            symbol,
-            side,
-            entry,
-            stop,
-            target,
-            quantity,
-            leverage,
-            note,
-        )
-        risk_amount = abs(entry - stop) * quantity
-        target_text = "-" if target is None else money(target)
-        await update.message.reply_text(
-            f"Сделка #{trade_id} сохранена.\n"
-            f"{symbol} {side.upper()} entry {money(entry)} stop {money(stop)} target {target_text}\n"
-            f"Qty {money(quantity)} | risk at stop {money(risk_amount)} USDT"
-        )
+        review = await self._review_draft(update.effective_user.id, draft)
+        if review.severity in {"high", "block", "medium"}:
+            pending_id = self.pending_trades.create(update.effective_user.id, draft, review)
+            await update.message.reply_text(
+                format_review(review),
+                reply_markup=InlineKeyboardMarkup(
+                    [
+                        [InlineKeyboardButton("Игнорировать и внести", callback_data=f"ignore_trade:{pending_id}")],
+                        [InlineKeyboardButton("Сохранить как идею", callback_data=f"idea_trade:{pending_id}")],
+                        [InlineKeyboardButton("Отменить", callback_data=f"drop_trade:{pending_id}")],
+                    ]
+                ),
+            )
+            return
+
+        trade_id = self._save_trade(update.effective_user.id, draft, review_score=review.score)
+        self.trade_reviews.create(update.effective_user.id, draft.symbol, draft.side, review, trade_id=trade_id)
+        await update.message.reply_text(f"Сделка #{trade_id} сохранена.\n\n{format_review(review)}")
 
     async def close_trade(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if len(context.args) < 2:
@@ -340,11 +383,20 @@ class BotHandlers:
 
     async def on_photo(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         caption = update.message.caption or ""
+        file_id = update.message.photo[-1].file_id
+        if caption.startswith("/context"):
+            try:
+                context_id = self._create_context_from_args(update.effective_user.id, caption.split()[1:], screenshot_file_id=file_id)
+            except ValueError as exc:
+                await update.message.reply_text(f"{exc}\nCaption формат: /context BTC 4H long levels=64000,68000")
+                return
+            await update.message.reply_text(f"Контекст #{context_id} со скриншотом сохранен.")
+            return
+
         if not caption.startswith("/journal"):
             await update.message.reply_text("Фото получил. Чтобы сохранить в дневник, добавь caption: /journal BTC win описание")
             return
         args = caption.split()[1:]
-        file_id = update.message.photo[-1].file_id
         try:
             entry_id = self._create_journal_from_args(update.effective_user.id, args, screenshot_file_id=file_id)
         except ValueError as exc:
@@ -367,6 +419,77 @@ class BotHandlers:
             )
         await update.message.reply_text("\n\n".join(lines))
 
+    async def context_entry(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        try:
+            context_id = self._create_context_from_args(update.effective_user.id, context.args)
+        except ValueError as exc:
+            await update.message.reply_text(
+                f"{exc}\nФормат: /context BTC 1D long levels=64000,68000 structure=uptrend заметка"
+            )
+            return
+        await update.message.reply_text(f"Контекст #{context_id} сохранен.")
+
+    async def contexts_list(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        symbol = normalize_symbol(context.args[0]) if context.args else ""
+        rows = self.contexts.list_for_user(update.effective_user.id, symbol=symbol)
+        if not rows:
+            await update.message.reply_text("Контекста пока нет.")
+            return
+        lines = []
+        for row in rows:
+            shot = " + screenshot" if row["screenshot_file_id"] else ""
+            invalid = "" if row["invalidation_level"] is None else f" invalid {money(row['invalidation_level'])}"
+            lines.append(
+                f"#{row['id']} {row['symbol']} {row['timeframe']} {row['bias'].upper()}{shot}\n"
+                f"structure: {row['structure'] or '-'} | levels: {row['levels'] or '-'}{invalid}\n"
+                f"{row['note']}"
+            )
+        await update.message.reply_text("\n\n".join(lines))
+
+    async def watch(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        if not context.args:
+            symbols = self.watchlist.list_symbols(update.effective_user.id)
+            await update.message.reply_text("Watchlist: " + (", ".join(symbols) if symbols else "пусто"))
+            return
+        symbols = tuple(normalize_symbol(arg) for arg in context.args)
+        self.watchlist.replace(update.effective_user.id, symbols)
+        await update.message.reply_text("Watchlist обновлен: " + ", ".join(symbols))
+
+    async def plan(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        if len(context.args) < 3:
+            latest = self.daily_plans.latest(update.effective_user.id)
+            if latest:
+                await update.message.reply_text(
+                    f"Последний план {latest['plan_date']}:\n"
+                    f"Монеты: {latest['allowed_symbols'] or '-'}\n"
+                    f"Риск: {latest['max_daily_risk_percent']}% | стоп: {money(latest['max_daily_loss'])} USDT\n"
+                    f"{latest['plan_text']}"
+                )
+            else:
+                await update.message.reply_text("Формат: /plan BTC,ETH,SOL 3 50 торгую только от уровней")
+            return
+        try:
+            symbols = tuple(normalize_symbol(item) for item in context.args[0].replace(";", ",").split(",") if item)
+            max_risk = parse_float(context.args[1])
+            max_loss = parse_float(context.args[2])
+        except ValueError:
+            await update.message.reply_text("Риск и дневной стоп должны быть числами.")
+            return
+        text = " ".join(context.args[3:])
+        self.daily_plans.upsert(update.effective_user.id, date.today(), symbols, max_risk, max_loss, text)
+        await update.message.reply_text(
+            f"План на сегодня сохранен.\nМонеты: {', '.join(symbols)}\nРиск: {max_risk:.2f}% | стоп: {money(max_loss)} USDT"
+        )
+
+    async def miniapp(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        url = f"{self.web_app_url.rstrip('/')}/?user_id={update.effective_user.id}"
+        await update.message.reply_text(
+            "Открыть кабинет трейдера:",
+            reply_markup=InlineKeyboardMarkup(
+                [[InlineKeyboardButton("Mini App", web_app=WebAppInfo(url=url))]]
+            ),
+        )
+
     async def on_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         query = update.callback_query
         await query.answer()
@@ -374,6 +497,52 @@ class BotHandlers:
         if action == "cancel_alert":
             ok = self.alerts.cancel(update.effective_user.id, int(raw_id))
             await query.edit_message_text("Алерт отменен." if ok else "Не нашел активный алерт.")
+            return
+
+        if action in {"ignore_trade", "drop_trade", "idea_trade"}:
+            pending_id = int(raw_id)
+            row = self.pending_trades.get(update.effective_user.id, pending_id)
+            if not row:
+                await query.edit_message_text("Pending-сделка уже не найдена.")
+                return
+
+            if action == "drop_trade":
+                self.pending_trades.delete(update.effective_user.id, pending_id)
+                await query.edit_message_text("Сделку отменил. Хорошая пауза тоже позиция.")
+                return
+
+            if action == "idea_trade":
+                entry_id = self.journal.create(
+                    update.effective_user.id,
+                    symbol=row["symbol"],
+                    outcome="idea",
+                    description=f"Остановленная сделка {row['side'].upper()} entry {money(row['entry_price'])}: {row['note']}",
+                )
+                self.pending_trades.delete(update.effective_user.id, pending_id)
+                await query.edit_message_text(f"Сохранил как идею дневника #{entry_id}.")
+                return
+
+            draft = TradeDraft(
+                symbol=row["symbol"],
+                side=row["side"],
+                entry_price=row["entry_price"],
+                stop_price=row["stop_price"],
+                target_price=row["target_price"],
+                quantity=row["quantity"],
+                leverage=row["leverage"],
+                risk_amount=row["risk_amount"],
+                setup=row["setup"],
+                tags=tuple(tag for tag in row["tags"].split(",") if tag),
+                note=row["note"],
+            )
+            trade_id = self._save_trade(
+                update.effective_user.id,
+                draft,
+                review_score=row["review_score"],
+                ignored_warnings=True,
+            )
+            self.pending_trades.delete(update.effective_user.id, pending_id)
+            await query.edit_message_text(f"Сделка #{trade_id} внесена с пометкой ignored_warnings=1.")
 
     async def check_alerts(self, context: ContextTypes.DEFAULT_TYPE) -> None:
         rows = self.alerts.active()
@@ -401,6 +570,93 @@ class BotHandlers:
                 chat_id=row["user_id"],
                 text=f"Price alert #{row['id']}: {row['symbol']} {sign} {money(row['target_price'])}\nNow: {money(price)}",
             )
+
+    def _parse_trade_args(self, args: list[str]) -> TradeDraft:
+        if len(args) < 6:
+            raise ValueError("слишком мало аргументов")
+        symbol = normalize_symbol(args[0])
+        side = args[1].lower()
+        entry = parse_float(args[2])
+        stop = parse_float(args[3])
+        target = parse_optional_float(args[4])
+        quantity = parse_float(args[5])
+        leverage = 1.0
+        note_start = 6
+        if len(args) > 6 and looks_number(args[6]):
+            leverage = parse_float(args[6])
+            note_start = 7
+        note = " ".join(args[note_start:])
+        validate_trade_input(side, entry, stop, quantity, leverage)
+        tags = tuple(token[1:].lower() for token in args[note_start:] if token.startswith("#") and len(token) > 1)
+        setup = tags[0] if tags else ""
+        risk_amount = abs(entry - stop) * quantity
+        return TradeDraft(
+            symbol=symbol,
+            side=side,
+            entry_price=entry,
+            stop_price=stop,
+            target_price=target,
+            quantity=quantity,
+            leverage=leverage,
+            risk_amount=risk_amount,
+            setup=setup,
+            tags=tags,
+            note=note,
+        )
+
+    async def _review_draft(self, user_id: int, draft: TradeDraft):
+        defaults = self.users.get_defaults(user_id)
+        account_size = float(defaults["default_account_size"] or 0)
+        contexts = self.contexts.latest_for_symbol(user_id, draft.symbol)
+        watchlist_symbols = self.watchlist.list_symbols(user_id)
+        daily_plan = self.daily_plans.get(user_id, date.today())
+        open_risk_total = self.trades.open_risk_total(user_id)
+        today_pnl = self.trades.closed_pnl_for_date(user_id, date.today())
+        sentiment = None
+        current_price = None
+        try:
+            sentiment = await self.market.get_sentiment(draft.symbol)
+        except Exception:
+            logger.info("Sentiment unavailable for review", exc_info=True)
+        try:
+            current_price = await self.market.get_price(draft.symbol)
+        except Exception:
+            logger.info("Current price unavailable for review", exc_info=True)
+        return review_trade(
+            draft=draft,
+            contexts=contexts,
+            watchlist_symbols=watchlist_symbols,
+            daily_plan=daily_plan,
+            account_size=account_size,
+            open_risk_total=open_risk_total,
+            today_pnl=today_pnl,
+            sentiment=sentiment,
+            current_price=current_price,
+        )
+
+    def _save_trade(
+        self,
+        user_id: int,
+        draft: TradeDraft,
+        review_score: float | None = None,
+        ignored_warnings: bool = False,
+    ) -> int:
+        return self.trades.create(
+            user_id,
+            draft.symbol,
+            draft.side,
+            draft.entry_price,
+            draft.stop_price,
+            draft.target_price,
+            draft.quantity,
+            draft.leverage,
+            risk_amount=draft.risk_amount,
+            setup=draft.setup,
+            tags=draft.tags,
+            review_score=review_score,
+            ignored_warnings=ignored_warnings,
+            note=draft.note,
+        )
 
     def _parse_risk_args(self, user_id: int, args: list[str]):
         if len(args) < 5:
@@ -448,6 +704,56 @@ class BotHandlers:
             screenshot_file_id=screenshot_file_id,
         )
 
+    def _create_context_from_args(
+        self,
+        user_id: int,
+        args: list[str],
+        screenshot_file_id: str = "",
+    ) -> int:
+        if len(args) < 3:
+            raise ValueError("Нужно минимум: symbol timeframe bias.")
+        symbol = normalize_symbol(args[0])
+        timeframe = args[1].upper()
+        bias = args[2].lower()
+        if bias not in {"long", "short", "neutral"}:
+            raise ValueError("Bias должен быть long, short или neutral.")
+
+        structure = ""
+        levels: list[float] = []
+        invalidation = None
+        confidence = 70.0
+        note_parts: list[str] = []
+        for token in args[3:]:
+            if token.startswith("levels="):
+                levels.extend(parse_levels_token(token.removeprefix("levels=")))
+            elif token.startswith("level="):
+                levels.extend(parse_levels_token(token.removeprefix("level=")))
+            elif token.startswith("invalid="):
+                invalidation = parse_float(token.removeprefix("invalid="))
+            elif token.startswith("confidence="):
+                confidence = parse_float(token.removeprefix("confidence="))
+            elif token.startswith("structure="):
+                structure = token.removeprefix("structure=")
+            elif "," in token and all(looks_number(part) for part in token.split(",") if part):
+                levels.extend(parse_levels_token(token))
+            elif looks_number(token):
+                levels.append(parse_float(token))
+            else:
+                note_parts.append(token)
+
+        return self.contexts.create(
+            user_id=user_id,
+            symbol=symbol,
+            timeframe=timeframe,
+            bias=bias,
+            structure=structure,
+            levels=tuple(levels),
+            invalidation_level=invalidation,
+            note=" ".join(note_parts),
+            screenshot_file_id=screenshot_file_id,
+            confidence=confidence,
+        )
+
 
 def parse_float(value: str) -> float:
     return float(value.replace(",", "."))
@@ -457,6 +763,10 @@ def parse_optional_float(value: str) -> float | None:
     if value in {"-", "none", "None", "null"}:
         return None
     return parse_float(value)
+
+
+def parse_levels_token(value: str) -> list[float]:
+    return [parse_float(part) for part in value.replace(";", ",").split(",") if part]
 
 
 def looks_number(value: str) -> bool:

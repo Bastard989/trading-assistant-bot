@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import sqlite3
 
-from trading_bot.models import MarketTicker, RiskCalculation, Sentiment
+from trading_bot.models import Distance, MarketTicker, RiskCalculation, Sentiment, TradeReview
 
 
 def money(value: float | None) -> str:
@@ -67,5 +67,29 @@ def format_trade(row: sqlite3.Row) -> str:
     return (
         f"#{row['id']} {row['symbol']} {row['side'].upper()} {row['status']}\n"
         f"entry {money(row['entry_price'])} | stop {money(row['stop_price'])} | target {target}\n"
-        f"qty {money(row['quantity'])} | x{money(row['leverage'])}{pnl}"
+        f"qty {money(row['quantity'])} | risk {money(row['risk_amount'])} | x{money(row['leverage'])}{pnl}"
     )
+
+
+def format_distance(distance: Distance) -> str:
+    sign = "+" if distance.distance_percent > 0 else ""
+    return f"{distance.label}: {money(distance.price)} ({sign}{distance.distance_percent:.2f}%, {distance.direction})"
+
+
+def format_review(review: TradeReview) -> str:
+    lines = [
+        "Trade Review",
+        review.summary,
+        f"Likely success: {review.win_probability:.0f}%",
+        f"Likely failure: {review.loss_probability:.0f}%",
+        f"Severity: {review.severity.upper()}",
+    ]
+    if review.issues:
+        lines.append("\nПочему я торможу:")
+        for issue in review.issues[:8]:
+            lines.append(f"- {issue.severity.upper()}: {issue.title}. {issue.detail}")
+    if review.distances:
+        lines.append("\nDistance:")
+        for distance in review.distances[:8]:
+            lines.append(f"- {format_distance(distance)}")
+    return "\n".join(lines)

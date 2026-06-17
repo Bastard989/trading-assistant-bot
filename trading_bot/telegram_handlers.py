@@ -57,6 +57,7 @@ AWAITING_PROFILE = "awaiting_profile"
 OUTCOMES = {"win", "loss", "breakeven", "idea"}
 BOT_COMMANDS = [
     BotCommand("miniapp", "открыть кабинет трейдера"),
+    BotCommand("menu", "кнопки бота"),
     BotCommand("context", "сохранить скрин/план сделки"),
     BotCommand("journal", "запись в дневник"),
     BotCommand("trades", "список сделок"),
@@ -155,19 +156,14 @@ class BotHandlers:
             "1. Отправь скрин с подписью: /context биткоин 65936 лонг стоп 65614 тейк 66731 причина входа\n"
             "2. Я сохраню заметку, скрин и, если хватает данных, открою сделку в учете.\n"
             "3. Подробности, цены, топ монет и статистика — в /miniapp.\n\n"
-            "Перед учетом сделок лучше задать депозит и риск: /defaults 1000 1"
+            "Перед учетом сделок лучше задать депозит и риск: /defaults 1000 1",
+            reply_markup=self._main_markup(update.effective_user.id),
         )
 
     async def menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text(
-            "Главное действие:",
-            reply_markup=InlineKeyboardMarkup(
-                [
-                    [
-                        InlineKeyboardButton("Mini App", web_app=WebAppInfo(url=f"{self.web_app_url.rstrip('/')}/?user_id={update.effective_user.id}")),
-                    ]
-                ]
-            ),
+            "Кнопки бота:",
+            reply_markup=self._main_markup(update.effective_user.id),
         )
 
     async def help(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -613,6 +609,11 @@ class BotHandlers:
                 lines = ["Активные монеты сейчас:"]
                 lines.extend(format_ticker(ticker, index) for index, ticker in enumerate(tickers, 1))
                 await query.message.reply_text("\n".join(lines))
+            elif raw_id == "open_trades":
+                rows = self.trades.list_for_user(update.effective_user.id, status="open")
+                await query.message.reply_text(
+                    "\n\n".join(format_trade(row) for row in rows) if rows else "Открытых сделок нет."
+                )
             elif raw_id == "trades":
                 rows = self.trades.list_for_user(update.effective_user.id)
                 await query.message.reply_text("\n\n".join(format_trade(row) for row in rows) if rows else "Сделок пока нет.")
@@ -879,6 +880,15 @@ class BotHandlers:
             review_score=review_score,
             ignored_warnings=ignored_warnings,
             note=draft.note,
+        )
+
+    def _main_markup(self, user_id: int) -> InlineKeyboardMarkup:
+        url = f"{self.web_app_url.rstrip('/')}/?user_id={user_id}"
+        return InlineKeyboardMarkup(
+            [
+                [InlineKeyboardButton("Открытые сделки", callback_data="cmd:open_trades")],
+                [InlineKeyboardButton("Mini App", web_app=WebAppInfo(url=url))],
+            ]
         )
 
     def _miniapp_markup(self, user_id: int) -> InlineKeyboardMarkup:

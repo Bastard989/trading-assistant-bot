@@ -58,9 +58,9 @@ OUTCOMES = {"win", "loss", "breakeven", "idea"}
 BOT_COMMANDS = [
     BotCommand("miniapp", "открыть кабинет трейдера"),
     BotCommand("menu", "кнопки бота"),
-    BotCommand("context", "сохранить скрин/план сделки"),
-    BotCommand("journal", "запись в дневник"),
-    BotCommand("trades", "список сделок"),
+    BotCommand("open", "открыть сделку"),
+    BotCommand("note", "запись в дневник"),
+    BotCommand("trades", "открытые сделки"),
     BotCommand("close", "закрыть сделку"),
     BotCommand("stats", "статистика сделок"),
     BotCommand("help", "короткая инструкция"),
@@ -112,6 +112,7 @@ class BotHandlers:
         application.add_handler(CommandHandler("sentiment", self.sentiment))
         application.add_handler(CommandHandler("distance", self.distance))
         application.add_handler(CommandHandler("risk", self.risk))
+        application.add_handler(CommandHandler("open", self.open_trade_note))
         application.add_handler(CommandHandler("trade", self.trade))
         application.add_handler(CommandHandler("close", self.close_trade))
         application.add_handler(CommandHandler("canceltrade", self.cancel_trade))
@@ -120,6 +121,7 @@ class BotHandlers:
         application.add_handler(CommandHandler("alert", self.alert))
         application.add_handler(CommandHandler("alerts", self.alerts_list))
         application.add_handler(CommandHandler("journal", self.journal_entry))
+        application.add_handler(CommandHandler("note", self.note_entry))
         application.add_handler(CommandHandler("entries", self.entries))
         application.add_handler(CommandHandler("context", self.context_entry))
         application.add_handler(CommandHandler("contexts", self.contexts_list))
@@ -153,9 +155,10 @@ class BotHandlers:
         await update.message.reply_text(
             "Я фиксирую твои сделки и дневник.\n\n"
             "Как пользоваться:\n"
-            "1. Отправь скрин с подписью: /context биткоин 65936 лонг стоп 65614 тейк 66731 причина входа\n"
-            "2. Я сохраню заметку, скрин и, если хватает данных, открою сделку в учете.\n"
-            "3. Подробности, цены, топ монет и статистика — в /miniapp.\n\n"
+            "1. Открыть сделку: /open биткоин 65936 лонг стоп 65614 тейк 66731 причина входа\n"
+            "2. Запись в дневник: /note BTC идея/ошибка/наблюдение\n"
+            "3. Фото можно отправлять вместе с /open или /note — я сохраню их в дневнике.\n"
+            "4. Сделки закроются сами, когда цена Binance дойдет до стопа или тейка.\n\n"
             "Перед учетом сделок лучше задать депозит и риск: /defaults 1000 1",
             reply_markup=self._main_markup(update.effective_user.id),
         )
@@ -169,13 +172,13 @@ class BotHandlers:
     async def help(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text(
             "Бот — для фиксации сделок и дневника.\n\n"
-            "Скрин + план сделки:\n"
-            "/context биткоин 65936 лонг стоп 65614 тейк 66731 почему вошел\n\n"
-            "Дневник без сделки:\n"
-            "/journal BTC idea описание\n\n"
-            "Учет:\n"
-            "/trades — сделки\n"
-            "/close 12 66731 — закрыть сделку\n"
+            "Открыть сделку:\n"
+            "/open биткоин 65936 лонг стоп 65614 тейк 66731 причина входа\n\n"
+            "Запись в дневник:\n"
+            "/note BTC идея/ошибка/наблюдение\n\n"
+            "С фото: прикрепи скрин и сделай подпись /open ... или /note ...\n\n"
+            "/trades — открытые сделки\n"
+            "/close 12 66731 — закрыть вручную\n"
             "/stats — статистика\n"
             "/miniapp — цены, топ монет, контекст, таблицы"
         )
@@ -285,6 +288,14 @@ class BotHandlers:
             return
         await update.message.reply_text(format_risk(calc))
 
+    async def open_trade_note(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        note = update.message.text.partition(" ")[2].strip()
+        if not note:
+            await update.message.reply_text("Формат: /open биткоин 65936 лонг стоп 65614 тейк 66731 причина входа")
+            return
+        text = await self._handle_trade_note(update.effective_user.id, note, [])
+        await update.message.reply_text(text, reply_markup=self._main_markup(update.effective_user.id))
+
     async def trade(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         try:
             draft = self._parse_trade_args(context.args)
@@ -328,7 +339,7 @@ class BotHandlers:
             await update.message.reply_text("ID, exit_price и fees должны быть числами.")
             return
 
-        trade = self.trades.close(update.effective_user.id, trade_id, exit_price, fees, note)
+        trade = self.trades.close(update.effective_user.id, trade_id, exit_price, fees, note, close_reason="manual")
         if not trade:
             await update.message.reply_text("Не нашел открытую сделку с таким ID.")
             return
@@ -347,13 +358,15 @@ class BotHandlers:
         await update.message.reply_text("Сделку отменил." if ok else "Не нашел открытую сделку с таким ID.")
 
     async def trades_list(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        status = context.args[0].lower() if context.args else None
+        status = context.args[0].lower() if context.args else "open"
+        if status == "all":
+            status = None
         if status and status not in {"open", "closed", "cancelled"}:
-            await update.message.reply_text("Формат: /trades или /trades open|closed|cancelled")
+            await update.message.reply_text("Формат: /trades или /trades open|closed|cancelled|all")
             return
         rows = self.trades.list_for_user(update.effective_user.id, status=status)
         if not rows:
-            await update.message.reply_text("Сделок пока нет.")
+            await update.message.reply_text("Открытых сделок нет." if status == "open" else "Сделок пока нет.")
             return
         await update.message.reply_text("\n\n".join(format_trade(row) for row in rows))
 
@@ -416,6 +429,14 @@ class BotHandlers:
             await update.message.reply_text(f"{exc}\nФормат: /journal BTC win описание")
             return
         await update.message.reply_text(f"Запись дневника #{entry_id} сохранена.")
+
+    async def note_entry(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        note = update.message.text.partition(" ")[2].strip()
+        if not note:
+            await update.message.reply_text("Формат: /note BTC описание мысли, ошибки или итога")
+            return
+        entry_id = self._create_free_note(update.effective_user.id, note)
+        await update.message.reply_text(f"Запись дневника #{entry_id} сохранена.", reply_markup=self._main_markup(update.effective_user.id))
 
     async def on_photo(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         caption = update.message.caption or ""
@@ -711,17 +732,17 @@ class BotHandlers:
             close_price = None
             if trade["side"] == "long":
                 if price <= trade["stop_price"]:
-                    close_reason = "stop loss"
+                    close_reason = "stop_loss"
                     close_price = trade["stop_price"]
                 elif trade["target_price"] is not None and price >= trade["target_price"]:
-                    close_reason = "take profit"
+                    close_reason = "take_profit"
                     close_price = trade["target_price"]
             else:
                 if price >= trade["stop_price"]:
-                    close_reason = "stop loss"
+                    close_reason = "stop_loss"
                     close_price = trade["stop_price"]
                 elif trade["target_price"] is not None and price <= trade["target_price"]:
-                    close_reason = "take profit"
+                    close_reason = "take_profit"
                     close_price = trade["target_price"]
 
             if close_price is None:
@@ -731,6 +752,7 @@ class BotHandlers:
                 trade["id"],
                 close_price,
                 note=f"auto close by {close_reason}; market price {money(price)}",
+                close_reason=close_reason,
             )
             if not closed:
                 continue
@@ -739,7 +761,7 @@ class BotHandlers:
                 await context.bot.send_message(
                     chat_id=trade["user_id"],
                     text=(
-                        f"Сделка #{trade['id']} {trade['symbol']} закрылась по {close_reason}.\n"
+                        f"Сделка #{trade['id']} {trade['symbol']} {trade['side'].upper()} закрылась: {format_close_reason_ru(close_reason)}.\n"
                         f"Открыта: {trade['opened_at']}\n"
                         f"Выход: {money(close_price)}\n"
                         f"PnL: {signed_money(closed['pnl'])} USDT ({result})"
@@ -883,17 +905,21 @@ class BotHandlers:
         )
 
     def _main_markup(self, user_id: int) -> InlineKeyboardMarkup:
-        url = f"{self.web_app_url.rstrip('/')}/?user_id={user_id}"
         return InlineKeyboardMarkup(
             [
                 [InlineKeyboardButton("Открытые сделки", callback_data="cmd:open_trades")],
-                [InlineKeyboardButton("Mini App", web_app=WebAppInfo(url=url))],
+                [self._miniapp_button(user_id, "Mini App")],
             ]
         )
 
     def _miniapp_markup(self, user_id: int) -> InlineKeyboardMarkup:
+        return InlineKeyboardMarkup([[self._miniapp_button(user_id, "Открыть Mini App")]])
+
+    def _miniapp_button(self, user_id: int, text: str) -> InlineKeyboardButton:
         url = f"{self.web_app_url.rstrip('/')}/?user_id={user_id}"
-        return InlineKeyboardMarkup([[InlineKeyboardButton("Открыть Mini App", web_app=WebAppInfo(url=url))]])
+        if url.startswith("https://"):
+            return InlineKeyboardButton(text, web_app=WebAppInfo(url=url))
+        return InlineKeyboardButton(text, url=url)
 
     def _parse_risk_args(self, user_id: int, args: list[str]):
         if len(args) < 5:
@@ -938,6 +964,15 @@ class BotHandlers:
             symbol=symbol,
             outcome=outcome,
             description=description,
+            screenshot_file_id=screenshot_file_id,
+        )
+
+    def _create_free_note(self, user_id: int, note: str, screenshot_file_id: str = "") -> int:
+        return self.journal.create(
+            user_id=user_id,
+            symbol=guess_symbol(note),
+            outcome="idea",
+            description=note.strip() or "Заметка без описания",
             screenshot_file_id=screenshot_file_id,
         )
 
@@ -994,6 +1029,15 @@ class BotHandlers:
     async def _handle_photo_note(self, user_id: int, caption: str, file_ids: list[str]) -> str:
         joined_file_ids = ",".join(file_ids)
         caption = caption.strip()
+        if caption.startswith("/open"):
+            raw_note = caption.partition(" ")[2].strip() or "Фото без описания"
+            return await self._handle_trade_note(user_id, raw_note, file_ids)
+
+        if caption.startswith("/note"):
+            raw_note = caption.partition(" ")[2].strip() or "Фото без описания"
+            entry_id = self._create_free_note(user_id, raw_note, screenshot_file_id=joined_file_ids)
+            return f"Запись дневника #{entry_id} сохранена. Фото: {len(file_ids)}."
+
         if caption.startswith("/context"):
             raw_note = caption.partition(" ")[2].strip()
             if raw_note and not looks_strict_context_args(raw_note.split()):
@@ -1047,8 +1091,23 @@ class BotHandlers:
             account_size = float(defaults["default_account_size"] or 0)
             risk_percent = float(defaults["default_risk_percent"] or 1)
             leverage = float(draft.get("leverage") or 1)
-            if account_size > 0:
-                try:
+            quantity = draft.get("quantity")
+            try:
+                if quantity:
+                    quantity = float(quantity)
+                    validate_trade_input(str(draft["side"]), float(draft["entry"]), float(draft["stop"]), quantity, leverage)
+                    trade_draft = TradeDraft(
+                        symbol=normalize_symbol(str(draft["symbol"])),
+                        side=str(draft["side"]),
+                        entry_price=float(draft["entry"]),
+                        stop_price=float(draft["stop"]),
+                        target_price=float(draft["target"]) if draft.get("target") else None,
+                        quantity=quantity,
+                        leverage=leverage,
+                        risk_amount=abs(float(draft["entry"]) - float(draft["stop"])) * quantity,
+                        note=note,
+                    )
+                elif account_size > 0:
                     calc = calculate_risk(
                         str(draft["symbol"]),
                         str(draft["side"]),
@@ -1070,15 +1129,28 @@ class BotHandlers:
                         risk_amount=calc.risk_amount,
                         note=note,
                     )
-                    review = await self._review_draft(user_id, trade_draft)
-                    review_score = review.score
-                    trade_id = self._save_trade(user_id, trade_draft, review_score=review.score)
-                    self.trade_reviews.create(user_id, trade_draft.symbol, trade_draft.side, review, trade_id=trade_id)
-                except Exception:
-                    logger.info("Could not create trade from note", exc_info=True)
-                    warning = "Сделку не открыл: проверь вход/стоп/тейк."
-            else:
-                warning = "Сделку не открыл: сначала задай депозит /defaults 1000 1."
+                else:
+                    quantity = 1.0
+                    validate_trade_input(str(draft["side"]), float(draft["entry"]), float(draft["stop"]), quantity, leverage)
+                    trade_draft = TradeDraft(
+                        symbol=normalize_symbol(str(draft["symbol"])),
+                        side=str(draft["side"]),
+                        entry_price=float(draft["entry"]),
+                        stop_price=float(draft["stop"]),
+                        target_price=float(draft["target"]) if draft.get("target") else None,
+                        quantity=quantity,
+                        leverage=leverage,
+                        risk_amount=abs(float(draft["entry"]) - float(draft["stop"])) * quantity,
+                        note=note,
+                    )
+                    warning = "Qty не указан, открыл как отслеживаемую сделку с условным qty 1. Для точного PnL задай /defaults или напиши qty."
+                review = await self._review_draft(user_id, trade_draft)
+                review_score = review.score
+                trade_id = self._save_trade(user_id, trade_draft, review_score=review.score)
+                self.trade_reviews.create(user_id, trade_draft.symbol, trade_draft.side, review, trade_id=trade_id)
+            except Exception:
+                logger.info("Could not create trade from note", exc_info=True)
+                warning = "Сделку не открыл: проверь вход/стоп/тейк."
 
         levels = tuple(float(value) for value in (draft.get("entry"), draft.get("stop"), draft.get("target")) if value)
         try:
@@ -1189,11 +1261,20 @@ def parse_trade_caption(text: str) -> dict[str, object] | None:
     target = extract_price_after(value, ("тейк профит", "тейкпрофит", "тейкт профит", "тейк", "профит", "tp"))
     entry = extract_price_after(value, ("вход", "entry", "открыл по", "цена входа"))
     leverage = extract_price_after(value, ("плечо", "x", "leverage"))
+    quantity = extract_price_after(value, ("qty", "количество", "объем", "обьем", "размер позиции"))
     if entry is None:
         entry = extract_first_trade_price(value, stop, target)
     if not side or not symbol or (stop is None and target is None):
         return None
-    return {"symbol": symbol, "side": side, "entry": entry, "stop": stop, "target": target, "leverage": leverage or 1}
+    return {
+        "symbol": symbol,
+        "side": side,
+        "entry": entry,
+        "stop": stop,
+        "target": target,
+        "leverage": leverage or 1,
+        "quantity": quantity,
+    }
 
 
 def extract_price_after(text: str, labels: tuple[str, ...]) -> float | None:
@@ -1224,6 +1305,14 @@ def looks_strict_context_args(args: list[str]) -> bool:
     if len(args) < 3:
         return False
     return args[2].lower() in {"long", "short", "neutral"} and bool(re.search(r"\d", args[1]))
+
+
+def format_close_reason_ru(reason: str) -> str:
+    return {
+        "stop_loss": "стоп лосс",
+        "take_profit": "тейк профит",
+        "manual": "ручное закрытие",
+    }.get(reason, reason.replace("_", " "))
 
 
 def command_number(value: object, fallback: str) -> str:

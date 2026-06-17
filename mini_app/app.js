@@ -142,7 +142,7 @@ async function loadTemplates() {
 function renderTrades(targetId, rows) {
   document.getElementById(targetId).innerHTML = rows.map(row => `
     <div class="row">
-      <strong>#${row.id} ${row.symbol}<small>${row.side.toUpperCase()} ${row.status}</small></strong>
+      <strong>#${row.id} ${row.symbol}<small>${row.side.toUpperCase()} ${row.status}${row.close_reason ? ` · ${closeReasonText(row.close_reason)}` : ""}</small></strong>
       <span>Entry ${fmt(row.entry_price, 6)}<small>Stop ${fmt(row.stop_price, 6)}</small></span>
       <span>Target ${row.target_price ? fmt(row.target_price, 6) : "-"}</span>
       <span>Risk ${fmt(row.risk_amount)}<small>x${fmt(row.leverage, 1)}</small></span>
@@ -151,6 +151,14 @@ function renderTrades(targetId, rows) {
       </span>
     </div>
   `).join("") || emptyRow("Нет данных");
+}
+
+function closeReasonText(reason) {
+  return {
+    stop_loss: "стоп",
+    take_profit: "тейк",
+    manual: "вручную",
+  }[reason] || reason.replaceAll("_", " ");
 }
 
 function emptyRow(text) {

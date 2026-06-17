@@ -96,7 +96,7 @@ def close_trade_api(
     fees: float = 0,
     note: str = "",
 ) -> dict:
-    row = trades.close(user_id, trade_id, exit_price, fees, note or "closed from mini app")
+    row = trades.close(user_id, trade_id, exit_price, fees, note or "closed from mini app", close_reason="manual")
     return {"ok": row is not None, "trade": row_to_dict(row) if row else None}
 
 

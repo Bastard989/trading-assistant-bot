@@ -64,11 +64,22 @@ def format_sentiment(sentiment: Sentiment) -> str:
 def format_trade(row: sqlite3.Row) -> str:
     target = "-" if row["target_price"] is None else money(row["target_price"])
     pnl = "" if row["pnl"] is None else f" | PnL {signed_money(row['pnl'])} USDT"
+    reason = ""
+    if "close_reason" in row.keys() and row["close_reason"]:
+        reason = f" | {format_close_reason(row['close_reason'])}"
     return (
-        f"#{row['id']} {row['symbol']} {row['side'].upper()} {row['status']}\n"
+        f"#{row['id']} {row['symbol']} {row['side'].upper()} {row['status']}{reason}\n"
         f"entry {money(row['entry_price'])} | stop {money(row['stop_price'])} | target {target}\n"
         f"qty {money(row['quantity'])} | risk {money(row['risk_amount'])} | x{money(row['leverage'])}{pnl}"
     )
+
+
+def format_close_reason(reason: str) -> str:
+    return {
+        "stop_loss": "закрыто по стопу",
+        "take_profit": "закрыто по тейку",
+        "manual": "закрыто вручную",
+    }.get(reason, reason.replace("_", " "))
 
 
 def format_distance(distance: Distance) -> str:

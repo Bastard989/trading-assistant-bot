@@ -200,6 +200,7 @@ class TradeRepository:
         exit_price: float,
         fees: float = 0,
         note: str = "",
+        close_reason: str = "manual",
     ) -> sqlite3.Row | None:
         trade = self.get(user_id, trade_id)
         if not trade or trade["status"] != "open":
@@ -215,11 +216,12 @@ class TradeRepository:
                     exit_price = ?,
                     pnl = ?,
                     fees = ?,
+                    close_reason = ?,
                     note = trim(note || char(10) || ?),
                     closed_at = CURRENT_TIMESTAMP
                 WHERE id = ? AND user_id = ?
                 """,
-                (exit_price, pnl, fees, note.strip(), trade_id, user_id),
+                (exit_price, pnl, fees, close_reason.strip(), note.strip(), trade_id, user_id),
             )
         return self.get(user_id, trade_id)
 

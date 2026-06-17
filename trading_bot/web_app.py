@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import hashlib
 import os
 from pathlib import Path
 
+import httpx
 from dotenv import load_dotenv
-from fastapi import FastAPI, Query
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -30,6 +32,8 @@ load_dotenv()
 BASE_DIR = Path(__file__).resolve().parent.parent
 STATIC_DIR = BASE_DIR / "mini_app"
 DATABASE_PATH = Path(os.getenv("DATABASE_PATH", "data/trading_bot.sqlite3")).expanduser()
+MEDIA_CACHE_DIR = BASE_DIR / "data" / "media_cache"
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 
 db = Database(DATABASE_PATH)
 users = UserRepository(db)
@@ -149,6 +153,54 @@ async def prices_api(user_id: int = Query(...), symbols: str = "") -> dict:
             for ticker in tickers
         ]
     }
+
+
+@app.get("/api/market/top")
+async def market_top_api(limit: int = Query(30, ge=1, le=50)) -> dict:
+    tickers = await market.top_by_activity(limit)
+    return {
+        "items": [
+            {
+                "symbol": ticker.symbol,
+                "exchange": "Binance Futures" if market.market == "futures" else "Binance Spot",
+                "price": ticker.price,
+                "price_change_percent": ticker.price_change_percent,
+                "intraday_range_percent": ticker.intraday_range_percent,
+                "quote_volume": ticker.quote_volume,
+                "activity_score": ticker.activity_score,
+                "high_price": ticker.high_price,
+                "low_price": ticker.low_price,
+            }
+            for ticker in tickers
+        ]
+    }
+
+
+@app.get("/api/klines")
+async def klines_api(symbol: str, interval: str = "1m", limit: int = Query(80, ge=10, le=240)) -> dict:
+    allowed = {"1m", "5m", "15m", "1h", "4h", "1d"}
+    interval = interval if interval in allowed else "1m"
+    rows = await market.get_klines(symbol, interval, limit=limit)
+    return {"items": rows}
+
+
+@app.get("/api/media/{file_id:path}")
+async def media_api(file_id: str) -> FileResponse:
+    if not TELEGRAM_BOT_TOKEN:
+        raise HTTPException(status_code=503, detail="TELEGRAM_BOT_TOKEN is not configured")
+    MEDIA_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    digest = hashlib.sha256(file_id.encode("utf-8")).hexdigest()
+    target = MEDIA_CACHE_DIR / f"{digest}.jpg"
+    if not target.exists():
+        async with httpx.AsyncClient(timeout=30) as client:
+            meta = await client.get(f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/getFile", params={"file_id": file_id})
+            meta.raise_for_status()
+            payload = meta.json()
+            file_path = payload["result"]["file_path"]
+            data = await client.get(f"https://api.telegram.org/file/bot{TELEGRAM_BOT_TOKEN}/{file_path}")
+            data.raise_for_status()
+            target.write_bytes(data.content)
+    return FileResponse(target)
 
 
 @app.get("/api/risk")

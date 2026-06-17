@@ -25,10 +25,10 @@
       <nav class="tabs" aria-label="Разделы">
         <button class="tab active" data-view="dashboard">Пульт</button>
         <button class="tab" data-view="trades">Сделки</button>
-        <button class="tab" data-view="calculator">Калькулятор</button>
-        <button class="tab" data-view="context">Контекст</button>
+        <button class="tab" data-view="market">Монеты</button>
         <button class="tab" data-view="journal">Дневник</button>
-        <button class="tab" data-view="templates">Макеты</button>
+        <button class="tab" data-view="analytics">Аналитика</button>
+        <button class="tab" data-view="calculator">Калькулятор</button>
       </nav>
 
       <section id="dashboard" class="view active">
@@ -41,7 +41,15 @@
         <section class="band live-prices">
           <div class="section-head">
             <h2>Живые цены</h2>
-            <span id="priceStatus" class="live-status">ожидание</span>
+            <div class="head-actions">
+              <div class="timeframe-switch" aria-label="Таймфрейм графиков">
+                <button class="tf-btn" type="button" data-timeframe="1h">1H</button>
+                <button class="tf-btn" type="button" data-timeframe="15m">15M</button>
+                <button class="tf-btn" type="button" data-timeframe="5m">5M</button>
+                <button class="tf-btn active" type="button" data-timeframe="1m">1M</button>
+              </div>
+              <span id="priceStatus" class="live-status">ожидание</span>
+            </div>
           </div>
           <div id="priceTape" class="price-tape"></div>
         </section>
@@ -50,7 +58,10 @@
           <div id="watchlist" class="chips"></div>
         </section>
         <section class="band">
-          <h2>Открытые сделки</h2>
+          <div class="section-head">
+            <h2>Открытые сделки</h2>
+            <button id="openTradeBtn" class="primary-action compact" type="button">Открыть сделку</button>
+          </div>
           <div id="openTrades" class="table"></div>
         </section>
       </section>
@@ -83,18 +94,41 @@
         </section>
       </section>
 
-      <section id="context" class="view">
-        <div id="contextsList" class="table"></div>
+      <section id="market" class="view">
+        <section class="band">
+          <div class="section-head">
+            <h2>Лучшие монеты сейчас</h2>
+            <span id="marketStatus" class="live-status">ожидание</span>
+          </div>
+          <div id="marketTop" class="market-grid"></div>
+        </section>
       </section>
 
       <section id="journal" class="view">
+        <section class="band journal-filters">
+          <div class="section-head">
+            <h2>Дневник</h2>
+            <div class="timeframe-switch" aria-label="Таймфрейм графиков дневника">
+              <button class="tf-btn" type="button" data-timeframe="1h">1H</button>
+              <button class="tf-btn" type="button" data-timeframe="15m">15M</button>
+              <button class="tf-btn" type="button" data-timeframe="5m">5M</button>
+              <button class="tf-btn active" type="button" data-timeframe="1m">1M</button>
+            </div>
+          </div>
+          <div class="form-grid compact-grid">
+            <label>Монета<input id="journalSymbol" placeholder="BTC" /></label>
+            <label>Дата от<input id="journalFrom" type="date" /></label>
+            <label>Дата до<input id="journalTo" type="date" /></label>
+            <label>Поиск<input id="journalSearch" placeholder="уровень, ошибка, лонг..." /></label>
+          </div>
+        </section>
         <div id="journalList" class="table"></div>
       </section>
 
-      <section id="templates" class="view">
+      <section id="analytics" class="view">
         <section class="band">
-          <h2>Макеты заметок</h2>
-          <div id="templatesList" class="template-list"></div>
+          <h2>Визуализации</h2>
+          <div id="analyticsPanel" class="analytics-grid"></div>
         </section>
       </section>
     </main>

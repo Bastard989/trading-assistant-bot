@@ -125,6 +125,32 @@ def templates_api(user_id: int = Query(...)) -> dict:
     return {"items": templates.list_for_user(user_id)}
 
 
+@app.get("/api/prices")
+async def prices_api(user_id: int = Query(...), symbols: str = "") -> dict:
+    requested = {item.strip() for item in symbols.split(",") if item.strip()}
+    if not requested:
+        requested.update(watchlist.list_symbols(user_id))
+        requested.update(str(row["symbol"]) for row in trades.list_for_user(user_id, status="open", limit=100))
+    if not requested:
+        requested = {"BTCUSDT", "ETHUSDT", "SOLUSDT"}
+
+    tickers = await market.get_tickers(requested)
+    return {
+        "items": [
+            {
+                "symbol": ticker.symbol,
+                "price": ticker.price,
+                "price_change_percent": ticker.price_change_percent,
+                "intraday_range_percent": ticker.intraday_range_percent,
+                "high_price": ticker.high_price,
+                "low_price": ticker.low_price,
+                "quote_volume": ticker.quote_volume,
+            }
+            for ticker in tickers
+        ]
+    }
+
+
 @app.get("/api/risk")
 def risk_api(
     symbol: str,

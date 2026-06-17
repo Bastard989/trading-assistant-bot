@@ -37,6 +37,19 @@ class MarketClient:
         prices = {item["symbol"]: float(item["price"]) for item in data}
         return {symbol: prices[symbol] for symbol in normalized if symbol in prices}
 
+    async def get_tickers(self, symbols: set[str]) -> list[MarketTicker]:
+        normalized = {normalize_symbol(symbol) for symbol in symbols if symbol.strip()}
+        if not normalized:
+            return []
+        async with httpx.AsyncClient(base_url=self.base_url, timeout=20) as client:
+            response = await client.get(self.ticker_path)
+            response.raise_for_status()
+            data = response.json()
+
+        tickers = [parse_ticker(item) for item in data if item.get("symbol") in normalized]
+        tickers.sort(key=lambda ticker: ticker.symbol)
+        return tickers
+
     async def top_by_activity(self, limit: int = 10) -> list[MarketTicker]:
         async with httpx.AsyncClient(base_url=self.base_url, timeout=20) as client:
             response = await client.get(self.ticker_path)

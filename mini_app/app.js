@@ -5,6 +5,8 @@ window.Telegram?.WebApp?.ready();
 
 const fmt = (value, digits = 2) => Number(value || 0).toLocaleString("en-US", { maximumFractionDigits: digits });
 const signed = value => `${Number(value || 0) > 0 ? "+" : ""}${fmt(value)}`;
+const priceState = new Map();
+let priceTimer = null;
 
 document.querySelectorAll(".tab").forEach(button => {
   button.addEventListener("click", () => {
@@ -43,6 +45,51 @@ async function loadDashboard() {
   document.getElementById("watchlist").innerHTML = data.watchlist.map(symbol => `<span class="chip">${symbol}</span>`).join("") || "<span class='chip'>Пусто</span>";
   document.getElementById("planText").textContent = data.plan ? `${data.plan.allowed_symbols || "без монет"} | риск ${data.plan.max_daily_risk_percent}% | стоп ${fmt(data.plan.max_daily_loss)} USDT` : "План дня не задан";
   renderTrades("openTrades", data.open_trades);
+  await loadPrices(data.watchlist, data.open_trades);
+}
+
+async function loadPrices(watchlist = [], openTrades = []) {
+  const symbols = [...new Set([
+    ...watchlist,
+    ...openTrades.map(trade => trade.symbol),
+  ].filter(Boolean))];
+  const query = symbols.length ? `&symbols=${encodeURIComponent(symbols.join(","))}` : "";
+  const status = document.getElementById("priceStatus");
+  try {
+    const data = await api(`/api/prices?user_id=${userId}${query}`);
+    renderPrices(data.items);
+    const now = new Date();
+    status.textContent = `live ${now.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}`;
+    status.className = "live-status is-live";
+  } catch (error) {
+    status.textContent = "нет связи";
+    status.className = "live-status is-offline";
+  }
+}
+
+function renderPrices(items) {
+  const target = document.getElementById("priceTape");
+  target.innerHTML = items.map(item => {
+    const symbol = String(item.symbol || "").replace(/[^A-Z0-9]/g, "");
+    const previous = priceState.get(symbol);
+    const direction = previous == null ? "" : item.price > previous ? "tick-up" : item.price < previous ? "tick-down" : "";
+    priceState.set(symbol, item.price);
+    const changeClass = Number(item.price_change_percent) >= 0 ? "positive" : "negative";
+    return `
+      <button class="price-card ${direction}" type="button" onclick="fillSymbol('${symbol}')">
+        <span class="price-symbol">${symbol.replace("USDT", "")}<small>USDT</small></span>
+        <strong>${fmt(item.price, item.price > 10 ? 2 : 6)}</strong>
+        <span class="${changeClass}">${signed(item.price_change_percent)}% за 24ч</span>
+        <small>диапазон ${fmt(item.intraday_range_percent)}%</small>
+      </button>
+    `;
+  }).join("") || "<div class='price-card empty-price'>Добавь монеты в watchlist</div>";
+}
+
+function fillSymbol(symbol) {
+  const input = document.querySelector('#riskForm input[name="symbol"]');
+  input.value = symbol.replace("USDT", "");
+  calculateRisk();
 }
 
 async function loadTrades(status = "") {
@@ -175,3 +222,4 @@ async function cancelTrade(id) {
 }
 
 loadAll();
+priceTimer = setInterval(() => loadPrices(), 3000);

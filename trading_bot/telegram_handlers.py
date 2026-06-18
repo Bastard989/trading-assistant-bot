@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import re
+import socket
 from datetime import date, datetime
 
 from telegram import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, Update, WebAppInfo
@@ -931,6 +932,8 @@ class BotHandlers:
 
     def _miniapp_button(self, user_id: int, text: str) -> InlineKeyboardButton:
         url = f"{self.web_app_url.rstrip('/')}/?user_id={user_id}"
+        if re.match(r"http://(?:127\.0\.0\.1|localhost)(?=[:/])", url):
+            url = re.sub(r"http://(?:127\.0\.0\.1|localhost)", f"http://{local_lan_ip()}", url, count=1)
         if url.startswith("https://"):
             return InlineKeyboardButton(text, web_app=WebAppInfo(url=url))
         return InlineKeyboardButton(text, url=url)
@@ -1043,6 +1046,13 @@ class BotHandlers:
     async def _handle_photo_note(self, user_id: int, caption: str, file_ids: list[str]) -> str:
         joined_file_ids = ",".join(file_ids)
         caption = caption.strip()
+        if not caption:
+            return (
+                "Фото не сохранено: добавь подпись-команду и отправь его еще раз.\n\n"
+                "/note BTC описание — запись в дневник\n"
+                "/open SOL лонг вход 70 стоп 69 тейк 73 количество 1 — новая сделка\n"
+                "/edit 12 стоп 69.5 тейк 74 — добавить фото или изменить сделку"
+            )
         if caption.startswith("/edit"):
             return self._edit_trade_from_text(user_id, caption.partition(" ")[2].strip(), file_ids)
         if caption.startswith("/open"):
@@ -1289,6 +1299,17 @@ class BotHandlers:
 
 def parse_float(value: str) -> float:
     return float(value.replace(",", "."))
+
+
+def local_lan_ip() -> str:
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        sock.connect(("8.8.8.8", 80))
+        return str(sock.getsockname()[0])
+    except OSError:
+        return "127.0.0.1"
+    finally:
+        sock.close()
 
 
 def guess_symbol(text: str) -> str:

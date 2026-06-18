@@ -25,6 +25,7 @@
       <nav class="tabs" aria-label="Разделы">
         <button class="tab active" data-view="dashboard">Пульт</button>
         <button class="tab" data-view="trades">Сделки</button>
+        <button class="tab" data-view="sessions">Сессии</button>
         <button class="tab" data-view="market">Монеты</button>
         <button class="tab" data-view="journal">Дневник</button>
         <button class="tab" data-view="analytics">Аналитика</button>
@@ -75,21 +76,41 @@
         <div id="tradesTable" class="table"></div>
       </section>
 
+      <section id="sessions" class="view">
+        <section class="band">
+          <div class="section-head">
+            <div><h2>Торговые сессии</h2><p class="section-copy">Отдельный депозит, сделки и статистика для каждой попытки разгона.</p></div>
+            <span id="activeSessionBadge" class="live-status">нет активной</span>
+          </div>
+          <form id="sessionForm" class="form-grid session-form">
+            <label>Название<input name="name" placeholder="SOL: разгон 100 → 150" required /></label>
+            <label>Стартовый депозит<input name="start_balance" type="number" min="1" step="0.01" value="100" required /></label>
+            <label>Цель<input name="target_balance" type="number" min="1" step="0.01" value="150" /></label>
+            <button class="primary-action" type="submit">Начать сессию</button>
+          </form>
+        </section>
+        <div id="sessionList" class="session-list"></div>
+      </section>
+
       <section id="calculator" class="view">
         <form id="riskForm" class="form-grid">
           <label>Монета<input name="symbol" value="BTC" /></label>
           <label>Сторона<select name="side"><option>long</option><option>short</option></select></label>
+          <label>Рабочий таймфрейм<select name="timeframe"><option value="1m">1 мин</option><option value="5m" selected>5 мин</option><option value="15m">15 мин</option><option value="1h">1 час</option></select></label>
           <label>Депозит<input name="account" type="number" value="1000" /></label>
           <label>Риск %<input name="risk_percent" type="number" step="0.1" value="1" /></label>
           <label>Вход<input name="entry" type="number" step="0.0001" value="65000" /></label>
           <label>Стоп<input name="stop" type="number" step="0.0001" value="64000" /></label>
           <label>Тейк<input name="target" type="number" step="0.0001" value="68000" /></label>
-          <label>Плечо<input name="leverage" type="number" step="0.1" value="5" /></label>
+          <label>Плечо<input name="leverage" type="number" step="0.1" value="1" /></label>
         </form>
         <section class="band">
           <h2>Расчет</h2>
           <pre id="riskResult">Заполни форму</pre>
-          <button id="reviewBtn" class="primary-action" type="button">Проверить сделку</button>
+          <p class="section-copy">Плечо увеличивает размер позиции относительно залога. Риск задается стопом и количеством монет; плечо не должно увеличивать заранее выбранный риск.</p>
+          <button id="suggestBtn" class="primary-action" type="button">Предложить сценарий входа</button>
+          <pre id="suggestResult"></pre>
+          <button id="reviewBtn" class="primary-action" type="button">Разобрать по 1D / 1H / 15M / 5M</button>
           <pre id="reviewResult"></pre>
         </section>
       </section>

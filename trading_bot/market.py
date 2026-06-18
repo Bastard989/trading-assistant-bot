@@ -57,7 +57,13 @@ class MarketClient:
             data = response.json()
 
         tickers = [parse_ticker(item) for item in data if is_usdt_symbol(item.get("symbol", ""))]
-        tickers = [ticker for ticker in tickers if ticker.quote_volume > 0 and ticker.price > 0]
+        tickers = [
+            ticker for ticker in tickers
+            if ticker.quote_volume >= 100_000_000
+            and ticker.price > 0
+            and 1 <= ticker.intraday_range_percent <= 25
+            and abs(ticker.price_change_percent) <= 40
+        ]
         tickers.sort(key=lambda ticker: ticker.activity_score, reverse=True)
         return tickers[:limit]
 
@@ -106,7 +112,13 @@ class MarketClient:
 
 
 def normalize_symbol(symbol: str) -> str:
-    symbol = symbol.strip().upper().replace("/", "").replace("-", "")
+    value = symbol.strip().lower()
+    aliases = {
+        "биткоин": "BTC", "биток": "BTC", "биточек": "BTC", "bitcoin": "BTC",
+        "эфир": "ETH", "эфириум": "ETH", "эфирка": "ETH", "ethereum": "ETH",
+        "солана": "SOL", "солянка": "SOL", "солик": "SOL", "соль": "SOL",
+    }
+    symbol = aliases.get(value, value).upper().replace("/", "").replace("-", "")
     if symbol and not symbol.endswith("USDT"):
         symbol = f"{symbol}USDT"
     return symbol

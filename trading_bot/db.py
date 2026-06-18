@@ -17,6 +17,19 @@ CREATE TABLE IF NOT EXISTS users (
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS trading_sessions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    name TEXT NOT NULL,
+    start_balance REAL NOT NULL,
+    target_balance REAL,
+    status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active', 'archived')),
+    note TEXT NOT NULL DEFAULT '',
+    started_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    archived_at TEXT,
+    FOREIGN KEY(user_id) REFERENCES users(telegram_id)
+);
+
 CREATE TABLE IF NOT EXISTS alerts (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL,
@@ -158,6 +171,20 @@ CREATE TABLE IF NOT EXISTS note_templates (
     UNIQUE(user_id, name),
     FOREIGN KEY(user_id) REFERENCES users(telegram_id)
 );
+
+CREATE TABLE IF NOT EXISTS trade_candles (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    trade_id INTEGER NOT NULL,
+    open_time INTEGER NOT NULL,
+    open REAL NOT NULL,
+    high REAL NOT NULL,
+    low REAL NOT NULL,
+    close REAL NOT NULL,
+    volume REAL NOT NULL DEFAULT 0,
+    interval TEXT NOT NULL DEFAULT '1m',
+    UNIQUE(trade_id, open_time, interval),
+    FOREIGN KEY(trade_id) REFERENCES trades(id)
+);
 """
 
 
@@ -186,6 +213,9 @@ class Database:
             self._add_column(connection, "trades", "review_score", "REAL")
             self._add_column(connection, "trades", "ignored_warnings", "INTEGER NOT NULL DEFAULT 0")
             self._add_column(connection, "trades", "close_reason", "TEXT NOT NULL DEFAULT ''")
+            self._add_column(connection, "trades", "session_id", "INTEGER")
+            self._add_column(connection, "trades", "timeframe", "TEXT NOT NULL DEFAULT '5m'")
+            self._add_column(connection, "journal_entries", "session_id", "INTEGER")
 
     def _add_column(self, connection: sqlite3.Connection, table: str, column: str, definition: str) -> None:
         columns = {row[1] for row in connection.execute(f"PRAGMA table_info({table})")}

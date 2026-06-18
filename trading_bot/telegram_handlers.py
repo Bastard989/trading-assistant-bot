@@ -155,7 +155,7 @@ class BotHandlers:
         await update.message.reply_text(
             "Я фиксирую твои сделки и дневник.\n\n"
             "Как пользоваться:\n"
-            "1. Открыть сделку: /open биткоин 65936 лонг стоп 65614 тейк 66731 причина входа\n"
+            "1. Открыть сделку: /open солянка 70.9 лонг количество 1.4 стоп 69.8 тейк 73 причина входа\n"
             "2. Запись в дневник: /note BTC идея/ошибка/наблюдение\n"
             "3. Фото можно отправлять вместе с /open или /note — я сохраню их в дневнике.\n"
             "4. Сделки закроются сами, когда цена Binance дойдет до стопа или тейка.\n\n"
@@ -173,7 +173,7 @@ class BotHandlers:
         await update.message.reply_text(
             "Бот — для фиксации сделок и дневника.\n\n"
             "Открыть сделку:\n"
-            "/open биткоин 65936 лонг стоп 65614 тейк 66731 причина входа\n\n"
+            "/open солана 70.9 лонг количество 1.4 стоп 69.8 тейк 73 причина входа\n\n"
             "Запись в дневник:\n"
             "/note BTC идея/ошибка/наблюдение\n\n"
             "С фото: прикрепи скрин и сделай подпись /open ... или /note ...\n\n"
@@ -705,6 +705,13 @@ class BotHandlers:
             logger.exception("Alert price check failed")
             return
 
+        for trade in open_trades:
+            try:
+                candles = await self.market.get_klines(trade["symbol"], "1m", limit=3)
+                self.trades.save_candles(int(trade["id"]), candles, "1m")
+            except Exception:
+                logger.info("Could not snapshot candles for trade %s", trade["id"], exc_info=True)
+
         for row in rows:
             price = prices.get(row["symbol"])
             if price is None:
@@ -1093,6 +1100,9 @@ class BotHandlers:
             leverage = float(draft.get("leverage") or 1)
             quantity = draft.get("quantity")
             try:
+                stop_distance_percent = abs(float(draft["entry"]) - float(draft["stop"])) / float(draft["entry"]) * 100
+                if stop_distance_percent > 20:
+                    raise ValueError(f"Стоп находится слишком далеко: {stop_distance_percent:.1f}% от входа. Похоже на опечатку")
                 if quantity:
                     quantity = float(quantity)
                     validate_trade_input(str(draft["side"]), float(draft["entry"]), float(draft["stop"]), quantity, leverage)
@@ -1148,6 +1158,9 @@ class BotHandlers:
                 review_score = review.score
                 trade_id = self._save_trade(user_id, trade_draft, review_score=review.score)
                 self.trade_reviews.create(user_id, trade_draft.symbol, trade_draft.side, review, trade_id=trade_id)
+            except ValueError as exc:
+                logger.info("Rejected trade note: %s", exc)
+                warning = f"Сделку не открыл: {exc}."
             except Exception:
                 logger.info("Could not create trade from note", exc_info=True)
                 warning = "Сделку не открыл: проверь вход/стоп/тейк."

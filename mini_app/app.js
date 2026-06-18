@@ -9,6 +9,8 @@ const priceState = new Map();
 const candleCache = new Map();
 const candleUpdatedAt = new Map();
 const expandedTrades = new Set();
+const chartAnimations = new Map();
+const expandedMarkets = new Set();
 const chartIntervals = ["1h", "15m", "5m", "1m"];
 let chartInterval = "1m";
 let currentOpenTrades = [];
@@ -17,6 +19,7 @@ let currentJournal = [];
 let currentPriceItems = [];
 let priceTimer = null;
 let marketTimer = null;
+let currentSessions = [];
 
 document.querySelectorAll(".tab").forEach(button => {
   button.addEventListener("click", async () => {
@@ -25,6 +28,7 @@ document.querySelectorAll(".tab").forEach(button => {
     button.classList.add("active");
     document.getElementById(button.dataset.view).classList.add("active");
     if (button.dataset.view === "market") await loadMarketTop();
+    if (button.dataset.view === "sessions") await loadSessions();
     if (button.dataset.view === "analytics") renderAnalytics();
   });
 });
@@ -50,7 +54,9 @@ document.querySelectorAll(".tf-btn").forEach(button => {
 document.getElementById("refreshBtn").addEventListener("click", loadAll);
 document.getElementById("riskForm").addEventListener("input", calculateRisk);
 document.getElementById("reviewBtn").addEventListener("click", reviewTrade);
+document.getElementById("suggestBtn").addEventListener("click", suggestTrade);
 document.getElementById("openTradeBtn").addEventListener("click", () => switchView("calculator"));
+document.getElementById("sessionForm").addEventListener("submit", createSession);
 ["journalSymbol", "journalFrom", "journalTo", "journalSearch"].forEach(id => {
   document.getElementById(id).addEventListener("input", renderJournal);
 });
@@ -76,6 +82,7 @@ async function loadDashboard() {
   document.getElementById("alertCount").textContent = data.active_alerts.length;
   document.getElementById("watchlist").innerHTML = data.watchlist.map(symbol => `<button class="chip favorite-chip" onclick="fillSymbol('${symbol}')">★ ${symbol}</button>`).join("") || "<span class='chip'>Пусто</span>";
   document.getElementById("planText").textContent = data.plan ? `${data.plan.allowed_symbols || "без монет"} | риск ${data.plan.max_daily_risk_percent}% | стоп ${fmt(data.plan.max_daily_loss)} USDT` : "План дня не задан";
+  document.querySelector(".eyebrow").textContent = `Кабинет трейдера · ${data.session?.name || "без активной сессии"}`;
   renderTrades("openTrades", currentOpenTrades, true);
   await loadPrices(data.watchlist, data.open_trades);
 }
@@ -143,18 +150,39 @@ async function loadMarketTop() {
     const data = await api("/api/market/top?limit=30");
     status.textContent = "live";
     status.className = "live-status is-live";
-    document.getElementById("marketTop").innerHTML = data.items.map((item, index) => `
-      <button class="market-card" onclick="fillSymbol('${cleanSymbol(item.symbol)}')">
+    document.getElementById("marketTop").innerHTML = data.items.map((item, index) => {
+      const position = ((item.price - item.low_price) / Math.max(item.high_price - item.low_price, 0.000001)) * 100;
+      const direction = item.price_change_percent > 1 ? "бычий импульс" : item.price_change_percent < -1 ? "медвежий импульс" : "нейтрально";
+      const marketSymbol = cleanSymbol(item.symbol);
+      return `<article class="market-card ${expandedMarkets.has(marketSymbol) ? "expanded" : ""}" onclick="toggleMarketCard(this, '${marketSymbol}')">
         <strong>${index + 1}. ${cleanSymbol(item.symbol)}</strong>
         <span>${item.exchange}</span>
         <b>${fmt(item.price, item.price > 10 ? 2 : 6)}</b>
         <small class="${item.price_change_percent >= 0 ? "positive" : "negative"}">${signed(item.price_change_percent)}% 24ч</small>
         <small>волат. ${fmt(item.intraday_range_percent)}% · ликв. ${fmt(item.quote_volume / 1000000, 0)}M</small>
-      </button>
-    `).join("");
+        <div class="market-detail">
+          <span class="direction-pill ${item.price_change_percent >= 0 ? "positive" : "negative"}">${direction}</span>
+          <div class="range-meter"><i style="width:${Math.max(0, Math.min(100, position))}%"></i></div>
+          <small>Цена на ${fmt(position, 0)}% суточного диапазона</small>
+          <canvas id="market-chart-${cleanSymbol(item.symbol)}" class="mini-trend-chart" width="360" height="118"></canvas>
+          <em id="market-trend-${cleanSymbol(item.symbol)}" class="trend-caption">Нажми для графика</em>
+          <button class="mini-action" onclick="event.stopPropagation(); fillSymbol('${cleanSymbol(item.symbol)}'); switchView('calculator')">Разобрать вход</button>
+        </div>
+      </article>`;
+    }).join("");
   } catch (error) {
     status.textContent = "нет связи";
     status.className = "live-status is-offline";
+  }
+}
+
+function toggleMarketCard(card, symbol) {
+  card.classList.toggle("expanded");
+  if (card.classList.contains("expanded")) {
+    expandedMarkets.add(symbol);
+    loadMiniTrend(symbol, `market-chart-${symbol}`, `market-trend-${symbol}`);
+  } else {
+    expandedMarkets.delete(symbol);
   }
 }
 
@@ -190,6 +218,8 @@ function renderTradeCard(row, compact) {
         <span>До тейка <b>${row.target_price ? distanceTo(row.target_price, markPrice) : "-"}</b></span>
         <span>R/R <b>${rrText(row)}</b></span>
         <span>Таймфрейм <b>${chartIntervalLabel()}</b></span>
+        <span>Количество <b>${fmt(row.quantity, 8)} ${symbol.replace("USDT", "")}</b></span>
+        <span>Теги <b>${escapeHtml(row.tags || `coin:${symbol.replace("USDT", "")}`)}</b></span>
       </div>
     </div>
   `;
@@ -228,14 +258,27 @@ async function loadTradeChart(row, force = false) {
     const cacheKey = candlesKey(symbol);
     const stale = Date.now() - (candleUpdatedAt.get(cacheKey) || 0) > 10000;
     if (force || stale || !candleCache.has(cacheKey)) {
-      const data = await api(`/api/klines?symbol=${symbol}&interval=${chartInterval}&limit=80`);
+      const data = await api(`/api/trades/${row.id}/chart?user_id=${userId}&interval=${chartInterval}`);
       candleCache.set(cacheKey, data.items);
       candleUpdatedAt.set(cacheKey, Date.now());
     }
-    drawTradeChart(canvas, candleCache.get(cacheKey), row);
+    if (row.status === "closed" && candleCache.get(cacheKey)?.length > 2) animateTradeChart(canvas, candleCache.get(cacheKey), row);
+    else drawTradeChart(canvas, candleCache.get(cacheKey), row);
   } catch {
     drawTradeChart(canvas, [], row);
   }
+}
+
+function animateTradeChart(canvas, candles, row) {
+  clearInterval(chartAnimations.get(row.id));
+  let count = 2;
+  const step = Math.max(1, Math.ceil(candles.length / 45));
+  const timer = setInterval(() => {
+    count += step;
+    if (count >= candles.length) count = 2;
+    drawTradeChart(canvas, candles.slice(0, count), row);
+  }, 90);
+  chartAnimations.set(row.id, timer);
 }
 
 async function loadMiniTrend(symbol, canvasId, captionId) {
@@ -278,8 +321,9 @@ function drawTradeChart(canvas, candles, row) {
   ctx.strokeStyle = "rgba(67, 215, 255, .8)";
   ctx.lineWidth = 2;
   ctx.beginPath();
+  const plotEnd = w * 0.76;
   prices.forEach((price, index) => {
-    const x = 10 + index * ((w - 20) / Math.max(prices.length - 1, 1));
+    const x = 10 + index * ((plotEnd - 10) / Math.max(prices.length - 1, 1));
     if (index === 0) ctx.moveTo(x, y(price));
     else ctx.lineTo(x, y(price));
   });
@@ -330,8 +374,9 @@ function drawMiniTrend(canvas, candles) {
   ctx.strokeStyle = color;
   ctx.lineWidth = 2.4;
   ctx.beginPath();
+  const plotEnd = w * 0.74;
   prices.forEach((price, index) => {
-    const x = 9 + index * ((w - 18) / Math.max(prices.length - 1, 1));
+    const x = 9 + index * ((plotEnd - 9) / Math.max(prices.length - 1, 1));
     if (index === 0) ctx.moveTo(x, y(price));
     else ctx.lineTo(x, y(price));
   });
@@ -345,7 +390,7 @@ function drawMiniTrend(canvas, candles) {
   ctx.fill();
   ctx.fillStyle = color;
   ctx.beginPath();
-  ctx.arc(w - 9, endY, 4, 0, Math.PI * 2);
+  ctx.arc(plotEnd, endY, 4, 0, Math.PI * 2);
   ctx.fill();
   ctx.font = "11px system-ui";
   ctx.fillText(chartIntervalLabel(), 9, 15);
@@ -395,6 +440,7 @@ function renderJournal() {
       <div>
         <strong>${row.symbol || "-"}<small>${row.outcome} · ${row.created_at}</small></strong>
         <p>${row.description || "-"}</p>
+        <div class="chips"><small class="chip">coin:${cleanSymbol(row.symbol).replace("USDT", "")}</small>${row.session_id ? `<small class="chip">session:${escapeHtml(sessionName(row.session_id))}</small>` : ""}</div>
         <small>${row.theory || ""}</small>
       </div>
       <div class="journal-visuals">
@@ -414,6 +460,58 @@ function mediaImages(value) {
   return String(value || "").split(",").filter(Boolean).map(fileId => `
     <img class="journal-shot" src="/api/media/${encodeURIComponent(fileId)}" alt="Скрин сделки" loading="lazy" />
   `).join("");
+}
+
+async function loadSessions() {
+  const data = await api(`/api/sessions?user_id=${userId}`);
+  currentSessions = data.items || [];
+  const active = currentSessions.find(item => item.status === "active");
+  const badge = document.getElementById("activeSessionBadge");
+  badge.textContent = active ? `active · ${active.name}` : "нет активной";
+  badge.className = `live-status ${active ? "is-live" : "is-offline"}`;
+  document.getElementById("sessionList").innerHTML = currentSessions.map(item => {
+    const pnl = Number(item.realized_pnl || 0);
+    const balance = Number(item.start_balance) + pnl;
+    const progress = item.target_balance ? ((balance - item.start_balance) / Math.max(item.target_balance - item.start_balance, 0.000001)) * 100 : 0;
+    const closed = Number(item.closed_count || 0);
+    const winrate = closed ? Number(item.wins || 0) / closed * 100 : 0;
+    return `<article class="session-card ${item.status}">
+      <div><span class="session-status">${item.status === "active" ? "АКТИВНА" : "АРХИВ"}</span><h3>${escapeHtml(item.name)}</h3><small>${item.started_at}</small></div>
+      <div class="session-money"><span>Старт <b>${fmt(item.start_balance)} USDT</b></span><span>Баланс <b class="${pnl >= 0 ? "positive" : "negative"}">${fmt(balance)} USDT</b></span><span>PnL <b class="${pnl >= 0 ? "positive" : "negative"}">${signed(pnl)} USDT</b></span></div>
+      <div class="session-progress"><i style="width:${Math.max(0, Math.min(100, progress))}%"></i></div>
+      <div class="session-meta"><span>${item.trade_count || 0} сделок</span><span>Winrate ${fmt(winrate)}%</span><span>Цель ${item.target_balance ? fmt(item.target_balance) : "-"}</span></div>
+      <div class="session-actions">${item.status === "active" ? `<button class="mini-action" onclick="archiveSession(${item.id})">В архив</button>` : `<button class="mini-action" onclick="activateSession(${item.id})">Продолжить</button>`}</div>
+    </article>`;
+  }).join("") || emptyRow("Создай первую торговую сессию");
+}
+
+async function createSession(event) {
+  event.preventDefault();
+  const form = new FormData(event.currentTarget);
+  const query = new URLSearchParams({ user_id: userId, name: form.get("name"), start_balance: form.get("start_balance") });
+  if (form.get("target_balance")) query.set("target_balance", form.get("target_balance"));
+  const response = await fetch(`/api/sessions?${query}`, { method: "POST" });
+  if (!response.ok) return alert("Не удалось создать сессию");
+  event.currentTarget.reset();
+  await Promise.all([loadSessions(), loadDashboard()]);
+}
+
+async function archiveSession(id) {
+  await fetch(`/api/sessions/${id}/archive?user_id=${userId}`, { method: "POST" });
+  await Promise.all([loadSessions(), loadDashboard()]);
+}
+
+async function activateSession(id) {
+  await fetch(`/api/sessions/${id}/activate?user_id=${userId}`, { method: "POST" });
+  await Promise.all([loadSessions(), loadDashboard()]);
+}
+
+function escapeHtml(value) {
+  return String(value || "").replace(/[&<>'"]/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[char]);
+}
+
+function sessionName(id) {
+  return currentSessions.find(item => Number(item.id) === Number(id))?.name || `#${id}`;
 }
 
 function renderAnalytics() {
@@ -462,6 +560,26 @@ async function reviewTrade() {
       `Score: ${fmt(r.score, 0)}/100\nВероятно зайдет: ${fmt(r.win_probability, 0)}%\nВероятно не зайдет: ${fmt(r.loss_probability, 0)}%\nSeverity: ${r.severity.toUpperCase()}\n${r.summary}\n\n${issues || "Критичных замечаний нет"}`;
   } catch {
     document.getElementById("reviewResult").textContent = "Не удалось проверить сделку";
+  }
+}
+
+async function suggestTrade() {
+  const form = new FormData(document.getElementById("riskForm"));
+  const symbol = form.get("symbol");
+  const timeframe = form.get("timeframe") || "5m";
+  const target = document.getElementById("suggestResult");
+  target.textContent = "Сверяю 1D / 1H / 15M / 5M...";
+  try {
+    const data = await api(`/api/setup?symbol=${encodeURIComponent(symbol)}&timeframe=${encodeURIComponent(timeframe)}`);
+    const contexts = Object.entries(data.contexts).map(([tf, item]) => `${tf.toUpperCase()}: ${item.bias} · RSI ${item.rsi}`).join("\n");
+    target.textContent = `${data.symbol} · рабочий ТФ ${data.timeframe}\nСценарий: ${data.side.toUpperCase()}\nВход: ${fmt(data.entry, 6)}\nСтоп: ${fmt(data.stop, 6)}\nТейк: ${fmt(data.target, 6)}\nКачество сетапа: ${data.score}/100\nОценка успеха: ${data.win_probability}%\nОценка неуспеха: ${data.loss_probability}%\n\n${contexts}\n\n${data.note}`;
+    if (data.side !== "neutral") document.querySelector('#riskForm select[name="side"]').value = data.side;
+    document.querySelector('#riskForm input[name="entry"]').value = data.entry.toFixed(6);
+    document.querySelector('#riskForm input[name="stop"]').value = data.stop.toFixed(6);
+    document.querySelector('#riskForm input[name="target"]').value = data.target.toFixed(6);
+    calculateRisk();
+  } catch {
+    target.textContent = "Не удалось получить мультитаймфреймовый сценарий";
   }
 }
 
@@ -530,7 +648,7 @@ function emptyRow(text) {
 }
 
 async function loadAll() {
-  await Promise.all([loadDashboard(), loadTrades(), loadJournal(), loadMarketTop()]);
+  await Promise.all([loadDashboard(), loadTrades(), loadJournal(), loadMarketTop(), loadSessions()]);
   renderAnalytics();
   await calculateRisk();
 }

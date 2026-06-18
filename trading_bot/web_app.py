@@ -21,6 +21,7 @@ from trading_bot.repositories import (
     MarketContextRepository,
     TemplateRepository,
     TradeRepository,
+    TradingSessionRepository,
     UserRepository,
     WatchlistRepository,
 )
@@ -44,6 +45,7 @@ contexts = MarketContextRepository(db)
 watchlist = WatchlistRepository(db)
 daily_plans = DailyPlanRepository(db)
 templates = TemplateRepository(db)
+sessions = TradingSessionRepository(db)
 market = MarketClient(os.getenv("MARKET", "futures").strip().lower())
 
 app = FastAPI(title="Trading Assistant Mini App")
@@ -58,8 +60,13 @@ def index() -> FileResponse:
 @app.get("/api/dashboard")
 def dashboard(user_id: int = Query(...)) -> dict:
     users.ensure_user(user_id)
-    stats = trades.stats(user_id)
-    open_trades = trades.list_for_user(user_id, status="open", limit=100)
+    active_session = sessions.active(user_id)
+    if active_session:
+        stats = trades.stats_for_session(user_id, int(active_session["id"]))
+        open_trades = trades.list_for_session(user_id, int(active_session["id"]), status="open", limit=100)
+    else:
+        stats = trades.stats(user_id)
+        open_trades = trades.list_for_user(user_id, status="open", limit=100)
     active_alerts = alerts.list_for_user(user_id)
     symbols = watchlist.list_symbols(user_id)
     plan = daily_plans.latest(user_id)
@@ -83,7 +90,28 @@ def dashboard(user_id: int = Query(...)) -> dict:
         "active_alerts": [row_to_dict(row) for row in active_alerts],
         "watchlist": symbols,
         "plan": row_to_dict(plan) if plan else None,
+        "session": row_to_dict(active_session) if active_session else None,
     }
+
+
+@app.get("/api/sessions")
+def sessions_api(user_id: int = Query(...)) -> dict:
+    return {"items": [row_to_dict(row) for row in sessions.list_for_user(user_id)]}
+
+
+@app.post("/api/sessions")
+def create_session_api(user_id: int = Query(...), name: str = Query(..., min_length=1, max_length=80), start_balance: float = Query(..., gt=0), target_balance: float | None = Query(None, gt=0), note: str = "") -> dict:
+    return {"ok": True, "id": sessions.create(user_id, name, start_balance, target_balance, note)}
+
+
+@app.post("/api/sessions/{session_id}/activate")
+def activate_session_api(session_id: int, user_id: int = Query(...)) -> dict:
+    return {"ok": sessions.activate(user_id, session_id)}
+
+
+@app.post("/api/sessions/{session_id}/archive")
+def archive_session_api(session_id: int, user_id: int = Query(...)) -> dict:
+    return {"ok": sessions.archive(user_id, session_id)}
 
 
 @app.get("/api/trades")
@@ -184,6 +212,20 @@ async def klines_api(symbol: str, interval: str = "1m", limit: int = Query(80, g
     return {"items": rows}
 
 
+@app.get("/api/trades/{trade_id}/chart")
+async def trade_chart_api(trade_id: int, user_id: int = Query(...), interval: str = "1m") -> dict:
+    trade = trades.get(user_id, trade_id)
+    if not trade:
+        raise HTTPException(status_code=404, detail="Trade not found")
+    stored = [row_to_dict(row) for row in trades.candles(trade_id, interval)]
+    if trade["status"] == "open":
+        live = await market.get_klines(trade["symbol"], interval, limit=80)
+        if interval == "1m":
+            trades.save_candles(trade_id, live, interval)
+        return {"items": live, "historical": False}
+    return {"items": stored, "historical": True}
+
+
 @app.get("/api/media/{file_id:path}")
 async def media_api(file_id: str) -> FileResponse:
     if not TELEGRAM_BOT_TOKEN:
@@ -275,6 +317,74 @@ async def review_api(
             "distances": [distance.__dict__ for distance in review.distances],
         }
     }
+
+
+@app.get("/api/setup")
+async def setup_api(symbol: str, timeframe: str = "5m", risk_reward: float = Query(2, ge=1, le=5)) -> dict:
+    symbol = normalize_symbol(symbol)
+    timeframe = timeframe if timeframe in {"1m", "5m", "15m", "1h"} else "5m"
+    intervals = ["1d", "1h", "15m", "5m"]
+    analyses = {}
+    candle_sets = {}
+    for interval in intervals:
+        candles = await market.get_klines(symbol, interval, limit=120)
+        candle_sets[interval] = candles
+        closes = [float(item["close"]) for item in candles]
+        ema20 = ema(closes, 20)
+        ema50 = ema(closes, 50)
+        rsi_value = rsi(closes)
+        bias = "long" if closes[-1] > ema20 > ema50 else "short" if closes[-1] < ema20 < ema50 else "neutral"
+        analyses[interval] = {"bias": bias, "rsi": round(rsi_value, 1), "ema20": ema20, "ema50": ema50, "price": closes[-1]}
+
+    votes = sum(1 if item["bias"] == "long" else -1 if item["bias"] == "short" else 0 for item in analyses.values())
+    side = "long" if votes > 0 else "short" if votes < 0 else "neutral"
+    working = candle_sets.get(timeframe) or candle_sets["5m"]
+    price = float(working[-1]["close"])
+    atr_value = atr(working)
+    stop_distance = max(atr_value * 1.5, price * 0.0025)
+    if side == "short":
+        stop = price + stop_distance
+        target = price - stop_distance * risk_reward
+    else:
+        stop = price - stop_distance
+        target = price + stop_distance * risk_reward
+    alignment = abs(votes) / len(analyses)
+    score = min(82, round(48 + alignment * 28 + (6 if analyses["1d"]["bias"] == side else 0)))
+    return {
+        "symbol": symbol, "timeframe": timeframe, "side": side, "entry": price,
+        "stop": stop, "target": target, "score": score,
+        "win_probability": score, "loss_probability": 100 - score,
+        "contexts": analyses,
+        "note": "Оценка качества сетапа по тренду и волатильности, не статистическая гарантия исхода.",
+    }
+
+
+def ema(values: list[float], period: int) -> float:
+    result = values[0]
+    multiplier = 2 / (period + 1)
+    for value in values[1:]:
+        result = value * multiplier + result * (1 - multiplier)
+    return result
+
+
+def rsi(values: list[float], period: int = 14) -> float:
+    changes = [values[index] - values[index - 1] for index in range(1, len(values))][-period:]
+    gains = sum(max(change, 0) for change in changes) / max(len(changes), 1)
+    losses = sum(max(-change, 0) for change in changes) / max(len(changes), 1)
+    if losses == 0:
+        return 100
+    return 100 - 100 / (1 + gains / losses)
+
+
+def atr(candles: list[dict[str, float]], period: int = 14) -> float:
+    recent = candles[-period:]
+    ranges = []
+    previous = float(candles[-period - 1]["close"]) if len(candles) > period else float(recent[0]["open"])
+    for candle in recent:
+        high, low = float(candle["high"]), float(candle["low"])
+        ranges.append(max(high - low, abs(high - previous), abs(low - previous)))
+        previous = float(candle["close"])
+    return sum(ranges) / max(len(ranges), 1)
 
 
 def row_to_dict(row) -> dict:

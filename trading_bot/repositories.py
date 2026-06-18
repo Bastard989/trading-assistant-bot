@@ -143,6 +143,65 @@ class AlertRepository:
             return cursor.rowcount > 0
 
 
+class TradingSessionRepository:
+    def __init__(self, db: Database) -> None:
+        self.db = db
+
+    def create(self, user_id: int, name: str, start_balance: float, target_balance: float | None = None, note: str = "") -> int:
+        with self.db.connect() as connection:
+            connection.execute(
+                "UPDATE trading_sessions SET status = 'archived', archived_at = CURRENT_TIMESTAMP WHERE user_id = ? AND status = 'active'",
+                (user_id,),
+            )
+            cursor = connection.execute(
+                "INSERT INTO trading_sessions (user_id, name, start_balance, target_balance, note) VALUES (?, ?, ?, ?, ?)",
+                (user_id, name.strip(), start_balance, target_balance, note.strip()),
+            )
+            return int(cursor.lastrowid)
+
+    def activate(self, user_id: int, session_id: int) -> bool:
+        with self.db.connect() as connection:
+            row = connection.execute("SELECT id FROM trading_sessions WHERE id = ? AND user_id = ?", (session_id, user_id)).fetchone()
+            if not row:
+                return False
+            connection.execute("UPDATE trading_sessions SET status = 'archived', archived_at = CURRENT_TIMESTAMP WHERE user_id = ? AND status = 'active'", (user_id,))
+            connection.execute("UPDATE trading_sessions SET status = 'active', archived_at = NULL WHERE id = ?", (session_id,))
+            return True
+
+    def archive(self, user_id: int, session_id: int) -> bool:
+        with self.db.connect() as connection:
+            cursor = connection.execute(
+                "UPDATE trading_sessions SET status = 'archived', archived_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ?",
+                (session_id, user_id),
+            )
+            return cursor.rowcount > 0
+
+    def active(self, user_id: int) -> sqlite3.Row | None:
+        with self.db.connect() as connection:
+            return connection.execute(
+                "SELECT * FROM trading_sessions WHERE user_id = ? AND status = 'active' ORDER BY started_at DESC LIMIT 1",
+                (user_id,),
+            ).fetchone()
+
+    def list_for_user(self, user_id: int) -> list[sqlite3.Row]:
+        with self.db.connect() as connection:
+            return list(connection.execute(
+                """
+                SELECT s.*,
+                    COUNT(t.id) AS trade_count,
+                    SUM(CASE WHEN t.status = 'closed' THEN 1 ELSE 0 END) AS closed_count,
+                    SUM(CASE WHEN t.pnl > 0 THEN 1 ELSE 0 END) AS wins,
+                    COALESCE(SUM(CASE WHEN t.status = 'closed' THEN t.pnl ELSE 0 END), 0) AS realized_pnl
+                FROM trading_sessions s
+                LEFT JOIN trades t ON t.session_id = s.id
+                WHERE s.user_id = ?
+                GROUP BY s.id
+                ORDER BY s.started_at DESC
+                """,
+                (user_id,),
+            ))
+
+
 class TradeRepository:
     def __init__(self, db: Database) -> None:
         self.db = db
@@ -163,16 +222,25 @@ class TradeRepository:
         review_score: float | None = None,
         ignored_warnings: bool = False,
         note: str = "",
+        timeframe: str = "5m",
     ) -> int:
         with self.db.connect() as connection:
+            session = connection.execute(
+                "SELECT id, name FROM trading_sessions WHERE user_id = ? AND status = 'active' ORDER BY started_at DESC LIMIT 1",
+                (user_id,),
+            ).fetchone()
+            tag_values = list(tags)
+            tag_values.append(f"coin:{symbol.upper().replace('USDT', '')}")
+            if session:
+                tag_values.append(f"session:{session['name']}")
             cursor = connection.execute(
                 """
                 INSERT INTO trades (
                     user_id, symbol, side, entry_price, stop_price, target_price,
                     quantity, leverage, risk_amount, setup, tags, review_score,
-                    ignored_warnings, note
+                    ignored_warnings, note, session_id, timeframe
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     user_id,
@@ -185,10 +253,12 @@ class TradeRepository:
                     leverage,
                     risk_amount,
                     setup.strip(),
-                    ",".join(tags),
+                    ",".join(dict.fromkeys(tag_values)),
                     review_score,
                     1 if ignored_warnings else 0,
                     note.strip(),
+                    int(session["id"]) if session else None,
+                    timeframe,
                 ),
             )
             return int(cursor.lastrowid)
@@ -261,6 +331,15 @@ class TradeRepository:
                 )
             )
 
+    def list_for_session(self, user_id: int, session_id: int, status: str | None = None, limit: int = 100) -> list[sqlite3.Row]:
+        status_filter = "AND status = ?" if status else ""
+        params: tuple[object, ...] = (user_id, session_id, status, limit) if status else (user_id, session_id, limit)
+        with self.db.connect() as connection:
+            return list(connection.execute(
+                f"SELECT * FROM trades WHERE user_id = ? AND session_id = ? {status_filter} ORDER BY opened_at DESC LIMIT ?",
+                params,
+            ))
+
     def open_all(self) -> list[sqlite3.Row]:
         with self.db.connect() as connection:
             return list(
@@ -273,6 +352,33 @@ class TradeRepository:
                     """
                 )
             )
+
+    def save_candles(self, trade_id: int, candles: list[dict[str, float]], interval: str = "1m") -> None:
+        with self.db.connect() as connection:
+            for candle in candles:
+                connection.execute(
+                    """
+                    INSERT OR IGNORE INTO trade_candles (trade_id, open_time, open, high, low, close, volume, interval)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        trade_id, int(candle["open_time"]), candle["open"], candle["high"],
+                        candle["low"], candle["close"], candle.get("volume", 0), interval,
+                    ),
+                )
+
+    def candles(self, trade_id: int, interval: str = "1m", limit: int = 240) -> list[sqlite3.Row]:
+        with self.db.connect() as connection:
+            return list(connection.execute(
+                """
+                SELECT open_time, open, high, low, close, volume
+                FROM trade_candles
+                WHERE trade_id = ? AND interval = ?
+                ORDER BY open_time ASC
+                LIMIT ?
+                """,
+                (trade_id, interval, limit),
+            ))
 
     def stats(self, user_id: int) -> sqlite3.Row:
         with self.db.connect() as connection:
@@ -291,6 +397,23 @@ class TradeRepository:
                 WHERE user_id = ?
                 """,
                 (user_id,),
+            ).fetchone()
+
+    def stats_for_session(self, user_id: int, session_id: int) -> sqlite3.Row:
+        with self.db.connect() as connection:
+            return connection.execute(
+                """
+                SELECT COUNT(*) AS total,
+                    SUM(CASE WHEN status = 'closed' THEN 1 ELSE 0 END) AS closed,
+                    SUM(CASE WHEN pnl > 0 THEN 1 ELSE 0 END) AS wins,
+                    SUM(CASE WHEN pnl < 0 THEN 1 ELSE 0 END) AS losses,
+                    COALESCE(SUM(pnl), 0) AS net_pnl,
+                    COALESCE(AVG(pnl), 0) AS avg_pnl,
+                    COALESCE(MAX(pnl), 0) AS best_pnl,
+                    COALESCE(MIN(pnl), 0) AS worst_pnl
+                FROM trades WHERE user_id = ? AND session_id = ?
+                """,
+                (user_id, session_id),
             ).fetchone()
 
     def stats_by_symbol(self, user_id: int) -> list[sqlite3.Row]:
@@ -704,12 +827,16 @@ class JournalRepository:
         linked_trade_id: int | None = None,
     ) -> int:
         with self.db.connect() as connection:
+            session = connection.execute(
+                "SELECT id FROM trading_sessions WHERE user_id = ? AND status = 'active' ORDER BY started_at DESC LIMIT 1",
+                (user_id,),
+            ).fetchone()
             cursor = connection.execute(
                 """
                 INSERT INTO journal_entries (
-                    user_id, symbol, outcome, theory, description, screenshot_file_id, linked_trade_id
+                    user_id, symbol, outcome, theory, description, screenshot_file_id, linked_trade_id, session_id
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     user_id,
@@ -719,6 +846,7 @@ class JournalRepository:
                     description.strip(),
                     screenshot_file_id,
                     linked_trade_id,
+                    int(session["id"]) if session else None,
                 ),
             )
             return int(cursor.lastrowid)

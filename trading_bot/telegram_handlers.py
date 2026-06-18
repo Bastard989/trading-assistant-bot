@@ -158,7 +158,7 @@ class BotHandlers:
         await update.message.reply_text(
             "Я фиксирую твои сделки и дневник.\n\n"
             "Как пользоваться:\n"
-            "1. Открыть сделку: /open солянка 70.9 лонг количество 1.4 стоп 69.8 тейк 73 причина входа\n"
+            "1. Нажми «Открыть сделку» и заполни шаблон. Количество позиций обязательно.\n"
             "2. Запись в дневник: /note BTC идея/ошибка/наблюдение\n"
             "3. Фото можно отправлять вместе с /open или /note — я сохраню их в дневнике.\n"
             "4. Сделки закроются сами, когда цена Binance дойдет до стопа или тейка.\n\n"
@@ -175,8 +175,7 @@ class BotHandlers:
     async def help(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text(
             "Бот — для фиксации сделок и дневника.\n\n"
-            "Открыть сделку:\n"
-            "/open солана 70.9 лонг количество 1.4 стоп 69.8 тейк 73 причина входа\n\n"
+            "Открыть сделку: нажми кнопку в /menu или отправь /open без данных, затем заполни шаблон.\n\n"
             "Запись в дневник:\n"
             "/note BTC идея/ошибка/наблюдение\n\n"
             "С фото: прикрепи скрин и сделай подпись /open ... или /note ...\n\n"
@@ -292,12 +291,12 @@ class BotHandlers:
         await update.message.reply_text(format_risk(calc))
 
     async def open_trade_note(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        note = update.message.text.partition(" ")[2].strip()
+        note = command_body(update.effective_message.text or "", "open")
         if not note:
-            await update.message.reply_text("Формат: /open биткоин 65936 лонг стоп 65614 тейк 66731 причина входа")
+            await update.effective_message.reply_text(open_trade_template())
             return
         text = await self._handle_trade_note(update.effective_user.id, note, [], require_trade=True)
-        await update.message.reply_text(text, reply_markup=self._main_markup(update.effective_user.id))
+        await update.effective_message.reply_text(text, reply_markup=self._main_markup(update.effective_user.id))
 
     async def trade(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         try:
@@ -646,6 +645,8 @@ class BotHandlers:
                 await query.message.reply_text(
                     "\n\n".join(format_trade(row) for row in rows) if rows else "Открытых сделок нет."
                 )
+            elif raw_id == "open_template":
+                await query.message.reply_text(open_trade_template())
             elif raw_id == "trades":
                 rows = self.trades.list_for_user(update.effective_user.id)
                 await query.message.reply_text("\n\n".join(format_trade(row) for row in rows) if rows else "Сделок пока нет.")
@@ -923,23 +924,29 @@ class BotHandlers:
         )
 
     def _main_markup(self, user_id: int) -> InlineKeyboardMarkup:
+        miniapp_rows = self._miniapp_rows(user_id)
         return InlineKeyboardMarkup(
             [
+                [InlineKeyboardButton("Открыть сделку", callback_data="cmd:open_template")],
                 [InlineKeyboardButton("Открытые сделки", callback_data="cmd:open_trades")],
-                [self._miniapp_button(user_id, "Mini App")],
+                *miniapp_rows,
             ]
         )
 
     def _miniapp_markup(self, user_id: int) -> InlineKeyboardMarkup:
-        return InlineKeyboardMarkup([[self._miniapp_button(user_id, "Открыть Mini App")]])
+        return InlineKeyboardMarkup(self._miniapp_rows(user_id))
 
-    def _miniapp_button(self, user_id: int, text: str) -> InlineKeyboardButton:
+    def _miniapp_rows(self, user_id: int) -> list[list[InlineKeyboardButton]]:
         url = f"{self.web_app_url.rstrip('/')}/?user_id={user_id}"
-        if re.match(r"http://(?:127\.0\.0\.1|localhost)(?=[:/])", url):
-            url = re.sub(r"http://(?:127\.0\.0\.1|localhost)", f"http://{local_lan_ip()}", url, count=1)
         if url.startswith("https://"):
-            return InlineKeyboardButton(text, web_app=WebAppInfo(url=url))
-        return InlineKeyboardButton(text, url=url)
+            return [[InlineKeyboardButton("Открыть Mini App", web_app=WebAppInfo(url=url))]]
+        if re.match(r"http://(?:127\.0\.0\.1|localhost)(?=[:/])", url):
+            phone_url = re.sub(r"http://(?:127\.0\.0\.1|localhost)", f"http://{local_lan_ip()}", url, count=1)
+            return [
+                [InlineKeyboardButton("Mini App на этом компьютере", url=url)],
+                [InlineKeyboardButton("Mini App на телефоне", url=phone_url)],
+            ]
+        return [[InlineKeyboardButton("Открыть Mini App", url=url)]]
 
     def _parse_risk_args(self, user_id: int, args: list[str]):
         if len(args) < 5:
@@ -1059,7 +1066,7 @@ class BotHandlers:
         if caption.startswith("/edit"):
             return self._edit_trade_from_text(user_id, caption.partition(" ")[2].strip(), file_ids)
         if caption.startswith("/open"):
-            raw_note = caption.partition(" ")[2].strip() or "Фото без описания"
+            raw_note = command_body(caption, "open") or "Фото без описания"
             return await self._handle_trade_note(user_id, raw_note, file_ids, require_trade=True)
 
         if caption.startswith("/note"):
@@ -1147,6 +1154,12 @@ class BotHandlers:
             )
             photo_text = f" Фото: {len(file_ids)}." if file_ids else ""
             return f"Заметка дневника #{entry_id} сохранена.{photo_text}"
+
+        if require_trade and draft.get("quantity") is None:
+            return (
+                "Сделку не открыл и в дневник не записал: укажи количество позиций.\n\n"
+                + open_trade_template()
+            )
 
         price = None
         try:
@@ -1336,6 +1349,24 @@ class BotHandlers:
 
 def parse_float(value: str) -> float:
     return float(value.replace(",", "."))
+
+
+def command_body(text: str, command: str) -> str:
+    return re.sub(rf"^/{re.escape(command)}(?:@\w+)?\s*", "", text.strip(), count=1, flags=re.IGNORECASE).strip()
+
+
+def open_trade_template() -> str:
+    return (
+        "/open\n"
+        "Монета: \n"
+        "Сторона: \n"
+        "Цена входа: \n"
+        "Стоп: \n"
+        "Тейк: \n"
+        "Количество позиций: \n"
+        "Плечо: 1\n"
+        "Причина входа: "
+    )
 
 
 def local_lan_ip() -> str:

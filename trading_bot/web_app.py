@@ -6,7 +6,7 @@ from pathlib import Path
 
 import httpx
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -34,6 +34,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 STATIC_DIR = BASE_DIR / "mini_app"
 DATABASE_PATH = Path(os.getenv("DATABASE_PATH", "data/trading_bot.sqlite3")).expanduser()
 MEDIA_CACHE_DIR = BASE_DIR / "data" / "media_cache"
+TRADE_UPLOAD_DIR = Path(os.getenv("TRADE_UPLOAD_DIR", str(BASE_DIR / "data" / "trade_uploads"))).expanduser()
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 
 db = Database(DATABASE_PATH)
@@ -86,7 +87,7 @@ def dashboard(user_id: int = Query(...)) -> dict:
             "worst_pnl": float(stats["worst_pnl"] or 0),
         },
         "open_risk": sum(float(row["risk_amount"] or 0) for row in open_trades),
-        "open_trades": [row_to_dict(row) for row in open_trades],
+        "open_trades": [trade_to_dict(row) for row in open_trades],
         "active_alerts": [row_to_dict(row) for row in active_alerts],
         "watchlist": symbols,
         "plan": row_to_dict(plan) if plan else None,
@@ -117,7 +118,47 @@ def archive_session_api(session_id: int, user_id: int = Query(...)) -> dict:
 @app.get("/api/trades")
 def trades_api(user_id: int = Query(...), status: str | None = None) -> dict:
     status = status if status in {"open", "closed", "cancelled"} else None
-    return {"items": [row_to_dict(row) for row in trades.list_for_user(user_id, status=status, limit=100)]}
+    return {"items": [trade_to_dict(row) for row in trades.list_for_user(user_id, status=status, limit=100)]}
+
+
+@app.post("/api/trades/{trade_id}/update")
+def update_trade_api(
+    trade_id: int,
+    user_id: int = Query(...),
+    entry_price: float = Query(..., gt=0),
+    stop_price: float = Query(..., gt=0),
+    target_price: float | None = Query(None, gt=0),
+    quantity: float = Query(..., gt=0),
+    timeframe: str = "5m",
+    note: str = "",
+) -> dict:
+    timeframe = timeframe if timeframe in {"1m", "5m", "15m", "1h", "4h", "1d"} else "5m"
+    row = trades.update(user_id, trade_id, entry_price, stop_price, target_price, quantity, timeframe, note)
+    return {"ok": row is not None, "trade": trade_to_dict(row) if row else None}
+
+
+@app.post("/api/trades/{trade_id}/attachment")
+async def upload_trade_attachment(trade_id: int, request: Request, user_id: int = Query(...), filename: str = "screenshot.jpg") -> dict:
+    if not trades.get(user_id, trade_id):
+        raise HTTPException(status_code=404, detail="Trade not found")
+    data = await request.body()
+    if not data or len(data) > 12 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="Image must be between 1 byte and 12 MB")
+    suffix = Path(filename).suffix.lower() if Path(filename).suffix.lower() in {".jpg", ".jpeg", ".png", ".webp"} else ".jpg"
+    directory = TRADE_UPLOAD_DIR / str(user_id) / str(trade_id)
+    directory.mkdir(parents=True, exist_ok=True)
+    target = directory / f"{hashlib.sha256(data).hexdigest()}{suffix}"
+    target.write_bytes(data)
+    attachment_id = trades.add_attachment(user_id, trade_id, local_path=str(target), caption=filename)
+    return {"ok": True, "id": attachment_id}
+
+
+@app.get("/api/trade-attachment/{attachment_id}")
+def trade_attachment_api(attachment_id: int) -> FileResponse:
+    row = trades.attachment(attachment_id)
+    if not row or not row["local_path"] or not Path(row["local_path"]).exists():
+        raise HTTPException(status_code=404, detail="Attachment not found")
+    return FileResponse(row["local_path"])
 
 
 @app.post("/api/trades/{trade_id}/close")
@@ -223,7 +264,10 @@ async def trade_chart_api(trade_id: int, user_id: int = Query(...), interval: st
         if interval == "1m":
             trades.save_candles(trade_id, live, interval)
         return {"items": live, "historical": False}
-    return {"items": stored, "historical": True}
+    if stored:
+        return {"items": stored, "historical": True}
+    fallback = await market.get_klines(trade["symbol"], interval, limit=80)
+    return {"items": fallback, "historical": False, "fallback": True}
 
 
 @app.get("/api/media/{file_id:path}")
@@ -391,3 +435,11 @@ def row_to_dict(row) -> dict:
     if row is None:
         return {}
     return {key: row[key] for key in row.keys()}
+
+
+def trade_to_dict(row) -> dict:
+    if row is None:
+        return {}
+    payload = row_to_dict(row)
+    payload["attachments"] = [row_to_dict(item) for item in trades.attachments(int(row["user_id"]), int(row["id"]))]
+    return payload

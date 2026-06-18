@@ -61,6 +61,7 @@ BOT_COMMANDS = [
     BotCommand("open", "открыть сделку"),
     BotCommand("note", "запись в дневник"),
     BotCommand("trades", "открытые сделки"),
+    BotCommand("edit", "изменить сделку или добавить фото"),
     BotCommand("close", "закрыть сделку"),
     BotCommand("stats", "статистика сделок"),
     BotCommand("help", "короткая инструкция"),
@@ -117,6 +118,7 @@ class BotHandlers:
         application.add_handler(CommandHandler("close", self.close_trade))
         application.add_handler(CommandHandler("canceltrade", self.cancel_trade))
         application.add_handler(CommandHandler("trades", self.trades_list))
+        application.add_handler(CommandHandler("edit", self.edit_trade))
         application.add_handler(CommandHandler("stats", self.stats))
         application.add_handler(CommandHandler("alert", self.alert))
         application.add_handler(CommandHandler("alerts", self.alerts_list))
@@ -356,6 +358,11 @@ class BotHandlers:
             return
         ok = self.trades.cancel(update.effective_user.id, trade_id)
         await update.message.reply_text("Сделку отменил." if ok else "Не нашел открытую сделку с таким ID.")
+
+    async def edit_trade(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        raw = update.message.text.partition(" ")[2].strip()
+        text = self._edit_trade_from_text(update.effective_user.id, raw, [])
+        await update.message.reply_text(text, reply_markup=self._main_markup(update.effective_user.id))
 
     async def trades_list(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         status = context.args[0].lower() if context.args else "open"
@@ -1036,6 +1043,8 @@ class BotHandlers:
     async def _handle_photo_note(self, user_id: int, caption: str, file_ids: list[str]) -> str:
         joined_file_ids = ",".join(file_ids)
         caption = caption.strip()
+        if caption.startswith("/edit"):
+            return self._edit_trade_from_text(user_id, caption.partition(" ")[2].strip(), file_ids)
         if caption.startswith("/open"):
             raw_note = caption.partition(" ")[2].strip() or "Фото без описания"
             return await self._handle_trade_note(user_id, raw_note, file_ids)
@@ -1064,6 +1073,40 @@ class BotHandlers:
             return f"Скриншоты и запись дневника #{entry_id} сохранены. Фото: {len(file_ids)}."
 
         return await self._handle_trade_note(user_id, caption or "Фото без описания", file_ids)
+
+    def _edit_trade_from_text(self, user_id: int, text: str, file_ids: list[str]) -> str:
+        match = re.match(r"\s*(\d+)\b(.*)", text, flags=re.DOTALL)
+        if not match:
+            return "Формат: /edit 10 стоп 64000 тейк 62000 количество 0.02 комментарий\nФото можно приложить к этому же сообщению."
+        trade_id = int(match.group(1))
+        body = match.group(2).strip()
+        trade = self.trades.get(user_id, trade_id)
+        if not trade:
+            return "Не нашел сделку с таким ID."
+        if trade["status"] != "open":
+            return "Изменять уровни можно только у открытой сделки. Фото к закрытой сделке добавь через /note."
+
+        entry = extract_price_after(body.lower(), ("вход", "entry")) or float(trade["entry_price"])
+        stop = extract_price_after(body.lower(), ("стоп лосс", "стоплосс", "стоп", "sl")) or float(trade["stop_price"])
+        target = extract_price_after(body.lower(), ("тейк профит", "тейкпрофит", "тейк", "профит", "tp"))
+        target = target if target is not None else trade["target_price"]
+        quantity = extract_price_after(body.lower(), ("количество", "qty", "объем", "обьем")) or float(trade["quantity"])
+        timeframe_match = re.search(r"\b(1m|5m|15m|1h|4h|1d)\b", body.lower())
+        timeframe = timeframe_match.group(1) if timeframe_match else str(trade["timeframe"] or "5m")
+        try:
+            validate_trade_input(str(trade["side"]), entry, stop, quantity, float(trade["leverage"]))
+        except ValueError as exc:
+            return f"Не изменил сделку: {exc}"
+        updated = self.trades.update(user_id, trade_id, entry, stop, float(target) if target else None, quantity, timeframe, body)
+        if not updated:
+            return "Не удалось изменить сделку."
+        for file_id in file_ids:
+            self.trades.add_attachment(user_id, trade_id, telegram_file_id=file_id, caption=body)
+        return (
+            f"Сделка #{trade_id} обновлена.\n"
+            f"Вход: {money(entry)} | Стоп: {money(stop)} | Тейк: {money(target) if target else '-'}\n"
+            f"Количество: {quantity:g} | ТФ: {timeframe} | Фото добавлено: {len(file_ids)}"
+        )
 
     async def _handle_trade_note(self, user_id: int, note: str, file_ids: list[str]) -> str:
         joined_file_ids = ",".join(file_ids)

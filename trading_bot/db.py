@@ -185,6 +185,18 @@ CREATE TABLE IF NOT EXISTS trade_candles (
     UNIQUE(trade_id, open_time, interval),
     FOREIGN KEY(trade_id) REFERENCES trades(id)
 );
+
+CREATE TABLE IF NOT EXISTS trade_attachments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    trade_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    telegram_file_id TEXT NOT NULL DEFAULT '',
+    local_path TEXT NOT NULL DEFAULT '',
+    caption TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(trade_id) REFERENCES trades(id),
+    FOREIGN KEY(user_id) REFERENCES users(telegram_id)
+);
 """
 
 

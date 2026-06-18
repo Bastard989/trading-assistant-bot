@@ -314,6 +314,54 @@ class TradeRepository:
                 (trade_id, user_id),
             ).fetchone()
 
+    def update(
+        self,
+        user_id: int,
+        trade_id: int,
+        entry_price: float,
+        stop_price: float,
+        target_price: float | None,
+        quantity: float,
+        timeframe: str,
+        note: str = "",
+    ) -> sqlite3.Row | None:
+        trade = self.get(user_id, trade_id)
+        if not trade or trade["status"] != "open":
+            return None
+        risk_amount = abs(entry_price - stop_price) * quantity
+        with self.db.connect() as connection:
+            connection.execute(
+                """
+                UPDATE trades SET entry_price = ?, stop_price = ?, target_price = ?,
+                    quantity = ?, timeframe = ?, risk_amount = ?,
+                    note = CASE WHEN ? = '' THEN note ELSE trim(note || char(10) || ?) END
+                WHERE id = ? AND user_id = ? AND status = 'open'
+                """,
+                (entry_price, stop_price, target_price, quantity, timeframe, risk_amount, note.strip(), note.strip(), trade_id, user_id),
+            )
+        return self.get(user_id, trade_id)
+
+    def add_attachment(self, user_id: int, trade_id: int, telegram_file_id: str = "", local_path: str = "", caption: str = "") -> int | None:
+        if not self.get(user_id, trade_id):
+            return None
+        with self.db.connect() as connection:
+            cursor = connection.execute(
+                "INSERT INTO trade_attachments (trade_id, user_id, telegram_file_id, local_path, caption) VALUES (?, ?, ?, ?, ?)",
+                (trade_id, user_id, telegram_file_id, local_path, caption.strip()),
+            )
+            return int(cursor.lastrowid)
+
+    def attachments(self, user_id: int, trade_id: int) -> list[sqlite3.Row]:
+        with self.db.connect() as connection:
+            return list(connection.execute(
+                "SELECT * FROM trade_attachments WHERE user_id = ? AND trade_id = ? ORDER BY created_at ASC",
+                (user_id, trade_id),
+            ))
+
+    def attachment(self, attachment_id: int) -> sqlite3.Row | None:
+        with self.db.connect() as connection:
+            return connection.execute("SELECT * FROM trade_attachments WHERE id = ?", (attachment_id,)).fetchone()
+
     def list_for_user(self, user_id: int, status: str | None = None, limit: int = 20) -> list[sqlite3.Row]:
         status_filter = "AND status = ?" if status else ""
         params: tuple[object, ...] = (user_id, status, limit) if status else (user_id, limit)

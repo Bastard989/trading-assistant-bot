@@ -296,7 +296,7 @@ class BotHandlers:
         if not note:
             await update.message.reply_text("Формат: /open биткоин 65936 лонг стоп 65614 тейк 66731 причина входа")
             return
-        text = await self._handle_trade_note(update.effective_user.id, note, [])
+        text = await self._handle_trade_note(update.effective_user.id, note, [], require_trade=True)
         await update.message.reply_text(text, reply_markup=self._main_markup(update.effective_user.id))
 
     async def trade(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -447,11 +447,14 @@ class BotHandlers:
         await update.message.reply_text(f"Запись дневника #{entry_id} сохранена.", reply_markup=self._main_markup(update.effective_user.id))
 
     async def on_photo(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        caption = update.message.caption or ""
-        file_id = update.message.photo[-1].file_id
-        if update.message.media_group_id:
+        message = update.effective_message
+        if not message or not message.photo:
+            return
+        caption = message.caption or ""
+        file_id = message.photo[-1].file_id
+        if message.media_group_id:
             albums = context.application.bot_data.setdefault(ALBUMS_KEY, {})
-            key = f"{update.effective_chat.id}:{update.message.media_group_id}"
+            key = f"{update.effective_chat.id}:{message.media_group_id}"
             album = albums.setdefault(
                 key,
                 {
@@ -471,7 +474,7 @@ class BotHandlers:
             return
 
         text = await self._handle_photo_note(update.effective_user.id, caption, [file_id])
-        await update.message.reply_text(text, reply_markup=self._miniapp_markup(update.effective_user.id))
+        await message.reply_text(text, reply_markup=self._miniapp_markup(update.effective_user.id))
 
     async def process_media_group(self, context: ContextTypes.DEFAULT_TYPE) -> None:
         key = context.job.data["key"]
@@ -1057,7 +1060,7 @@ class BotHandlers:
             return self._edit_trade_from_text(user_id, caption.partition(" ")[2].strip(), file_ids)
         if caption.startswith("/open"):
             raw_note = caption.partition(" ")[2].strip() or "Фото без описания"
-            return await self._handle_trade_note(user_id, raw_note, file_ids)
+            return await self._handle_trade_note(user_id, raw_note, file_ids, require_trade=True)
 
         if caption.startswith("/note"):
             raw_note = caption.partition(" ")[2].strip() or "Фото без описания"
@@ -1118,12 +1121,23 @@ class BotHandlers:
             f"Количество: {quantity:g} | ТФ: {timeframe} | Фото добавлено: {len(file_ids)}"
         )
 
-    async def _handle_trade_note(self, user_id: int, note: str, file_ids: list[str]) -> str:
+    async def _handle_trade_note(
+        self,
+        user_id: int,
+        note: str,
+        file_ids: list[str],
+        require_trade: bool = False,
+    ) -> str:
         joined_file_ids = ",".join(file_ids)
         note = note.strip()
         draft = parse_trade_caption(note)
         symbol = guess_symbol(note)
         if not draft:
+            if require_trade:
+                return (
+                    "Сделку не открыл и в дневник не записал: не смог надежно разобрать сторону, вход, стоп и тейк.\n"
+                    "Пример: /open солана 69,75 лонг стоп 69,55 тейк 70,55 количество 6 причина входа"
+                )
             entry_id = self.journal.create(
                 user_id=user_id,
                 symbol=symbol,
@@ -1207,6 +1221,23 @@ class BotHandlers:
                         note=note,
                     )
                     warning = "Qty не указан, открыл как отслеживаемую сделку с условным qty 1. Для точного PnL задай /defaults или напиши qty."
+                existing = self.trades.find_recent_open(
+                    user_id,
+                    trade_draft.symbol,
+                    trade_draft.side,
+                    trade_draft.entry_price,
+                    trade_draft.stop_price,
+                    trade_draft.target_price,
+                )
+                if existing:
+                    for file_id in file_ids:
+                        self.trades.add_attachment(user_id, int(existing["id"]), telegram_file_id=file_id, caption=note)
+                    return (
+                        f"Сделка #{existing['id']} уже открыта, дубль не создавал.\n"
+                        f"{trade_draft.symbol} {trade_draft.side.upper()} | вход {money(trade_draft.entry_price)} | "
+                        f"стоп {money(trade_draft.stop_price)} | тейк {money(trade_draft.target_price) if trade_draft.target_price else '-'}\n"
+                        f"Новых фото добавлено: {len(file_ids)}"
+                    )
                 review = await self._review_draft(user_id, trade_draft)
                 review_score = review.score
                 trade_id = self._save_trade(user_id, trade_draft, review_score=review.score)
@@ -1217,6 +1248,12 @@ class BotHandlers:
             except Exception:
                 logger.info("Could not create trade from note", exc_info=True)
                 warning = "Сделку не открыл: проверь вход/стоп/тейк."
+
+        if require_trade and trade_id is None:
+            return (
+                f"{warning or 'Сделку не открыл: не хватает корректных данных.'}\n"
+                "Дневник не изменен. Исправь уровни и отправь /open еще раз."
+            )
 
         levels = tuple(float(value) for value in (draft.get("entry"), draft.get("stop"), draft.get("target")) if value)
         try:
@@ -1328,11 +1365,15 @@ def guess_symbol(text: str) -> str:
 
 def parse_trade_caption(text: str) -> dict[str, object] | None:
     value = text.lower()
+    # The first direction in the trade header is authoritative. The rationale
+    # may legitimately mention an opposite future scenario.
+    header = re.split(r"\b(?:причина(?:\s+входа)?|почему\s+вош[её]л|описание)\b", value, maxsplit=1)[0]
+    side_match = re.search(r"\b(лонг|long|шорт|short)\b", header)
+    if not side_match:
+        side_match = re.search(r"\b(лонг|long|шорт|short)\b", value)
     side = ""
-    if "лонг" in value or "long" in value:
-        side = "long"
-    if "шорт" in value or "short" in value:
-        side = "short"
+    if side_match:
+        side = "long" if side_match.group(1) in {"лонг", "long"} else "short"
     symbol = guess_symbol(text)
     stop = extract_price_after(value, ("стоп лосс", "стоплосс", "стоп", "sl"))
     target = extract_price_after(value, ("тейк профит", "тейкпрофит", "тейкт профит", "тейк", "профит", "tp"))

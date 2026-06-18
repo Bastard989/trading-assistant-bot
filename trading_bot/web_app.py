@@ -121,6 +121,45 @@ def trades_api(user_id: int = Query(...), status: str | None = None) -> dict:
     return {"items": [trade_to_dict(row) for row in trades.list_for_user(user_id, status=status, limit=100)]}
 
 
+@app.post("/api/trades")
+def create_trade_api(
+    user_id: int = Query(...),
+    symbol: str = Query(...),
+    side: str = Query(...),
+    entry_price: float = Query(..., gt=0),
+    stop_price: float = Query(..., gt=0),
+    target_price: float | None = Query(None, gt=0),
+    quantity: float = Query(..., gt=0),
+    leverage: float = Query(1, gt=0),
+    timeframe: str = "1m",
+    note: str = "",
+) -> dict:
+    symbol = normalize_symbol(symbol)
+    side = side.lower()
+    if side not in {"long", "short"}:
+        raise HTTPException(status_code=400, detail="Side must be long or short")
+    if side == "long" and stop_price >= entry_price:
+        raise HTTPException(status_code=400, detail="Long stop must be below entry")
+    if side == "short" and stop_price <= entry_price:
+        raise HTTPException(status_code=400, detail="Short stop must be above entry")
+    timeframe = timeframe if timeframe in {"1m", "5m", "15m", "1h", "4h", "1d"} else "1m"
+    trade_id = trades.create(
+        user_id=user_id,
+        symbol=symbol,
+        side=side,
+        entry_price=entry_price,
+        stop_price=stop_price,
+        target_price=target_price,
+        quantity=quantity,
+        leverage=leverage,
+        risk_amount=abs(entry_price - stop_price) * quantity,
+        note=note,
+        timeframe=timeframe,
+    )
+    row = trades.get(user_id, trade_id)
+    return {"ok": True, "trade": trade_to_dict(row)}
+
+
 @app.post("/api/trades/{trade_id}/update")
 def update_trade_api(
     trade_id: int,
@@ -151,6 +190,24 @@ async def upload_trade_attachment(trade_id: int, request: Request, user_id: int 
     target.write_bytes(data)
     attachment_id = trades.add_attachment(user_id, trade_id, local_path=str(target), caption=filename)
     return {"ok": True, "id": attachment_id}
+
+
+@app.post("/api/trades/{trade_id}/link-journal")
+def link_trade_journal_api(trade_id: int, user_id: int = Query(...), journal_id: int = Query(...)) -> dict:
+    trade = trades.get(user_id, trade_id)
+    entry = journal.get(user_id, journal_id)
+    if not trade or not entry:
+        raise HTTPException(status_code=404, detail="Trade or journal entry not found")
+    existing_file_ids = {str(item["telegram_file_id"]) for item in trades.attachments(user_id, trade_id)}
+    attached = 0
+    for file_id in str(entry["screenshot_file_id"] or "").split(","):
+        file_id = file_id.strip()
+        if file_id and file_id not in existing_file_ids:
+            trades.add_attachment(user_id, trade_id, telegram_file_id=file_id, caption=str(entry["description"] or ""))
+            existing_file_ids.add(file_id)
+            attached += 1
+    journal.link_trade(user_id, journal_id, trade_id)
+    return {"ok": True, "attached": attached, "trade": trade_to_dict(trades.get(user_id, trade_id))}
 
 
 @app.get("/api/trade-attachment/{attachment_id}")
@@ -263,11 +320,11 @@ async def trade_chart_api(trade_id: int, user_id: int = Query(...), interval: st
         live = await market.get_klines(trade["symbol"], interval, limit=80)
         if interval == "1m":
             trades.save_candles(trade_id, live, interval)
-        return {"items": live, "historical": False}
+        return {"items": live, "historical": False, "trade": trade_to_dict(trade)}
     if stored:
-        return {"items": stored, "historical": True}
+        return {"items": stored, "historical": True, "trade": trade_to_dict(trade)}
     fallback = await market.get_klines(trade["symbol"], interval, limit=80)
-    return {"items": fallback, "historical": False, "fallback": True}
+    return {"items": fallback, "historical": False, "fallback": True, "trade": trade_to_dict(trade)}
 
 
 @app.get("/api/media/{file_id:path}")

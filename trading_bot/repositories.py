@@ -314,6 +314,30 @@ class TradeRepository:
                 (trade_id, user_id),
             ).fetchone()
 
+    def find_recent_open(
+        self,
+        user_id: int,
+        symbol: str,
+        side: str,
+        entry_price: float,
+        stop_price: float,
+        target_price: float | None,
+        minutes: int = 10,
+    ) -> sqlite3.Row | None:
+        with self.db.connect() as connection:
+            return connection.execute(
+                """
+                SELECT * FROM trades
+                WHERE user_id = ? AND symbol = ? AND side = ? AND status = 'open'
+                  AND abs(entry_price - ?) < 0.0000001
+                  AND abs(stop_price - ?) < 0.0000001
+                  AND ((target_price IS NULL AND ? IS NULL) OR abs(target_price - ?) < 0.0000001)
+                  AND opened_at >= datetime('now', ?)
+                ORDER BY opened_at DESC LIMIT 1
+                """,
+                (user_id, symbol.upper(), side, entry_price, stop_price, target_price, target_price, f"-{minutes} minutes"),
+            ).fetchone()
+
     def update(
         self,
         user_id: int,
@@ -915,3 +939,18 @@ class JournalRepository:
                     params,
                 )
             )
+
+    def get(self, user_id: int, entry_id: int) -> sqlite3.Row | None:
+        with self.db.connect() as connection:
+            return connection.execute(
+                "SELECT * FROM journal_entries WHERE id = ? AND user_id = ?",
+                (entry_id, user_id),
+            ).fetchone()
+
+    def link_trade(self, user_id: int, entry_id: int, trade_id: int) -> bool:
+        with self.db.connect() as connection:
+            cursor = connection.execute(
+                "UPDATE journal_entries SET linked_trade_id = ? WHERE id = ? AND user_id = ?",
+                (trade_id, entry_id, user_id),
+            )
+            return cursor.rowcount > 0

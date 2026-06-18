@@ -298,7 +298,7 @@ function animateTradeChart(canvas, candles, row, animationKey = row.id) {
     count += step;
     if (count >= candles.length) count = 2;
     drawTradeChart(canvas, candles.slice(0, count), row);
-  }, 90);
+  }, 170);
   chartAnimations.set(animationKey, timer);
 }
 
@@ -341,8 +341,10 @@ function drawTradeChart(canvas, candles, row) {
     ctx.fillText("Загружаю свечи...", 16, h / 2);
     return;
   }
-  const rawMax = Math.max(...prices);
-  const rawMin = Math.min(...prices);
+  const levels = [row.entry_price, row.stop_price, row.target_price].map(Number).filter(Number.isFinite);
+  const scaledPrices = [...prices, ...levels];
+  const rawMax = Math.max(...scaledPrices);
+  const rawMin = Math.min(...scaledPrices);
   const padding = Math.max((rawMax - rawMin) * .18, prices[prices.length - 1] * .0012);
   const max = rawMax + padding;
   const min = rawMin - padding;
@@ -363,9 +365,9 @@ function drawTradeChart(canvas, candles, row) {
     else ctx.lineTo(x, y(price));
   });
   ctx.stroke();
-  drawLevel(ctx, w, safeY(row.entry_price), y(row.entry_price) !== safeY(row.entry_price) ? "entry вне масштаба" : "entry", "#43d7ff");
-  drawLevel(ctx, w, safeY(row.stop_price), y(row.stop_price) !== safeY(row.stop_price) ? "stop вне масштаба" : "stop", "#ff657d");
-  if (row.target_price) drawLevel(ctx, w, safeY(row.target_price), y(row.target_price) !== safeY(row.target_price) ? "take вне масштаба" : "take", "#55e08a");
+  drawLevel(ctx, w, safeY(row.entry_price), `ВХОД ${fmt(row.entry_price, 6)}`, "#43d7ff");
+  drawLevel(ctx, w, safeY(row.stop_price), `СТОП ${fmt(row.stop_price, 6)}`, "#ff657d");
+  if (row.target_price) drawLevel(ctx, w, safeY(row.target_price), `ТЕЙК ${fmt(row.target_price, 6)}`, "#55e08a");
 }
 
 function drawMiniTrend(canvas, candles) {
@@ -442,8 +444,15 @@ function drawLevel(ctx, width, y, label, color) {
   ctx.lineTo(width, y);
   ctx.stroke();
   ctx.setLineDash([]);
-  ctx.font = "12px system-ui";
-  ctx.fillText(label, 8, Math.max(12, y - 4));
+  ctx.font = "bold 11px system-ui";
+  const labelWidth = ctx.measureText(label).width + 12;
+  const labelY = Math.max(2, Math.min(y - 17, ctx.canvas.height - 19));
+  ctx.fillStyle = "rgba(4, 8, 18, .9)";
+  ctx.fillRect(6, labelY, labelWidth, 17);
+  ctx.strokeStyle = color;
+  ctx.strokeRect(6, labelY, labelWidth, 17);
+  ctx.fillStyle = color;
+  ctx.fillText(label, 12, labelY + 12);
 }
 
 function chartIntervalLabel() {
@@ -505,14 +514,13 @@ async function loadJournalTradeTrend(row) {
       const timer = setInterval(() => {
         count += step;
         if (count >= data.items.length) count = 2;
-        drawMiniTrend(canvas, data.items.slice(0, count));
-      }, 100);
+        drawTradeChart(canvas, data.items.slice(0, count), data.trade);
+      }, 180);
       chartAnimations.set(`journal-${row.id}`, timer);
       caption.textContent = "история сделки · повтор";
     } else {
-      const trend = drawMiniTrend(canvas, data.items);
-      caption.textContent = `${chartIntervalLabel()} · ${trend.label} · ${signed(trend.change)}%${data.fallback ? " · архив недоступен" : ""}`;
-      caption.className = `trend-caption ${trend.className}`;
+      drawTradeChart(canvas, data.items, data.trade);
+      caption.textContent = `${chartIntervalLabel()} · уровни входа, стопа и тейка${data.fallback ? " · архив недоступен" : ""}`;
     }
   } catch {
     drawMiniTrend(canvas, []);

@@ -210,6 +210,8 @@ function renderTradeCard(row, compact) {
   const markPrice = isOpen ? livePrice : row.exit_price;
   const pnl = markPrice ? calcPnl(row, markPrice) : Number(row.pnl || 0);
   const pnlPct = markPrice ? pnlPercent(row, markPrice) : 0;
+  const margin = Number(row.entry_price) * Number(row.quantity) / Math.max(Number(row.leverage || 1), 1);
+  const marginRoi = margin > 0 ? pnl / margin * 100 : 0;
   const progress = tradeProgress(row, markPrice);
   const pnlClass = pnl >= 0 ? "positive" : "negative";
   const attachmentStrip = tradeAttachmentImages(row.attachments || []);
@@ -236,6 +238,9 @@ function renderTradeCard(row, compact) {
         <span>R/R <b>${rrText(row)}</b></span>
         <span>Таймфрейм <b>${chartIntervalLabel()}</b></span>
         <span>Количество <b>${fmt(row.quantity, 8)} ${symbol.replace("USDT", "")}</b></span>
+        <span>Плечо <b>${fmt(row.leverage || 1, 2)}x</b></span>
+        <span>Маржа <b>${fmt(margin, 2)} USDT</b></span>
+        <span>ROI на маржу <b class="${pnlClass}">${markPrice || row.status === "closed" ? signed(marginRoi) : "-"}%</b></span>
         <span>Теги <b>${escapeHtml(row.tags || `coin:${symbol.replace("USDT", "")}`)}</b></span>
       </div>
       ${attachmentStrip ? `<div class="trade-media">${attachmentStrip}</div>` : ""}

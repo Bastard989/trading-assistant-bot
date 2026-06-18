@@ -250,6 +250,11 @@ def journal_api(user_id: int = Query(...), symbol: str = "") -> dict:
     return {"items": [row_to_dict(row) for row in journal.list_for_user(user_id, symbol=symbol, limit=50)]}
 
 
+@app.post("/api/journal/{journal_id}/merge")
+def merge_journal_api(journal_id: int, user_id: int = Query(...), remove_id: int = Query(...)) -> dict:
+    return {"ok": journal.merge(user_id, journal_id, remove_id)}
+
+
 @app.get("/api/templates")
 def templates_api(user_id: int = Query(...)) -> dict:
     return {"items": templates.list_for_user(user_id)}

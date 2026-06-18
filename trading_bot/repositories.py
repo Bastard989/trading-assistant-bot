@@ -954,3 +954,36 @@ class JournalRepository:
                 (trade_id, entry_id, user_id),
             )
             return cursor.rowcount > 0
+
+    def merge(self, user_id: int, keep_id: int, remove_id: int) -> bool:
+        with self.db.connect() as connection:
+            keep = connection.execute(
+                "SELECT * FROM journal_entries WHERE id = ? AND user_id = ?",
+                (keep_id, user_id),
+            ).fetchone()
+            remove = connection.execute(
+                "SELECT * FROM journal_entries WHERE id = ? AND user_id = ?",
+                (remove_id, user_id),
+            ).fetchone()
+            if not keep or not remove or keep_id == remove_id:
+                return False
+            file_ids = [
+                item
+                for value in (keep["screenshot_file_id"], remove["screenshot_file_id"])
+                for item in str(value or "").split(",")
+                if item
+            ]
+            connection.execute(
+                """
+                UPDATE journal_entries
+                SET screenshot_file_id = ?,
+                    linked_trade_id = COALESCE(linked_trade_id, ?)
+                WHERE id = ? AND user_id = ?
+                """,
+                (",".join(dict.fromkeys(file_ids)), remove["linked_trade_id"], keep_id, user_id),
+            )
+            connection.execute(
+                "DELETE FROM journal_entries WHERE id = ? AND user_id = ?",
+                (remove_id, user_id),
+            )
+            return True

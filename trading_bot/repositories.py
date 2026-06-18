@@ -365,6 +365,18 @@ class TradeRepository:
             )
         return self.get(user_id, trade_id)
 
+    def set_leverage(self, user_id: int, trade_id: int, leverage: float) -> sqlite3.Row | None:
+        if leverage <= 0:
+            return None
+        with self.db.connect() as connection:
+            cursor = connection.execute(
+                "UPDATE trades SET leverage = ? WHERE id = ? AND user_id = ?",
+                (leverage, trade_id, user_id),
+            )
+            if cursor.rowcount == 0:
+                return None
+        return self.get(user_id, trade_id)
+
     def add_attachment(self, user_id: int, trade_id: int, telegram_file_id: str = "", local_path: str = "", caption: str = "") -> int | None:
         if not self.get(user_id, trade_id):
             return None

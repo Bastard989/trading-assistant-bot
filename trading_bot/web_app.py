@@ -176,6 +176,12 @@ def update_trade_api(
     return {"ok": row is not None, "trade": trade_to_dict(row) if row else None}
 
 
+@app.post("/api/trades/{trade_id}/leverage")
+def update_trade_leverage_api(trade_id: int, user_id: int = Query(...), leverage: float = Query(..., gt=0)) -> dict:
+    row = trades.set_leverage(user_id, trade_id, leverage)
+    return {"ok": row is not None, "trade": trade_to_dict(row) if row else None}
+
+
 @app.post("/api/trades/{trade_id}/attachment")
 async def upload_trade_attachment(trade_id: int, request: Request, user_id: int = Query(...), filename: str = "screenshot.jpg") -> dict:
     if not trades.get(user_id, trade_id):

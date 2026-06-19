@@ -22,6 +22,8 @@ let currentPriceItems = [];
 let priceTimer = null;
 let marketTimer = null;
 let currentSessions = [];
+let activeSession = null;
+let sessionRealizedPnl = 0;
 
 document.querySelectorAll(".tab").forEach(button => {
   button.addEventListener("click", async () => {
@@ -86,6 +88,9 @@ async function loadDashboard() {
   document.getElementById("watchlist").innerHTML = data.watchlist.map(symbol => `<button class="chip favorite-chip" onclick="fillSymbol('${symbol}')">★ ${symbol}</button>`).join("") || "<span class='chip'>Пусто</span>";
   document.getElementById("planText").textContent = data.plan ? `${data.plan.allowed_symbols || "без монет"} | риск ${data.plan.max_daily_risk_percent}% | стоп ${fmt(data.plan.max_daily_loss)} USDT` : "План дня не задан";
   document.querySelector(".eyebrow").textContent = `Кабинет трейдера · ${data.session?.name || "без активной сессии"}`;
+  activeSession = data.session || null;
+  sessionRealizedPnl = Number(data.stats.net_pnl || 0);
+  updateSessionBalance();
   renderTrades("openTrades", currentOpenTrades, true);
   await loadPrices(data.watchlist, data.open_trades);
 }
@@ -302,6 +307,32 @@ function refreshTradeMetrics(rows) {
     });
     if (expandedTrades.has(Number(row.id))) loadTradeChart(row);
   });
+  updateSessionBalance();
+}
+
+function updateSessionBalance() {
+  const balanceNode = document.getElementById("sessionBalance");
+  const detailsNode = document.getElementById("sessionBalanceDetails");
+  const progressNode = document.getElementById("sessionBalanceProgress");
+  if (!balanceNode || !activeSession) {
+    if (balanceNode) balanceNode.textContent = "—";
+    if (detailsNode) detailsNode.textContent = "Нет активной сессии";
+    if (progressNode) progressNode.style.width = "0%";
+    return;
+  }
+  const unrealized = currentOpenTrades.reduce((sum, trade) => {
+    const mark = priceState.get(cleanSymbol(trade.symbol));
+    return sum + (mark ? calcPnl(trade, mark) : 0);
+  }, 0);
+  const start = Number(activeSession.start_balance || 0);
+  const equity = start + sessionRealizedPnl + unrealized;
+  const totalPnl = sessionRealizedPnl + unrealized;
+  const target = Number(activeSession.target_balance || 0);
+  const progress = target > start ? (equity - start) / (target - start) * 100 : 0;
+  balanceNode.textContent = `${fmt(equity)} USDT`;
+  balanceNode.className = totalPnl >= 0 ? "positive" : "negative";
+  detailsNode.textContent = `Старт ${fmt(start)} · закрыто ${signed(sessionRealizedPnl)} · открыто ${signed(unrealized)}`;
+  progressNode.style.width = `${Math.max(0, Math.min(100, progress))}%`;
 }
 
 function toggleTrade(id, event) {
@@ -706,8 +737,22 @@ async function calculateRisk() {
     const r = data.result;
     const stopDistance = (r.stop_price - r.entry_price) / r.entry_price * 100;
     const targetDistance = r.target_price ? (r.target_price - r.entry_price) / r.entry_price * 100 : 0;
+    const fundingLabel = r.funding_payment > 0 ? "расход" : r.funding_payment < 0 ? "получение" : "нет";
+    const liquidation = r.liquidation_price == null
+      ? "не рассчитывается для Cross без данных аккаунта"
+      : `${fmt(r.liquidation_price, 6)} (${fmt(r.liquidation_distance_percent)}% от входа)`;
     document.getElementById("riskResult").textContent =
-      `Qty: ${fmt(r.quantity, 6)}\nRisk: ${fmt(r.risk_amount)} USDT\nMargin: ${fmt(r.margin)} USDT\nPotential profit: ${r.profit_at_target == null ? "-" : fmt(r.profit_at_target)} USDT\nR/R: ${r.reward_to_risk == null ? "-" : fmt(r.reward_to_risk)}\nДо стопа: ${fmt(stopDistance)}%\nДо тейка: ${fmt(targetDistance)}%`;
+      `Количество: ${fmt(r.quantity, 6)} ${cleanSymbol(r.symbol).replace("USDT", "")}\n` +
+      `Размер позиции: ${fmt(r.notional)} USDT\nМаржа: ${fmt(r.margin)} USDT\n` +
+      `Минимальное плечо по депозиту: ${fmt(Math.max(1, r.minimum_leverage), 2)}x\n` +
+      `Маржи хватает: ${r.margin_sufficient ? "да" : "нет — увеличь плечо или уменьши риск"}\n\n` +
+      `Лимит риска: ${fmt(r.risk_amount)} USDT\nЧистый убыток по стопу: ${fmt(r.net_loss_at_stop)} USDT\n` +
+      `  движение цены: ${fmt(r.gross_loss_at_stop)}\n  комиссии: ${fmt(r.entry_fee + r.stop_exit_fee)}\n` +
+      `  проскальзывание: ${fmt(r.stop_slippage)}\n  funding: ${fmt(r.funding_payment)} (${fundingLabel})\n` +
+      `Чистая прибыль по тейку: ${r.net_profit_at_target == null ? "-" : fmt(r.net_profit_at_target)} USDT\n` +
+      `R/R после издержек: ${r.reward_to_risk == null ? "-" : fmt(r.reward_to_risk)}\n` +
+      `До стопа: ${fmt(stopDistance)}% · до тейка: ${fmt(targetDistance)}%\n` +
+      `Оценка ликвидации: ${liquidation}`;
   } catch {
     document.getElementById("riskResult").textContent = "Проверь параметры расчета";
   }

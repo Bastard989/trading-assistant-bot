@@ -20,6 +20,22 @@ class RiskCalculation:
     loss_at_stop: float
     profit_at_target: float | None
     reward_to_risk: float | None
+    gross_loss_at_stop: float
+    gross_profit_at_target: float | None
+    entry_fee: float
+    stop_exit_fee: float
+    target_exit_fee: float | None
+    stop_slippage: float
+    target_slippage: float | None
+    funding_payment: float
+    net_loss_at_stop: float
+    net_profit_at_target: float | None
+    liquidation_price: float | None
+    liquidation_distance_percent: float | None
+    minimum_leverage: float
+    margin_sufficient: bool
+    margin_mode: str
+    maintenance_margin_percent: float
 
 
 @dataclass(frozen=True)

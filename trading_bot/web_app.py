@@ -415,8 +415,21 @@ def risk_api(
     account: float = 0,
     risk_percent: float = 1,
     leverage: float = 1,
+    entry_fee_percent: float = 0.05,
+    exit_fee_percent: float = 0.05,
+    slippage_percent: float = 0.02,
+    funding_rate_percent: float = 0,
+    holding_hours: float = 0,
+    funding_interval_hours: float = 8,
+    maintenance_margin_percent: float = 0.5,
+    margin_mode: str = "isolated",
 ) -> dict:
-    calc = calculate_risk(symbol, side, entry, stop, account, risk_percent, target, leverage)
+    calc = calculate_risk(
+        symbol, side, entry, stop, account, risk_percent, target, leverage,
+        entry_fee_percent, exit_fee_percent, slippage_percent,
+        funding_rate_percent, holding_hours, funding_interval_hours,
+        maintenance_margin_percent, margin_mode,
+    )
     return {"result": calc.__dict__}
 
 

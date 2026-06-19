@@ -34,6 +34,7 @@
 
       <section id="dashboard" class="view active">
         <div class="metrics">
+          <div class="metric session-balance-metric"><span>Баланс сессии</span><strong id="sessionBalance">—</strong><small id="sessionBalanceDetails">Нет активной сессии</small><div class="session-balance-track"><i id="sessionBalanceProgress"></i></div></div>
           <div class="metric"><span>PnL</span><strong id="netPnl">0</strong></div>
           <div class="metric"><span>Winrate</span><strong id="winrate">0%</strong></div>
           <div class="metric"><span>Риск в рынке</span><strong id="openRisk">0</strong></div>
@@ -105,11 +106,19 @@
           <label>Стоп<input name="stop" type="number" step="0.0001" value="64000" /></label>
           <label>Тейк<input name="target" type="number" step="0.0001" value="68000" /></label>
           <label>Плечо<input name="leverage" type="number" step="0.1" value="1" /></label>
+          <label>Режим маржи<select name="margin_mode"><option value="isolated" selected>Isolated</option><option value="cross">Cross</option></select></label>
+          <label>Комиссия входа %<input name="entry_fee_percent" type="number" min="0" step="0.001" value="0.05" /></label>
+          <label>Комиссия выхода %<input name="exit_fee_percent" type="number" min="0" step="0.001" value="0.05" /></label>
+          <label>Проскальзывание % / ордер<input name="slippage_percent" type="number" min="0" step="0.001" value="0.02" /></label>
+          <label>Funding % / 8ч<input name="funding_rate_percent" type="number" step="0.001" value="0" /></label>
+          <label>Время в позиции, часов<input name="holding_hours" type="number" min="0" step="0.5" value="0" /></label>
+          <input name="funding_interval_hours" type="hidden" value="8" />
+          <label>Maintenance margin %<input name="maintenance_margin_percent" type="number" min="0" step="0.01" value="0.5" /></label>
         </form>
         <section class="band">
           <h2>Расчет</h2>
           <pre id="riskResult">Заполни форму</pre>
-          <p class="section-copy">Плечо увеличивает размер позиции относительно залога. Риск задается стопом и количеством монет; плечо не должно увеличивать заранее выбранный риск.</p>
+          <p class="section-copy">Количество рассчитывается так, чтобы убыток по стопу вместе с комиссиями, funding и заданным проскальзыванием укладывался в риск. Ликвидация для Isolated — оценка; точное значение берется только из подключенного биржевого аккаунта.</p>
           <button id="suggestBtn" class="primary-action" type="button">Предложить сценарий входа</button>
           <pre id="suggestResult"></pre>
           <button id="reviewBtn" class="primary-action" type="button">Разобрать по 1D / 1H / 15M / 5M</button>
@@ -158,6 +167,6 @@
       </section>
     </main>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    <script src="/static/app.js?v=20260619-4"></script>
+    <script src="/static/app.js?v=20260619-5"></script>
   </body>
 </html>

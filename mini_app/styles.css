@@ -861,6 +861,31 @@ pre {
   box-shadow: var(--shadow);
 }
 
+.journal-card.is-profit { border-left: 3px solid var(--green); }
+.journal-card.is-loss { border-left: 3px solid var(--red); }
+.journal-card.is-even { border-left: 3px solid var(--amber); }
+
+.journal-result {
+  display: grid;
+  grid-template-columns: 24px auto 1fr;
+  align-items: center;
+  gap: 7px;
+  min-height: 34px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(8, 13, 24, .88);
+  padding: 7px 10px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.journal-result > strong { color: inherit; font-size: 12px; }
+.journal-result > span { justify-self: end; color: var(--text); font-weight: 800; }
+.journal-result.is-profit { border-color: rgba(85, 224, 138, .38); color: var(--green); background: rgba(85, 224, 138, .08); }
+.journal-result.is-loss { border-color: rgba(255, 101, 125, .38); color: var(--red); background: rgba(255, 101, 125, .08); }
+.journal-result.is-even { border-color: rgba(255, 196, 92, .34); color: var(--amber); }
+.journal-result.is-open { box-shadow: inset 0 0 0 1px rgba(67, 215, 255, .12); }
+
 .journal-card strong {
   display: block;
   color: #f7f0ff;

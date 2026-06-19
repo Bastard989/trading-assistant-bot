@@ -951,16 +951,24 @@ class JournalRepository:
             return int(cursor.lastrowid)
 
     def list_for_user(self, user_id: int, symbol: str = "", limit: int = 10) -> list[sqlite3.Row]:
-        symbol_filter = "AND symbol = ?" if symbol else ""
+        symbol_filter = "AND j.symbol = ?" if symbol else ""
         params: tuple[object, ...] = (user_id, symbol.upper(), limit) if symbol else (user_id, limit)
         with self.db.connect() as connection:
             return list(
                 connection.execute(
                     f"""
-                    SELECT *
-                    FROM journal_entries
-                    WHERE user_id = ? {symbol_filter}
-                    ORDER BY created_at DESC
+                    SELECT j.*,
+                        t.status AS trade_status,
+                        t.pnl AS trade_pnl,
+                        t.close_reason AS trade_close_reason,
+                        t.exit_price AS trade_exit_price,
+                        t.side AS trade_side,
+                        t.entry_price AS trade_entry_price,
+                        t.quantity AS trade_quantity
+                    FROM journal_entries j
+                    LEFT JOIN trades t ON t.id = j.linked_trade_id AND t.user_id = j.user_id
+                    WHERE j.user_id = ? {symbol_filter}
+                    ORDER BY j.created_at DESC
                     LIMIT ?
                     """,
                     params,

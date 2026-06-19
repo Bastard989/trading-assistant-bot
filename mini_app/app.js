@@ -250,6 +250,7 @@ async function loadTrades(status = "") {
   const data = await api(`/api/trades?user_id=${userId}${query}`);
   currentTrades = data.items;
   renderTrades("tradesTable", currentTrades, false);
+  updateJournalResults();
 }
 
 function renderTrades(targetId, rows, compact = false) {
@@ -358,6 +359,7 @@ function refreshTradeMetrics(rows) {
     if (expandedTrades.has(Number(row.id))) loadTradeChart(row);
   });
   updateSessionBalance();
+  updateJournalResults();
 }
 
 function updateSessionBalance() {
@@ -656,7 +658,7 @@ function renderJournal() {
     return symbolOk && fromOk && toOk && searchOk;
   });
   document.getElementById("journalList").innerHTML = rows.map(row => `
-    <article class="journal-card">
+    <article class="journal-card ${journalResult(row).className}">
       <div>
         <strong>${row.symbol || "-"}<small>${row.outcome} · ${row.created_at}</small></strong>
         <p>${row.description || "-"}</p>
@@ -664,6 +666,7 @@ function renderJournal() {
         <small>${row.theory || ""}</small>
       </div>
       <div class="journal-visuals">
+        <div class="journal-result ${journalResult(row).className}" data-journal-entry-id="${row.id}">${journalResult(row).icon}<strong>${journalResult(row).label}</strong><span>${journalResult(row).amount}</span></div>
         <canvas id="journal-chart-${row.id}" class="journal-trend-chart" width="560" height="190"></canvas>
         <em id="journal-trend-${row.id}" class="trend-caption">загрузка ${chartIntervalLabel()}</em>
         <div class="media-strip">${mediaImages(row.screenshot_file_id)}</div>
@@ -672,6 +675,37 @@ function renderJournal() {
   `).join("") || emptyRow("Дневник пуст");
   rows.forEach(row => {
     if (cleanSymbol(row.symbol)) loadJournalHistory(row);
+  });
+}
+
+function journalResult(row) {
+  if (!row.linked_trade_id) return { className: "is-idea", icon: "○", label: "ИДЕЯ", amount: "без результата" };
+  const trade = [...currentOpenTrades, ...currentTrades].find(item => Number(item.id) === Number(row.linked_trade_id));
+  const status = row.trade_status || trade?.status;
+  let pnl = row.trade_pnl == null ? null : Number(row.trade_pnl);
+  if (status === "open" && trade) {
+    const mark = priceState.get(cleanSymbol(trade.symbol));
+    if (mark) pnl = calcPnl(trade, mark);
+  }
+  if (status === "open") {
+    const className = pnl == null ? "is-open" : pnl >= 0 ? "is-profit is-open" : "is-loss is-open";
+    return { className, icon: "●", label: "ОТКРЫТА", amount: pnl == null ? "ожидаю цену" : `${signed(pnl)} USDT сейчас` };
+  }
+  if (pnl == null) return { className: "is-idea", icon: "○", label: "НЕТ ИТОГА", amount: "сделка не связана" };
+  if (pnl > 0) return { className: "is-profit", icon: "▲", label: "ПРИБЫЛЬ", amount: `${signed(pnl)} USDT` };
+  if (pnl < 0) return { className: "is-loss", icon: "▼", label: "УБЫТОК", amount: `${signed(pnl)} USDT` };
+  return { className: "is-even", icon: "◆", label: "БЕЗУБЫТОК", amount: "0 USDT" };
+}
+
+function updateJournalResults() {
+  currentJournal.forEach(row => {
+    const node = document.querySelector(`[data-journal-entry-id="${row.id}"]`);
+    if (!node) return;
+    const result = journalResult(row);
+    node.className = `journal-result ${result.className}`;
+    node.innerHTML = `${result.icon}<strong>${result.label}</strong><span>${result.amount}</span>`;
+    node.closest(".journal-card")?.classList.remove("is-profit", "is-loss", "is-even", "is-open", "is-idea");
+    result.className.split(" ").forEach(className => node.closest(".journal-card")?.classList.add(className));
   });
 }
 

@@ -12,7 +12,8 @@ const expandedTrades = new Set();
 const chartAnimations = new Map();
 const expandedMarkets = new Set();
 const editingTrades = new Set();
-const chartIntervals = ["1h", "15m", "5m", "1m"];
+const tradeChartIntervals = new Map();
+const chartIntervals = ["1m", "5m", "15m", "1h", "4h", "1d"];
 let chartInterval = "1m";
 let currentOpenTrades = [];
 let currentTrades = [];
@@ -45,6 +46,7 @@ document.querySelectorAll(".seg").forEach(button => {
 document.querySelectorAll(".tf-btn").forEach(button => {
   button.addEventListener("click", async () => {
     chartInterval = chartIntervals.includes(button.dataset.timeframe) ? button.dataset.timeframe : "1m";
+    [...currentOpenTrades, ...currentTrades].forEach(row => tradeChartIntervals.set(Number(row.id), chartInterval));
     document.querySelectorAll(".tf-btn").forEach(item => item.classList.toggle("active", item.dataset.timeframe === chartInterval));
     renderPrices(lastPriceItems());
     renderTrades("openTrades", currentOpenTrades, true);
@@ -104,8 +106,7 @@ async function loadPrices(watchlist = [], openTrades = []) {
     status.className = "live-status is-live";
     try {
       renderPrices(items);
-      if (!editingTrades.size && currentOpenTrades.length) renderTrades("openTrades", currentOpenTrades, true);
-      if (!editingTrades.size && currentTrades.length) renderTrades("tradesTable", currentTrades, false);
+      refreshTradeMetrics(currentOpenTrades);
     } catch (renderError) {
       console.error("Price render failed", renderError);
       status.textContent = "live, ошибка UI";
@@ -215,6 +216,7 @@ function renderTradeCard(row, compact) {
   const progress = tradeProgress(row, markPrice);
   const pnlClass = pnl >= 0 ? "positive" : "negative";
   const attachmentStrip = tradeAttachmentImages(row.attachments || []);
+  const tradeTf = tradeChartInterval(row);
   const editPanel = isOpen ? `
     <div class="trade-edit" onclick="event.stopPropagation()">
       <div class="edit-grid">
@@ -222,7 +224,7 @@ function renderTradeCard(row, compact) {
         <label>Стоп<input id="edit-stop-${row.id}" type="number" step="any" value="${row.stop_price}"></label>
         <label>Тейк<input id="edit-target-${row.id}" type="number" step="any" value="${row.target_price || ""}"></label>
         <label>Количество<input id="edit-qty-${row.id}" type="number" step="any" value="${row.quantity}"></label>
-        <label>Таймфрейм<select id="edit-timeframe-${row.id}">${["1m","5m","15m","1h","4h","1d"].map(tf => `<option ${row.timeframe === tf ? "selected" : ""}>${tf}</option>`).join("")}</select></label>
+        <label>Таймфрейм<select id="edit-timeframe-${row.id}" onchange="setTradeChartInterval(${row.id}, this.value, event)">${chartIntervals.map(tf => `<option ${tradeTf === tf ? "selected" : ""}>${tf}</option>`).join("")}</select></label>
         <label>Комментарий<input id="edit-note-${row.id}" placeholder="Почему перенес стоп или тейк"></label>
         <label class="photo-picker">Добавить фото<input id="edit-photo-${row.id}" type="file" accept="image/jpeg,image/png,image/webp" multiple></label>
       </div>
@@ -230,17 +232,23 @@ function renderTradeCard(row, compact) {
     </div>` : "";
   const details = `
     <div class="trade-details">
-      <canvas id="chart-${row.id}" class="trade-chart" width="620" height="180"></canvas>
+      <div class="trade-chart-panel">
+        <div class="trade-timeframe-switch" aria-label="Таймфрейм графика сделки">
+          ${chartIntervals.map(tf => `<button type="button" data-trade-timeframe="${tf}" class="${tradeTf === tf ? "active" : ""}" onclick="setTradeChartInterval(${row.id}, '${tf}', event)">${tf.toUpperCase()}</button>`).join("")}
+        </div>
+        <canvas id="chart-${row.id}" class="trade-chart" width="760" height="260"></canvas>
+      </div>
       <div class="trade-stats">
-        <span>Цена сейчас <b>${markPrice ? fmt(markPrice, markPrice > 10 ? 2 : 6) : "-"}</b></span>
-        <span>До стопа <b>${distanceTo(row.stop_price, markPrice)}</b></span>
-        <span>До тейка <b>${row.target_price ? distanceTo(row.target_price, markPrice) : "-"}</b></span>
+        <span>Цена сейчас <b data-trade-current-price>${markPrice ? fmt(markPrice, markPrice > 10 ? 2 : 6) : "-"}</b></span>
+        <span>До стопа <b data-trade-stop-distance>${distanceTo(row.stop_price, markPrice)}</b></span>
+        <span>До тейка <b data-trade-target-distance>${row.target_price ? distanceTo(row.target_price, markPrice) : "-"}</b></span>
         <span>R/R <b>${rrText(row)}</b></span>
-        <span>Таймфрейм <b>${chartIntervalLabel()}</b></span>
+        <span>Таймфрейм <b data-trade-timeframe-label>${chartIntervalLabel(tradeTf)}</b></span>
+        <span>Источник <b>Binance Futures</b></span>
         <span>Количество <b>${fmt(row.quantity, 8)} ${symbol.replace("USDT", "")}</b></span>
         <span>Плечо <b>${fmt(row.leverage || 1, 2)}x</b></span>
         <span>Маржа <b>${fmt(margin, 2)} USDT</b></span>
-        <span>ROI на маржу <b class="${pnlClass}">${markPrice || row.status === "closed" ? signed(marginRoi) : "-"}%</b></span>
+        <span>ROI на маржу <b data-trade-margin-roi class="${pnlClass}">${markPrice || row.status === "closed" ? signed(marginRoi) : "-"}%</b></span>
         <span>Теги <b>${escapeHtml(row.tags || `coin:${symbol.replace("USDT", "")}`)}</b></span>
       </div>
       ${attachmentStrip ? `<div class="trade-media">${attachmentStrip}</div>` : ""}
@@ -253,15 +261,47 @@ function renderTradeCard(row, compact) {
         <strong>#${row.id} ${symbol}<small>${row.side.toUpperCase()} ${row.status}${row.close_reason ? ` · ${closeReasonText(row.close_reason)}` : ""}</small></strong>
         <span>Entry ${fmt(row.entry_price, 6)}<small>Stop ${fmt(row.stop_price, 6)}</small></span>
         <span>Target ${row.target_price ? fmt(row.target_price, 6) : "-"}</span>
-        <span class="${pnlClass}">${markPrice ? signed(pnl) : (row.pnl == null ? "-" : signed(row.pnl))} USDT<small>${markPrice ? signed(pnlPct) : "0"}%</small></span>
+        <span data-trade-pnl class="${pnlClass}">${markPrice ? signed(pnl) : (row.pnl == null ? "-" : signed(row.pnl))} USDT<small data-trade-pnl-percent>${markPrice ? signed(pnlPct) : "0"}%</small></span>
         <span class="trade-actions" onclick="event.stopPropagation()">
           ${isOpen ? `<button class="mini-action" onclick="toggleEditTrade(${row.id})">Изменить</button><button class="mini-action" onclick="closeTrade(${row.id})">Закрыть</button><button class="mini-action" onclick="cancelTrade(${row.id})">Отменить</button>` : ""}
         </span>
       </div>
-      <div class="progress-rail"><span style="width:${progress}%"></span></div>
+      <div class="progress-rail"><span data-trade-progress style="width:${progress}%"></span></div>
       ${details}
     </article>
   `;
+}
+
+function refreshTradeMetrics(rows) {
+  rows.forEach(row => {
+    const markPrice = priceState.get(cleanSymbol(row.symbol));
+    if (!markPrice) return;
+    const pnl = calcPnl(row, markPrice);
+    const pnlPct = pnlPercent(row, markPrice);
+    const pnlClass = pnl >= 0 ? "positive" : "negative";
+    const margin = Number(row.entry_price) * Number(row.quantity) / Math.max(Number(row.leverage || 1), 1);
+    const marginRoi = margin > 0 ? pnl / margin * 100 : 0;
+    document.querySelectorAll(`[data-trade-id="${row.id}"]`).forEach(card => {
+      const pnlNode = card.querySelector("[data-trade-pnl]");
+      if (pnlNode) {
+        pnlNode.className = pnlClass;
+        pnlNode.firstChild.textContent = `${signed(pnl)} USDT`;
+      }
+      const pctNode = card.querySelector("[data-trade-pnl-percent]");
+      if (pctNode) pctNode.textContent = `${signed(pnlPct)}%`;
+      const priceNode = card.querySelector("[data-trade-current-price]");
+      if (priceNode) priceNode.textContent = fmt(markPrice, markPrice > 10 ? 2 : 6);
+      const stopNode = card.querySelector("[data-trade-stop-distance]");
+      if (stopNode) stopNode.textContent = distanceTo(row.stop_price, markPrice);
+      const targetNode = card.querySelector("[data-trade-target-distance]");
+      if (targetNode) targetNode.textContent = row.target_price ? distanceTo(row.target_price, markPrice) : "-";
+      const roiNode = card.querySelector("[data-trade-margin-roi]");
+      if (roiNode) { roiNode.textContent = `${signed(marginRoi)}%`; roiNode.className = pnlClass; }
+      const progressNode = card.querySelector("[data-trade-progress]");
+      if (progressNode) progressNode.style.width = `${tradeProgress(row, markPrice)}%`;
+    });
+    if (expandedTrades.has(Number(row.id))) loadTradeChart(row);
+  });
 }
 
 function toggleTrade(id, event) {
@@ -278,31 +318,51 @@ async function loadTradeChart(row, force = false) {
   const canvases = [...document.querySelectorAll(`[data-trade-id="${row.id}"] canvas.trade-chart`)];
   if (!canvases.length) return;
   const symbol = cleanSymbol(row.symbol);
+  const interval = tradeChartInterval(row);
   try {
-    const cacheKey = `trade:${row.id}:${chartInterval}`;
+    const cacheKey = `trade:${row.id}:${interval}`;
     const stale = Date.now() - (candleUpdatedAt.get(cacheKey) || 0) > 10000;
     if (force || stale || !candleCache.has(cacheKey)) {
-      const data = await api(`/api/trades/${row.id}/chart?user_id=${userId}&interval=${chartInterval}`);
+      const data = await api(`/api/trades/${row.id}/chart?user_id=${userId}&interval=${interval}`);
       candleCache.set(cacheKey, data.items);
       candleUpdatedAt.set(cacheKey, Date.now());
     }
     canvases.forEach((canvas, index) => {
-      if (row.status === "closed" && candleCache.get(cacheKey)?.length > 2) animateTradeChart(canvas, candleCache.get(cacheKey), row, `${row.id}-${index}`);
-      else drawTradeChart(canvas, candleCache.get(cacheKey), row);
+      if (row.status === "closed" && candleCache.get(cacheKey)?.length > 2) animateTradeChart(canvas, candleCache.get(cacheKey), row, interval, `${row.id}-${index}`);
+      else drawTradeChart(canvas, candleCache.get(cacheKey), row, interval);
     });
   } catch {
-    canvases.forEach(canvas => drawTradeChart(canvas, [], row));
+    canvases.forEach(canvas => drawTradeChart(canvas, [], row, interval));
   }
 }
 
-function animateTradeChart(canvas, candles, row, animationKey = row.id) {
+function tradeChartInterval(row) {
+  const saved = String(row?.timeframe || "").toLowerCase();
+  return tradeChartIntervals.get(Number(row?.id)) || (chartIntervals.includes(saved) ? saved : chartInterval);
+}
+
+function setTradeChartInterval(id, interval, event) {
+  event?.stopPropagation();
+  if (!chartIntervals.includes(interval)) return;
+  const numericId = Number(id);
+  tradeChartIntervals.set(numericId, interval);
+  document.querySelectorAll(`[data-trade-id="${numericId}"]`).forEach(card => {
+    card.querySelectorAll("[data-trade-timeframe]").forEach(button => button.classList.toggle("active", button.dataset.tradeTimeframe === interval));
+    const label = card.querySelector("[data-trade-timeframe-label]");
+    if (label) label.textContent = chartIntervalLabel(interval);
+  });
+  const row = [...currentOpenTrades, ...currentTrades].find(item => Number(item.id) === numericId);
+  if (row) loadTradeChart(row, true);
+}
+
+function animateTradeChart(canvas, candles, row, interval, animationKey = row.id) {
   clearInterval(chartAnimations.get(animationKey));
   let count = 2;
   const step = Math.max(1, Math.ceil(candles.length / 45));
   const timer = setInterval(() => {
     count += step;
     if (count >= candles.length) count = 2;
-    drawTradeChart(canvas, candles.slice(0, count), row);
+    drawTradeChart(canvas, candles.slice(0, count), row, interval);
   }, 170);
   chartAnimations.set(animationKey, timer);
 }
@@ -332,22 +392,29 @@ function candlesKey(symbol) {
   return `${cleanSymbol(symbol)}:${chartInterval}`;
 }
 
-function drawTradeChart(canvas, candles, row) {
+function drawTradeChart(canvas, candles, row, interval = chartInterval) {
   const ctx = canvas.getContext("2d");
   const w = canvas.width;
   const h = canvas.height;
   ctx.clearRect(0, 0, w, h);
   ctx.fillStyle = "rgba(5, 8, 16, .7)";
   ctx.fillRect(0, 0, w, h);
-  const prices = (candles || []).map(c => Number(c.close)).filter(Number.isFinite);
-  if (prices.length < 2) {
+  const rows = (candles || []).map(c => ({
+    time: Number(c.open_time),
+    open: Number(c.open),
+    high: Number(c.high),
+    low: Number(c.low),
+    close: Number(c.close),
+  })).filter(c => [c.open, c.high, c.low, c.close].every(Number.isFinite));
+  if (rows.length < 2) {
     ctx.fillStyle = "rgba(177, 191, 222, .72)";
     ctx.font = "13px system-ui";
     ctx.fillText("Загружаю свечи...", 16, h / 2);
     return;
   }
+  const prices = rows.map(c => c.close);
   const levels = [row.entry_price, row.stop_price, row.target_price].map(Number).filter(Number.isFinite);
-  const scaledPrices = [...prices, ...levels];
+  const scaledPrices = [...rows.flatMap(c => [c.high, c.low]), ...levels];
   const rawMax = Math.max(...scaledPrices);
   const rawMin = Math.min(...scaledPrices);
   const padding = Math.max((rawMax - rawMin) * .18, prices[prices.length - 1] * .0012);
@@ -355,21 +422,41 @@ function drawTradeChart(canvas, candles, row) {
   const min = rawMin - padding;
   const y = price => h - ((price - min) / Math.max(max - min, 0.000001)) * (h - 22) - 11;
   const safeY = price => Math.max(11, Math.min(h - 11, y(price)));
-  const plotEnd = w * 0.64;
+  const plotStart = 12;
+  const plotEnd = w * 0.74;
   ctx.fillStyle = "rgba(168, 85, 247, .055)";
   ctx.fillRect(plotEnd, 0, w - plotEnd, h);
   ctx.fillStyle = "rgba(177, 191, 222, .35)";
   ctx.font = "10px system-ui";
   ctx.fillText("ПРОСТРАНСТВО ЦЕНЫ", plotEnd + 10, 16);
-  ctx.strokeStyle = "rgba(67, 215, 255, .8)";
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  prices.forEach((price, index) => {
-    const x = 10 + index * ((plotEnd - 10) / Math.max(prices.length - 1, 1));
-    if (index === 0) ctx.moveTo(x, y(price));
-    else ctx.lineTo(x, y(price));
+  ctx.strokeStyle = "rgba(177, 191, 222, .1)";
+  ctx.lineWidth = 1;
+  for (let i = 1; i < 4; i += 1) {
+    const gridY = (h / 4) * i;
+    ctx.beginPath();
+    ctx.moveTo(plotStart, gridY);
+    ctx.lineTo(plotEnd, gridY);
+    ctx.stroke();
+  }
+  const slot = (plotEnd - plotStart) / Math.max(rows.length, 1);
+  const bodyWidth = Math.max(1.2, Math.min(5, slot * .68));
+  rows.forEach((candle, index) => {
+    const x = plotStart + slot * (index + .5);
+    const color = candle.close >= candle.open ? "#55e08a" : "#ff657d";
+    ctx.strokeStyle = color;
+    ctx.fillStyle = color;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(x, y(candle.high));
+    ctx.lineTo(x, y(candle.low));
+    ctx.stroke();
+    const bodyTop = y(Math.max(candle.open, candle.close));
+    const bodyBottom = y(Math.min(candle.open, candle.close));
+    ctx.fillRect(x - bodyWidth / 2, bodyTop, bodyWidth, Math.max(1.4, bodyBottom - bodyTop));
   });
-  ctx.stroke();
+  ctx.fillStyle = "rgba(177, 191, 222, .68)";
+  ctx.font = "10px system-ui";
+  ctx.fillText(`BINANCE FUTURES · ${interval.toUpperCase()} · ${rows.length} СВЕЧЕЙ`, plotStart, h - 5);
   drawLevel(ctx, w, safeY(row.entry_price), `ВХОД ${fmt(row.entry_price, 6)}`, "#43d7ff");
   drawLevel(ctx, w, safeY(row.stop_price), `СТОП ${fmt(row.stop_price, 6)}`, "#ff657d");
   if (row.target_price) drawLevel(ctx, w, safeY(row.target_price), `ТЕЙК ${fmt(row.target_price, 6)}`, "#55e08a");
@@ -460,8 +547,8 @@ function drawLevel(ctx, width, y, label, color) {
   ctx.fillText(label, 12, labelY + 12);
 }
 
-function chartIntervalLabel() {
-  return { "1h": "1 час", "15m": "15 мин", "5m": "5 мин", "1m": "1 мин" }[chartInterval] || chartInterval;
+function chartIntervalLabel(interval = chartInterval) {
+  return { "1d": "1 день", "4h": "4 часа", "1h": "1 час", "15m": "15 мин", "5m": "5 мин", "1m": "1 мин" }[interval] || interval;
 }
 
 async function loadJournal() {
@@ -703,7 +790,7 @@ async function saveTradeEdit(id) {
     if (!upload.ok) alert(`Не загрузилось фото: ${file.name}`);
   }
   editingTrades.delete(Number(id));
-  candleCache.delete(`trade:${id}:${chartInterval}`);
+  [...candleCache.keys()].filter(key => key.startsWith(`trade:${id}:`)).forEach(key => candleCache.delete(key));
   await loadAll();
 }
 

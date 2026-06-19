@@ -702,6 +702,28 @@ pre {
 
 .trade-card.expanded .trade-details { display: grid; }
 
+.trade-chart-panel { min-width: 0; }
+.trade-timeframe-switch {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(38px, 1fr));
+  gap: 4px;
+  margin-bottom: 8px;
+}
+.trade-timeframe-switch button {
+  min-height: 30px;
+  padding: 4px 6px;
+  border: 1px solid rgba(177, 191, 222, .16);
+  border-radius: 6px;
+  background: rgba(8, 12, 24, .82);
+  color: var(--muted);
+  font-weight: 700;
+}
+.trade-timeframe-switch button.active {
+  border-color: rgba(67, 215, 255, .55);
+  background: rgba(67, 215, 255, .12);
+  color: var(--cyan);
+}
+
 .trade-media { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 180px)); gap: 8px; }
 .trade-shot { width: 100%; height: 112px; object-fit: cover; border: 1px solid rgba(67, 215, 255, .2); border-radius: 8px; }
 .trade-edit { display: none; padding: 12px; border-top: 1px solid var(--line); background: rgba(11, 7, 24, .88); }
@@ -713,7 +735,7 @@ pre {
 
 .trade-chart {
   width: 100%;
-  height: 180px;
+  height: 260px;
   border: 1px solid rgba(67, 215, 255, 0.18);
   border-radius: 8px;
   background: rgba(4, 8, 17, 0.9);

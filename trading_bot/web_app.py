@@ -323,19 +323,20 @@ async def klines_api(symbol: str, interval: str = "1m", limit: int = Query(80, g
 
 @app.get("/api/trades/{trade_id}/chart")
 async def trade_chart_api(trade_id: int, user_id: int = Query(...), interval: str = "1m") -> dict:
+    interval = interval if interval in {"1m", "5m", "15m", "1h", "4h", "1d"} else "1m"
     trade = trades.get(user_id, trade_id)
     if not trade:
         raise HTTPException(status_code=404, detail="Trade not found")
     stored = [row_to_dict(row) for row in trades.candles(trade_id, interval)]
     if trade["status"] == "open":
-        live = await market.get_klines(trade["symbol"], interval, limit=80)
+        live = await market.get_klines(trade["symbol"], interval, limit=180)
         if interval == "1m":
             trades.save_candles(trade_id, live, interval)
-        return {"items": live, "historical": False, "trade": trade_to_dict(trade)}
+        return {"items": live, "historical": False, "trade": trade_to_dict(trade), "market": market.market}
     if stored:
-        return {"items": stored, "historical": True, "trade": trade_to_dict(trade)}
-    fallback = await market.get_klines(trade["symbol"], interval, limit=80)
-    return {"items": fallback, "historical": False, "fallback": True, "trade": trade_to_dict(trade)}
+        return {"items": stored, "historical": True, "trade": trade_to_dict(trade), "market": market.market}
+    fallback = await market.get_klines(trade["symbol"], interval, limit=180)
+    return {"items": fallback, "historical": False, "fallback": True, "trade": trade_to_dict(trade), "market": market.market}
 
 
 @app.get("/api/media/{file_id:path}")

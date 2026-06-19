@@ -255,6 +255,31 @@ def alerts_api(user_id: int = Query(...)) -> dict:
     return {"items": [row_to_dict(row) for row in alerts.list_for_user(user_id)]}
 
 
+@app.get("/api/watchlist")
+def watchlist_api(user_id: int = Query(...)) -> dict:
+    users.ensure_user(user_id)
+    return {"items": watchlist.list_symbols(user_id)}
+
+
+@app.post("/api/watchlist")
+async def add_watchlist_api(user_id: int = Query(...), symbol: str = Query(..., min_length=1)) -> dict:
+    users.ensure_user(user_id)
+    normalized = normalize_symbol(symbol)
+    try:
+        await market.get_price(normalized)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Монета не найдена на Binance Futures") from exc
+    watchlist.add(user_id, normalized)
+    return {"ok": True, "symbol": normalized, "items": watchlist.list_symbols(user_id)}
+
+
+@app.delete("/api/watchlist")
+def remove_watchlist_api(user_id: int = Query(...), symbol: str = Query(..., min_length=1)) -> dict:
+    normalized = normalize_symbol(symbol)
+    removed = watchlist.remove(user_id, normalized)
+    return {"ok": removed, "symbol": normalized, "items": watchlist.list_symbols(user_id)}
+
+
 @app.get("/api/journal")
 def journal_api(user_id: int = Query(...), symbol: str = "") -> dict:
     return {"items": [row_to_dict(row) for row in journal.list_for_user(user_id, symbol=symbol, limit=50)]}

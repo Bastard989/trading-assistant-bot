@@ -709,6 +709,21 @@ class WatchlistRepository:
                     (user_id, symbol.upper()),
                 )
 
+    def add(self, user_id: int, symbol: str) -> None:
+        with self.db.connect() as connection:
+            connection.execute(
+                "INSERT OR IGNORE INTO watchlist (user_id, symbol) VALUES (?, ?)",
+                (user_id, symbol.upper()),
+            )
+
+    def remove(self, user_id: int, symbol: str) -> bool:
+        with self.db.connect() as connection:
+            cursor = connection.execute(
+                "DELETE FROM watchlist WHERE user_id = ? AND symbol = ?",
+                (user_id, symbol.upper()),
+            )
+            return cursor.rowcount > 0
+
     def list_symbols(self, user_id: int) -> list[str]:
         with self.db.connect() as connection:
             rows = connection.execute(

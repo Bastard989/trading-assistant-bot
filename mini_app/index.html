@@ -58,7 +58,14 @@
           <div id="priceTape" class="price-tape"></div>
         </section>
         <section class="band">
-          <h2>Watchlist</h2>
+          <div class="section-head">
+            <h2>Избранные монеты</h2>
+            <button id="watchlistToggle" class="icon-btn small-icon-btn" type="button" title="Добавить монету" aria-label="Добавить монету">+</button>
+          </div>
+          <form id="watchlistForm" class="watchlist-editor" hidden>
+            <input id="watchlistSymbol" name="symbol" placeholder="SOL, солана или солик" autocomplete="off" required />
+            <button class="primary-action compact" type="submit">Добавить</button>
+          </form>
           <div id="watchlist" class="chips"></div>
         </section>
         <section class="band">
@@ -167,6 +174,6 @@
       </section>
     </main>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    <script src="/static/app.js?v=20260619-5"></script>
+    <script src="/static/app.js?v=20260619-6"></script>
   </body>
 </html>

@@ -22,6 +22,7 @@ let currentPriceItems = [];
 let priceTimer = null;
 let marketTimer = null;
 let currentSessions = [];
+let currentWatchlist = [];
 let activeSession = null;
 let sessionRealizedPnl = 0;
 
@@ -62,12 +63,14 @@ document.getElementById("reviewBtn").addEventListener("click", reviewTrade);
 document.getElementById("suggestBtn").addEventListener("click", suggestTrade);
 document.getElementById("openTradeBtn").addEventListener("click", () => switchView("calculator"));
 document.getElementById("sessionForm").addEventListener("submit", createSession);
+document.getElementById("watchlistToggle").addEventListener("click", toggleWatchlistEditor);
+document.getElementById("watchlistForm").addEventListener("submit", addWatchlistSymbol);
 ["journalSymbol", "journalFrom", "journalTo", "journalSearch"].forEach(id => {
   document.getElementById(id).addEventListener("input", renderJournal);
 });
 
-async function api(path) {
-  const response = await fetch(path);
+async function api(path, options = undefined) {
+  const response = await fetch(path, options);
   if (!response.ok) throw new Error(await response.text());
   return response.json();
 }
@@ -85,7 +88,8 @@ async function loadDashboard() {
   document.getElementById("winrate").textContent = `${fmt(data.stats.winrate)}%`;
   document.getElementById("openRisk").textContent = `${fmt(data.open_risk)} USDT`;
   document.getElementById("alertCount").textContent = data.active_alerts.length;
-  document.getElementById("watchlist").innerHTML = data.watchlist.map(symbol => `<button class="chip favorite-chip" onclick="fillSymbol('${symbol}')">★ ${symbol}</button>`).join("") || "<span class='chip'>Пусто</span>";
+  currentWatchlist = data.watchlist || [];
+  renderWatchlist();
   document.getElementById("planText").textContent = data.plan ? `${data.plan.allowed_symbols || "без монет"} | риск ${data.plan.max_daily_risk_percent}% | стоп ${fmt(data.plan.max_daily_loss)} USDT` : "План дня не задан";
   document.querySelector(".eyebrow").textContent = `Кабинет трейдера · ${data.session?.name || "без активной сессии"}`;
   activeSession = data.session || null;
@@ -93,6 +97,52 @@ async function loadDashboard() {
   updateSessionBalance();
   renderTrades("openTrades", currentOpenTrades, true);
   await loadPrices(data.watchlist, data.open_trades);
+}
+
+function renderWatchlist() {
+  const target = document.getElementById("watchlist");
+  target.innerHTML = currentWatchlist.map(symbol => `
+    <span class="favorite-item">
+      <button class="chip favorite-chip" type="button" onclick="fillSymbol('${symbol}')">★ ${symbol}</button>
+      <button class="favorite-remove" type="button" title="Убрать ${symbol}" aria-label="Убрать ${symbol}" onclick="removeWatchlistSymbol('${symbol}')">×</button>
+    </span>
+  `).join("") || "<span class='chip'>Список пуст</span>";
+}
+
+function toggleWatchlistEditor() {
+  const form = document.getElementById("watchlistForm");
+  form.hidden = !form.hidden;
+  if (!form.hidden) document.getElementById("watchlistSymbol").focus();
+}
+
+async function addWatchlistSymbol(event) {
+  event.preventDefault();
+  const input = document.getElementById("watchlistSymbol");
+  const symbol = input.value.trim();
+  if (!symbol) return;
+  try {
+    const data = await api(`/api/watchlist?user_id=${userId}&symbol=${encodeURIComponent(symbol)}`, { method: "POST" });
+    currentWatchlist = data.items || [];
+    input.value = "";
+    document.getElementById("watchlistForm").hidden = true;
+    renderWatchlist();
+    await loadPrices(currentWatchlist, currentOpenTrades);
+  } catch {
+    alert("Не удалось добавить монету");
+  }
+}
+
+async function removeWatchlistSymbol(symbol) {
+  try {
+    const response = await fetch(`/api/watchlist?user_id=${userId}&symbol=${encodeURIComponent(symbol)}`, { method: "DELETE" });
+    if (!response.ok) throw new Error(await response.text());
+    const data = await response.json();
+    currentWatchlist = data.items || [];
+    renderWatchlist();
+    await loadPrices(currentWatchlist, currentOpenTrades);
+  } catch {
+    alert("Не удалось убрать монету");
+  }
 }
 
 async function loadPrices(watchlist = [], openTrades = []) {

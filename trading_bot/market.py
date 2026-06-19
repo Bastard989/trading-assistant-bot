@@ -87,11 +87,23 @@ class MarketClient:
         ratio = float(row["longShortRatio"])
         return Sentiment(symbol, long_percent, short_percent, ratio, "Binance futures global long/short accounts, 5m")
 
-    async def get_klines(self, symbol: str, interval: str, limit: int = 120) -> list[dict[str, float]]:
+    async def get_klines(
+        self,
+        symbol: str,
+        interval: str,
+        limit: int = 120,
+        start_time: int | None = None,
+        end_time: int | None = None,
+    ) -> list[dict[str, float]]:
         symbol = normalize_symbol(symbol)
         path = "/api/v3/klines" if self.market == "spot" else "/fapi/v1/klines"
+        params: dict[str, str | int] = {"symbol": symbol, "interval": interval, "limit": limit}
+        if start_time is not None:
+            params["startTime"] = start_time
+        if end_time is not None:
+            params["endTime"] = end_time
         async with httpx.AsyncClient(base_url=self.base_url, timeout=20) as client:
-            response = await client.get(path, params={"symbol": symbol, "interval": interval, "limit": limit})
+            response = await client.get(path, params=params)
             response.raise_for_status()
             data = response.json()
         return [

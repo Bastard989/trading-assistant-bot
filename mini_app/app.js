@@ -413,7 +413,10 @@ function drawTradeChart(canvas, candles, row, interval = chartInterval) {
     return;
   }
   const prices = rows.map(c => c.close);
-  const levels = [row.entry_price, row.stop_price, row.target_price].map(Number).filter(Number.isFinite);
+  const levels = [row?.entry_price, row?.stop_price, row?.target_price]
+    .filter(value => value !== null && value !== undefined && value !== "")
+    .map(Number)
+    .filter(value => Number.isFinite(value) && value > 0);
   const scaledPrices = [...rows.flatMap(c => [c.high, c.low]), ...levels];
   const rawMax = Math.max(...scaledPrices);
   const rawMin = Math.min(...scaledPrices);
@@ -457,9 +460,9 @@ function drawTradeChart(canvas, candles, row, interval = chartInterval) {
   ctx.fillStyle = "rgba(177, 191, 222, .68)";
   ctx.font = "10px system-ui";
   ctx.fillText(`BINANCE FUTURES · ${interval.toUpperCase()} · ${rows.length} СВЕЧЕЙ`, plotStart, h - 5);
-  drawLevel(ctx, w, safeY(row.entry_price), `ВХОД ${fmt(row.entry_price, 6)}`, "#43d7ff");
-  drawLevel(ctx, w, safeY(row.stop_price), `СТОП ${fmt(row.stop_price, 6)}`, "#ff657d");
-  if (row.target_price) drawLevel(ctx, w, safeY(row.target_price), `ТЕЙК ${fmt(row.target_price, 6)}`, "#55e08a");
+  if (row?.entry_price) drawLevel(ctx, w, safeY(row.entry_price), `ВХОД ${fmt(row.entry_price, 6)}`, "#43d7ff");
+  if (row?.stop_price) drawLevel(ctx, w, safeY(row.stop_price), `СТОП ${fmt(row.stop_price, 6)}`, "#ff657d");
+  if (row?.target_price) drawLevel(ctx, w, safeY(row.target_price), `ТЕЙК ${fmt(row.target_price, 6)}`, "#55e08a");
 }
 
 function drawMiniTrend(canvas, candles) {
@@ -580,39 +583,38 @@ function renderJournal() {
         <small>${row.theory || ""}</small>
       </div>
       <div class="journal-visuals">
-        <canvas id="journal-chart-${row.id}" class="journal-trend-chart" width="360" height="118"></canvas>
+        <canvas id="journal-chart-${row.id}" class="journal-trend-chart" width="560" height="190"></canvas>
         <em id="journal-trend-${row.id}" class="trend-caption">загрузка ${chartIntervalLabel()}</em>
         <div class="media-strip">${mediaImages(row.screenshot_file_id)}</div>
       </div>
     </article>
   `).join("") || emptyRow("Дневник пуст");
   rows.forEach(row => {
-    const symbol = cleanSymbol(row.symbol);
-    if (row.linked_trade_id) loadJournalTradeTrend(row);
-    else if (symbol) loadMiniTrend(symbol, `journal-chart-${row.id}`, `journal-trend-${row.id}`);
+    if (cleanSymbol(row.symbol)) loadJournalHistory(row);
   });
 }
 
-async function loadJournalTradeTrend(row) {
+async function loadJournalHistory(row) {
   const canvas = document.getElementById(`journal-chart-${row.id}`);
   const caption = document.getElementById(`journal-trend-${row.id}`);
   if (!canvas) return;
   try {
-    const data = await api(`/api/trades/${row.linked_trade_id}/chart?user_id=${userId}&interval=${chartInterval}`);
-    if (data.historical && data.items.length > 2) {
+    const data = await api(`/api/journal/${row.id}/chart?user_id=${userId}&interval=${chartInterval}`);
+    const chartTrade = data.trade || {};
+    if (data.items.length > 2) {
       clearInterval(chartAnimations.get(`journal-${row.id}`));
       let count = 2;
-      const step = Math.max(1, Math.ceil(data.items.length / 45));
+      const step = Math.max(1, Math.ceil(data.items.length / 70));
       const timer = setInterval(() => {
         count += step;
         if (count >= data.items.length) count = 2;
-        drawTradeChart(canvas, data.items.slice(0, count), data.trade);
-      }, 180);
+        drawTradeChart(canvas, data.items.slice(0, count), chartTrade, chartInterval);
+      }, 220);
       chartAnimations.set(`journal-${row.id}`, timer);
-      caption.textContent = "история сделки · повтор";
+      caption.textContent = `${data.market === "spot" ? "Binance Spot" : "Binance Futures"} · ${chartIntervalLabel()} · история на ${data.anchor_time}`;
     } else {
-      drawTradeChart(canvas, data.items, data.trade);
-      caption.textContent = `${chartIntervalLabel()} · уровни входа, стопа и тейка${data.fallback ? " · архив недоступен" : ""}`;
+      drawTradeChart(canvas, data.items, chartTrade, chartInterval);
+      caption.textContent = `${chartIntervalLabel()} · исторических свечей нет`;
     }
   } catch {
     drawMiniTrend(canvas, []);

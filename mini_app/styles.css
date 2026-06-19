@@ -426,6 +426,10 @@ p {
   line-height: 1.2;
 }
 
+.journal-trend-chart {
+  height: 190px;
+}
+
 .trend-caption.positive { color: #b9ffd0; }
 .trend-caption.negative { color: #ffc0ca; }
 .trend-caption.warn { color: #ffe0a8; }

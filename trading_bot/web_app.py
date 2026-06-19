@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+from datetime import datetime, timezone
 from pathlib import Path
 
 import httpx
@@ -55,7 +56,10 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 @app.get("/")
 def index() -> FileResponse:
-    return FileResponse(STATIC_DIR / "index.html")
+    return FileResponse(
+        STATIC_DIR / "index.html",
+        headers={"Cache-Control": "no-store, max-age=0", "Pragma": "no-cache"},
+    )
 
 
 @app.get("/api/dashboard")
@@ -256,6 +260,48 @@ def journal_api(user_id: int = Query(...), symbol: str = "") -> dict:
     return {"items": [row_to_dict(row) for row in journal.list_for_user(user_id, symbol=symbol, limit=50)]}
 
 
+@app.get("/api/journal/{journal_id}/chart")
+async def journal_chart_api(journal_id: int, user_id: int = Query(...), interval: str = "1m") -> dict:
+    interval = normalized_interval(interval)
+    entry = journal.get(user_id, journal_id)
+    if not entry:
+        raise HTTPException(status_code=404, detail="Journal entry not found")
+
+    trade = trades.get(user_id, int(entry["linked_trade_id"])) if entry["linked_trade_id"] else None
+    symbol = str(trade["symbol"] if trade else entry["symbol"] or "")
+    if not symbol:
+        return {"items": [], "historical": True, "journal": row_to_dict(entry), "trade": None}
+
+    if trade:
+        try:
+            rows = await historical_trade_candles(trade, interval)
+        except httpx.HTTPError:
+            rows = [row_to_dict(row) for row in trades.candles(int(trade["id"]), interval)]
+        chart_trade = trade_to_dict(trade)
+        anchor = trade["closed_at"] or trade["opened_at"]
+    else:
+        anchor_ms = timestamp_ms(entry["created_at"])
+        span = INTERVAL_MS[interval]
+        rows = await market.get_klines(
+            symbol,
+            interval,
+            limit=180,
+            start_time=anchor_ms - span * 120,
+            end_time=anchor_ms + span * 59,
+        )
+        chart_trade = None
+        anchor = entry["created_at"]
+
+    return {
+        "items": rows,
+        "historical": True,
+        "journal": row_to_dict(entry),
+        "trade": chart_trade,
+        "anchor_time": anchor,
+        "market": market.market,
+    }
+
+
 @app.post("/api/journal/{journal_id}/merge")
 def merge_journal_api(journal_id: int, user_id: int = Query(...), remove_id: int = Query(...)) -> dict:
     return {"ok": journal.merge(user_id, journal_id, remove_id)}
@@ -323,20 +369,21 @@ async def klines_api(symbol: str, interval: str = "1m", limit: int = Query(80, g
 
 @app.get("/api/trades/{trade_id}/chart")
 async def trade_chart_api(trade_id: int, user_id: int = Query(...), interval: str = "1m") -> dict:
-    interval = interval if interval in {"1m", "5m", "15m", "1h", "4h", "1d"} else "1m"
+    interval = normalized_interval(interval)
     trade = trades.get(user_id, trade_id)
     if not trade:
         raise HTTPException(status_code=404, detail="Trade not found")
-    stored = [row_to_dict(row) for row in trades.candles(trade_id, interval)]
     if trade["status"] == "open":
         live = await market.get_klines(trade["symbol"], interval, limit=180)
         if interval == "1m":
             trades.save_candles(trade_id, live, interval)
         return {"items": live, "historical": False, "trade": trade_to_dict(trade), "market": market.market}
-    if stored:
-        return {"items": stored, "historical": True, "trade": trade_to_dict(trade), "market": market.market}
-    fallback = await market.get_klines(trade["symbol"], interval, limit=180)
-    return {"items": fallback, "historical": False, "fallback": True, "trade": trade_to_dict(trade), "market": market.market}
+    stored = [row_to_dict(row) for row in trades.candles(trade_id, interval)]
+    try:
+        historical = await historical_trade_candles(trade, interval)
+    except httpx.HTTPError:
+        historical = stored
+    return {"items": historical, "historical": True, "trade": trade_to_dict(trade), "market": market.market}
 
 
 @app.get("/api/media/{file_id:path}")
@@ -498,6 +545,45 @@ def atr(candles: list[dict[str, float]], period: int = 14) -> float:
         ranges.append(max(high - low, abs(high - previous), abs(low - previous)))
         previous = float(candle["close"])
     return sum(ranges) / max(len(ranges), 1)
+
+
+INTERVAL_MS = {
+    "1m": 60_000,
+    "5m": 300_000,
+    "15m": 900_000,
+    "1h": 3_600_000,
+    "4h": 14_400_000,
+    "1d": 86_400_000,
+}
+
+
+def normalized_interval(interval: str) -> str:
+    return interval if interval in INTERVAL_MS else "1m"
+
+
+def timestamp_ms(value: str | None) -> int:
+    if not value:
+        return int(datetime.now(timezone.utc).timestamp() * 1000)
+    parsed = datetime.strptime(str(value), "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
+    return int(parsed.timestamp() * 1000)
+
+
+async def historical_trade_candles(trade, interval: str) -> list[dict[str, float]]:
+    interval = normalized_interval(interval)
+    span = INTERVAL_MS[interval]
+    opened_ms = timestamp_ms(trade["opened_at"])
+    closed_ms = timestamp_ms(trade["closed_at"] or trade["opened_at"])
+    start_ms = opened_ms - span * 35
+    end_ms = closed_ms + span * 25
+    start_ms = max(start_ms, end_ms - span * 239)
+    requested = max(80, min(240, int((end_ms - start_ms) / span) + 1))
+    return await market.get_klines(
+        trade["symbol"],
+        interval,
+        limit=requested,
+        start_time=start_ms,
+        end_time=end_ms,
+    )
 
 
 def row_to_dict(row) -> dict:

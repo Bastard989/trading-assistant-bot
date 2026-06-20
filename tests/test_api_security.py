@@ -38,6 +38,7 @@ def load_test_app(monkeypatch, tmp_path):
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", TOKEN)
     monkeypatch.setenv("ALLOWED_TELEGRAM_USER_IDS", "42,99")
     monkeypatch.setenv("APP_ENV", "production")
+    monkeypatch.setenv("AUTO_MIGRATE", "true")
     sys.modules.pop("trading_bot.web_app", None)
     return importlib.import_module("trading_bot.web_app")
 
@@ -95,6 +96,7 @@ def test_security_headers_and_public_health(monkeypatch, tmp_path) -> None:
     assert response.status_code == 200
     assert "unsafe-inline" not in response.headers["content-security-policy"]
     assert response.headers["x-content-type-options"] == "nosniff"
+    assert TestClient(module.app).get("/health/ready").status_code == 200
 
 
 def test_mutation_requires_key_and_replay_returns_original_response(monkeypatch, tmp_path) -> None:

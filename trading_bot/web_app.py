@@ -4,6 +4,7 @@ import hashlib
 import io
 import os
 import re
+import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Annotated
@@ -45,7 +46,7 @@ MEDIA_CACHE_DIR = BASE_DIR / "data" / "media_cache"
 TRADE_UPLOAD_DIR = Path(os.getenv("TRADE_UPLOAD_DIR", str(BASE_DIR / "data" / "trade_uploads"))).expanduser()
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 
-db = Database(DATABASE_PATH)
+db = Database(DATABASE_PATH, auto_migrate=os.getenv("AUTO_MIGRATE", "false").lower() == "true")
 users = UserRepository(db)
 trades = TradeRepository(db)
 alerts = AlertRepository(db)
@@ -162,8 +163,13 @@ def health_live() -> dict[str, str]:
 
 @app.get("/health/ready")
 def health_ready() -> dict[str, str]:
-    with db.connect() as connection:
-        connection.execute("SELECT 1").fetchone()
+    try:
+        with db.connect() as connection:
+            version = connection.execute("SELECT max(version) FROM schema_migrations").fetchone()[0]
+    except sqlite3.Error as exc:
+        raise HTTPException(status_code=503, detail="Database schema is not ready") from exc
+    if version != 2:
+        raise HTTPException(status_code=503, detail="Database migrations are not current")
     return {"status": "ready"}
 
 

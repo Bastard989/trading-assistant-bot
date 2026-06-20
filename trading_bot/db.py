@@ -7,10 +7,6 @@ from typing import Iterator
 
 
 SCHEMA = """
-PRAGMA journal_mode=WAL;
-PRAGMA foreign_keys=ON;
-PRAGMA busy_timeout=5000;
-
 CREATE TABLE IF NOT EXISTS schema_migrations (
     version INTEGER PRIMARY KEY,
     checksum TEXT NOT NULL,
@@ -233,10 +229,11 @@ CREATE INDEX IF NOT EXISTS idx_attachments_user_trade
 
 
 class Database:
-    def __init__(self, path: Path) -> None:
+    def __init__(self, path: Path, *, auto_migrate: bool = True) -> None:
         self.path = path
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.migrate()
+        if auto_migrate:
+            self.migrate()
 
     @contextmanager
     def connect(self) -> Iterator[sqlite3.Connection]:
@@ -255,10 +252,12 @@ class Database:
             connection.close()
 
     def migrate(self) -> None:
-        with sqlite3.connect(self.path) as connection:
+        connection = sqlite3.connect(self.path, timeout=5)
+        try:
             connection.execute("PRAGMA foreign_keys=ON")
             connection.execute("PRAGMA busy_timeout=5000")
-            connection.executescript(SCHEMA)
+            connection.execute("PRAGMA journal_mode=WAL")
+            connection.executescript("BEGIN IMMEDIATE;\n" + SCHEMA)
             self._add_column(connection, "trades", "risk_amount", "REAL NOT NULL DEFAULT 0")
             self._add_column(connection, "trades", "setup", "TEXT NOT NULL DEFAULT ''")
             self._add_column(connection, "trades", "tags", "TEXT NOT NULL DEFAULT ''")
@@ -272,16 +271,28 @@ class Database:
                 "CREATE INDEX IF NOT EXISTS idx_trades_user_session_status "
                 "ON trades(user_id, session_id, status)"
             )
-            connection.execute(
-                "INSERT OR IGNORE INTO schema_migrations(version, checksum) VALUES (?, ?)",
-                (1, "baseline-schema-v1"),
-            )
-            connection.execute(
-                "INSERT OR IGNORE INTO schema_migrations(version, checksum) VALUES (?, ?)",
-                (2, "idempotency-keys-v2"),
-            )
+            self._record_migration(connection, 1, "baseline-schema-v1")
+            self._record_migration(connection, 2, "idempotency-keys-v2")
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
 
     def _add_column(self, connection: sqlite3.Connection, table: str, column: str, definition: str) -> None:
         columns = {row[1] for row in connection.execute(f"PRAGMA table_info({table})")}
         if column not in columns:
             connection.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+
+    def _record_migration(self, connection: sqlite3.Connection, version: int, checksum: str) -> None:
+        existing = connection.execute(
+            "SELECT checksum FROM schema_migrations WHERE version = ?",
+            (version,),
+        ).fetchone()
+        if existing and existing[0] != checksum:
+            raise RuntimeError(f"Migration checksum mismatch for version {version}")
+        connection.execute(
+            "INSERT OR IGNORE INTO schema_migrations(version, checksum) VALUES (?, ?)",
+            (version, checksum),
+        )

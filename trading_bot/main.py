@@ -37,7 +37,7 @@ def main() -> None:
     logging.getLogger("httpcore").setLevel(logging.WARNING)
     logging.getLogger("apscheduler").setLevel(logging.WARNING)
     settings = load_settings()
-    db = Database(settings.database_path)
+    db = Database(settings.database_path, auto_migrate=False)
 
     users = UserRepository(db)
     idempotency = IdempotencyRepository(db)

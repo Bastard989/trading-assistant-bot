@@ -3,3 +3,10 @@
 __pycache__/
 *.py[cod]
 data/
+media/
+logs/
+backups/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/

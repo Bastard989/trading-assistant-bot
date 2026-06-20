@@ -17,6 +17,7 @@ class Settings:
     web_app_url: str
     web_host: str
     web_port: int
+    allowed_telegram_user_ids: frozenset[int]
 
 
 def load_settings() -> Settings:
@@ -30,6 +31,18 @@ def load_settings() -> Settings:
     if market not in {"spot", "futures"}:
         raise RuntimeError("MARKET must be spot or futures.")
 
+    allowed_ids: set[int] = set()
+    for raw_id in os.getenv("ALLOWED_TELEGRAM_USER_IDS", "").split(","):
+        raw_id = raw_id.strip()
+        if not raw_id:
+            continue
+        try:
+            allowed_ids.add(int(raw_id))
+        except ValueError as exc:
+            raise RuntimeError("ALLOWED_TELEGRAM_USER_IDS must contain comma-separated integers.") from exc
+    if not allowed_ids:
+        raise RuntimeError("Set ALLOWED_TELEGRAM_USER_IDS before starting the bot.")
+
     return Settings(
         telegram_bot_token=token,
         database_path=Path(os.getenv("DATABASE_PATH", "data/trading_bot.sqlite3")).expanduser(),
@@ -39,4 +52,5 @@ def load_settings() -> Settings:
         web_app_url=os.getenv("WEB_APP_URL", "http://127.0.0.1:8080").strip(),
         web_host=os.getenv("WEB_HOST", "127.0.0.1").strip(),
         web_port=int(os.getenv("WEB_PORT", "8080")),
+        allowed_telegram_user_ids=frozenset(allowed_ids),
     )

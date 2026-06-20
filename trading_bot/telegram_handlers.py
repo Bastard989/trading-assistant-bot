@@ -8,10 +8,12 @@ from datetime import date, datetime
 from telegram import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, Update, WebAppInfo
 from telegram.ext import (
     Application,
+    ApplicationHandlerStop,
     CallbackQueryHandler,
     CommandHandler,
     ContextTypes,
     MessageHandler,
+    TypeHandler,
     filters,
 )
 from telegram.error import TelegramError
@@ -26,7 +28,7 @@ from trading_bot.formatting import (
     money,
     signed_money,
 )
-from trading_bot.evaluator import build_distances, percent_distance, review_trade
+from trading_bot.evaluator import build_distances, review_trade
 from trading_bot.market import MarketClient, normalize_symbol
 from trading_bot.models import TradeDraft
 from trading_bot.repositories import (
@@ -87,6 +89,7 @@ class BotHandlers:
         top_limit: int,
         alert_poll_seconds: int,
         web_app_url: str,
+        allowed_user_ids: frozenset[int],
     ) -> None:
         self.users = users
         self.alerts = alerts
@@ -102,8 +105,10 @@ class BotHandlers:
         self.top_limit = top_limit
         self.alert_poll_seconds = alert_poll_seconds
         self.web_app_url = web_app_url
+        self.allowed_user_ids = allowed_user_ids
 
     def register(self, application: Application) -> None:
+        application.add_handler(TypeHandler(Update, self.authorize_update), group=-1)
         application.add_handler(CommandHandler("start", self.start))
         application.add_handler(CommandHandler("menu", self.menu))
         application.add_handler(CommandHandler("help", self.help))
@@ -152,6 +157,16 @@ class BotHandlers:
                 first=20,
                 name="auto-timeframe-context",
             )
+
+    async def authorize_update(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        user = update.effective_user
+        if user and user.id in self.allowed_user_ids:
+            return
+        if update.callback_query:
+            await update.callback_query.answer("Доступ запрещён", show_alert=True)
+        elif update.effective_message:
+            await update.effective_message.reply_text("Доступ к этому боту закрыт.")
+        raise ApplicationHandlerStop
 
     async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         self.users.ensure_user(update.effective_user.id)
@@ -945,7 +960,7 @@ class BotHandlers:
         return InlineKeyboardMarkup(self._miniapp_rows(user_id))
 
     def _miniapp_rows(self, user_id: int) -> list[list[InlineKeyboardButton]]:
-        url = f"{self.web_app_url.rstrip('/')}/?user_id={user_id}"
+        url = f"{self.web_app_url.rstrip('/')}/"
         if url.startswith("https://"):
             return [[InlineKeyboardButton("Открыть Mini App", web_app=WebAppInfo(url=url))]]
         if re.match(r"http://(?:127\.0\.0\.1|localhost)(?=[:/])", url):

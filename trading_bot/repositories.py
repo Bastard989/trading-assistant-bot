@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import sqlite3
 from datetime import date
 
@@ -272,28 +273,26 @@ class TradeRepository:
         note: str = "",
         close_reason: str = "manual",
     ) -> sqlite3.Row | None:
-        trade = self.get(user_id, trade_id)
-        if not trade or trade["status"] != "open":
+        if not math.isfinite(exit_price) or exit_price <= 0 or not math.isfinite(fees) or fees < 0:
             return None
-
-        direction = 1 if trade["side"] == "long" else -1
-        pnl = (exit_price - trade["entry_price"]) * trade["quantity"] * direction - fees
         with self.db.connect() as connection:
-            connection.execute(
+            row = connection.execute(
                 """
                 UPDATE trades
                 SET status = 'closed',
                     exit_price = ?,
-                    pnl = ?,
+                    pnl = (? - entry_price) * quantity *
+                        CASE WHEN side = 'long' THEN 1 ELSE -1 END - ?,
                     fees = ?,
                     close_reason = ?,
                     note = trim(note || char(10) || ?),
                     closed_at = CURRENT_TIMESTAMP
-                WHERE id = ? AND user_id = ?
+                WHERE id = ? AND user_id = ? AND status = 'open'
+                RETURNING *
                 """,
-                (exit_price, pnl, fees, close_reason.strip(), note.strip(), trade_id, user_id),
-            )
-        return self.get(user_id, trade_id)
+                (exit_price, exit_price, fees, fees, close_reason.strip(), note.strip(), trade_id, user_id),
+            ).fetchone()
+        return row
 
     def cancel(self, user_id: int, trade_id: int) -> bool:
         with self.db.connect() as connection:
@@ -354,28 +353,27 @@ class TradeRepository:
             return None
         risk_amount = abs(entry_price - stop_price) * quantity
         with self.db.connect() as connection:
-            connection.execute(
+            row = connection.execute(
                 """
                 UPDATE trades SET entry_price = ?, stop_price = ?, target_price = ?,
                     quantity = ?, timeframe = ?, risk_amount = ?,
                     note = CASE WHEN ? = '' THEN note ELSE trim(note || char(10) || ?) END
                 WHERE id = ? AND user_id = ? AND status = 'open'
+                RETURNING *
                 """,
                 (entry_price, stop_price, target_price, quantity, timeframe, risk_amount, note.strip(), note.strip(), trade_id, user_id),
-            )
-        return self.get(user_id, trade_id)
+            ).fetchone()
+        return row
 
     def set_leverage(self, user_id: int, trade_id: int, leverage: float) -> sqlite3.Row | None:
         if leverage <= 0:
             return None
         with self.db.connect() as connection:
-            cursor = connection.execute(
-                "UPDATE trades SET leverage = ? WHERE id = ? AND user_id = ?",
+            row = connection.execute(
+                "UPDATE trades SET leverage = ? WHERE id = ? AND user_id = ? AND status = 'open' RETURNING *",
                 (leverage, trade_id, user_id),
-            )
-            if cursor.rowcount == 0:
-                return None
-        return self.get(user_id, trade_id)
+            ).fetchone()
+        return row
 
     def add_attachment(self, user_id: int, trade_id: int, telegram_file_id: str = "", local_path: str = "", caption: str = "") -> int | None:
         if not self.get(user_id, trade_id):
@@ -394,9 +392,32 @@ class TradeRepository:
                 (user_id, trade_id),
             ))
 
-    def attachment(self, attachment_id: int) -> sqlite3.Row | None:
+    def attachment(self, user_id: int, attachment_id: int) -> sqlite3.Row | None:
         with self.db.connect() as connection:
-            return connection.execute("SELECT * FROM trade_attachments WHERE id = ?", (attachment_id,)).fetchone()
+            return connection.execute(
+                "SELECT * FROM trade_attachments WHERE id = ? AND user_id = ?",
+                (attachment_id, user_id),
+            ).fetchone()
+
+    def owns_telegram_file(self, user_id: int, file_id: str) -> bool:
+        if not file_id or len(file_id) > 1024:
+            return False
+        with self.db.connect() as connection:
+            return connection.execute(
+                """
+                SELECT 1 FROM trade_attachments
+                WHERE user_id = ? AND telegram_file_id = ?
+                UNION ALL
+                SELECT 1 FROM journal_entries
+                WHERE user_id = ?
+                  AND instr(',' || screenshot_file_id || ',', ',' || ? || ',') > 0
+                UNION ALL
+                SELECT 1 FROM market_contexts
+                WHERE user_id = ? AND screenshot_file_id = ?
+                LIMIT 1
+                """,
+                (user_id, file_id, user_id, file_id, user_id, file_id),
+            ).fetchone() is not None
 
     def list_for_user(self, user_id: int, status: str | None = None, limit: int = 20) -> list[sqlite3.Row]:
         status_filter = "AND status = ?" if status else ""

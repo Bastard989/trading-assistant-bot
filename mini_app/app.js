@@ -1,6 +1,4 @@
-const params = new URLSearchParams(location.search);
-const tgUser = window.Telegram?.WebApp?.initDataUnsafe?.user?.id;
-const userId = params.get("user_id") || tgUser || "1";
+const telegramInitData = window.Telegram?.WebApp?.initData || "";
 window.Telegram?.WebApp?.ready();
 
 const fmt = (value, digits = 2) => Number(value || 0).toLocaleString("ru-RU", { maximumFractionDigits: digits });
@@ -69,8 +67,14 @@ document.getElementById("watchlistForm").addEventListener("submit", addWatchlist
   document.getElementById(id).addEventListener("input", renderJournal);
 });
 
+async function apiFetch(path, options = {}) {
+  const headers = new Headers(options.headers || {});
+  if (telegramInitData) headers.set("Authorization", `tma ${telegramInitData}`);
+  return fetch(path, { ...options, headers });
+}
+
 async function api(path, options = undefined) {
-  const response = await fetch(path, options);
+  const response = await apiFetch(path, options);
   if (!response.ok) throw new Error(await response.text());
   return response.json();
 }
@@ -81,7 +85,7 @@ function switchView(view) {
 }
 
 async function loadDashboard() {
-  const data = await api(`/api/dashboard?user_id=${userId}`);
+  const data = await api("/api/dashboard");
   currentOpenTrades = data.open_trades;
   document.getElementById("netPnl").textContent = `${signed(data.stats.net_pnl)} USDT`;
   document.getElementById("netPnl").className = data.stats.net_pnl >= 0 ? "positive" : "negative";
@@ -121,7 +125,7 @@ async function addWatchlistSymbol(event) {
   const symbol = input.value.trim();
   if (!symbol) return;
   try {
-    const data = await api(`/api/watchlist?user_id=${userId}&symbol=${encodeURIComponent(symbol)}`, { method: "POST" });
+    const data = await api(`/api/watchlist?symbol=${encodeURIComponent(symbol)}`, { method: "POST" });
     currentWatchlist = data.items || [];
     input.value = "";
     document.getElementById("watchlistForm").hidden = true;
@@ -134,7 +138,7 @@ async function addWatchlistSymbol(event) {
 
 async function removeWatchlistSymbol(symbol) {
   try {
-    const response = await fetch(`/api/watchlist?user_id=${userId}&symbol=${encodeURIComponent(symbol)}`, { method: "DELETE" });
+    const response = await apiFetch(`/api/watchlist?symbol=${encodeURIComponent(symbol)}`, { method: "DELETE" });
     if (!response.ok) throw new Error(await response.text());
     const data = await response.json();
     currentWatchlist = data.items || [];
@@ -154,7 +158,7 @@ async function loadPrices(watchlist = [], openTrades = []) {
   const query = symbols.length ? `&symbols=${encodeURIComponent(symbols.join(","))}` : "";
   const status = document.getElementById("priceStatus");
   try {
-    const data = await api(`/api/prices?user_id=${userId}${query}`);
+    const data = await api(`/api/prices?${query.replace(/^&/, "")}`);
     const items = Array.isArray(data.items) ? data.items : [];
     const now = new Date();
     status.textContent = `live ${now.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}`;
@@ -247,7 +251,7 @@ function toggleMarketCard(card, symbol) {
 
 async function loadTrades(status = "") {
   const query = status ? `&status=${status}` : "";
-  const data = await api(`/api/trades?user_id=${userId}${query}`);
+  const data = await api(`/api/trades?${query.replace(/^&/, "")}`);
   currentTrades = data.items;
   renderTrades("tradesTable", currentTrades, false);
   updateJournalResults();
@@ -255,6 +259,7 @@ async function loadTrades(status = "") {
 
 function renderTrades(targetId, rows, compact = false) {
   document.getElementById(targetId).innerHTML = rows.map(row => renderTradeCard(row, compact)).join("") || emptyRow("Нет данных");
+  hydrateProtectedImages(document.getElementById(targetId));
   rows.forEach(row => {
     if (row.status === "open" || expandedTrades.has(Number(row.id))) loadTradeChart(row);
   });
@@ -406,7 +411,7 @@ async function loadTradeChart(row, force = false) {
     const cacheKey = `trade:${row.id}:${interval}`;
     const stale = Date.now() - (candleUpdatedAt.get(cacheKey) || 0) > 10000;
     if (force || stale || !candleCache.has(cacheKey)) {
-      const data = await api(`/api/trades/${row.id}/chart?user_id=${userId}&interval=${interval}`);
+      const data = await api(`/api/trades/${row.id}/chart?interval=${interval}`);
       candleCache.set(cacheKey, data.items);
       candleUpdatedAt.set(cacheKey, Date.now());
     }
@@ -638,7 +643,7 @@ function chartIntervalLabel(interval = chartInterval) {
 }
 
 async function loadJournal() {
-  const data = await api(`/api/journal?user_id=${userId}`);
+  const data = await api("/api/journal");
   currentJournal = data.items;
   renderJournal();
 }
@@ -660,10 +665,10 @@ function renderJournal() {
   document.getElementById("journalList").innerHTML = rows.map(row => `
     <article class="journal-card ${journalResult(row).className}">
       <div>
-        <strong>${row.symbol || "-"}<small>${row.outcome} · ${row.created_at}</small></strong>
-        <p>${row.description || "-"}</p>
+        <strong>${escapeHtml(cleanSymbol(row.symbol) || "-")}<small>${escapeHtml(row.outcome)} · ${escapeHtml(row.created_at)}</small></strong>
+        <p>${escapeHtml(row.description || "-")}</p>
         <div class="chips"><small class="chip">coin:${cleanSymbol(row.symbol).replace("USDT", "")}</small>${row.session_id ? `<small class="chip">session:${escapeHtml(sessionName(row.session_id))}</small>` : ""}</div>
-        <small>${row.theory || ""}</small>
+        <small>${escapeHtml(row.theory || "")}</small>
       </div>
       <div class="journal-visuals">
         <div class="journal-result ${journalResult(row).className}" data-journal-entry-id="${row.id}">${journalResult(row).icon}<strong>${journalResult(row).label}</strong><span>${journalResult(row).amount}</span></div>
@@ -673,6 +678,7 @@ function renderJournal() {
       </div>
     </article>
   `).join("") || emptyRow("Дневник пуст");
+  hydrateProtectedImages(document.getElementById("journalList"));
   rows.forEach(row => {
     if (cleanSymbol(row.symbol)) loadJournalHistory(row);
   });
@@ -714,7 +720,7 @@ async function loadJournalHistory(row) {
   const caption = document.getElementById(`journal-trend-${row.id}`);
   if (!canvas) return;
   try {
-    const data = await api(`/api/journal/${row.id}/chart?user_id=${userId}&interval=${chartInterval}`);
+    const data = await api(`/api/journal/${row.id}/chart?interval=${chartInterval}`);
     const chartTrade = data.trade || {};
     if (data.items.length > 2) {
       clearInterval(chartAnimations.get(`journal-${row.id}`));
@@ -739,12 +745,12 @@ async function loadJournalHistory(row) {
 
 function mediaImages(value) {
   return String(value || "").split(",").filter(Boolean).map(fileId => `
-    <img class="journal-shot" src="/api/media/${encodeURIComponent(fileId)}" alt="Скрин сделки" loading="lazy" />
+    <img class="journal-shot" data-protected-src="/api/media/${encodeURIComponent(fileId)}" alt="Скрин сделки" loading="lazy" />
   `).join("");
 }
 
 async function loadSessions() {
-  const data = await api(`/api/sessions?user_id=${userId}`);
+  const data = await api("/api/sessions");
   currentSessions = data.items || [];
   const active = currentSessions.find(item => item.status === "active");
   const badge = document.getElementById("activeSessionBadge");
@@ -769,21 +775,21 @@ async function loadSessions() {
 async function createSession(event) {
   event.preventDefault();
   const form = new FormData(event.currentTarget);
-  const query = new URLSearchParams({ user_id: userId, name: form.get("name"), start_balance: form.get("start_balance") });
+  const query = new URLSearchParams({ name: form.get("name"), start_balance: form.get("start_balance") });
   if (form.get("target_balance")) query.set("target_balance", form.get("target_balance"));
-  const response = await fetch(`/api/sessions?${query}`, { method: "POST" });
+  const response = await apiFetch(`/api/sessions?${query}`, { method: "POST" });
   if (!response.ok) return alert("Не удалось создать сессию");
   event.currentTarget.reset();
   await Promise.all([loadSessions(), loadDashboard()]);
 }
 
 async function archiveSession(id) {
-  await fetch(`/api/sessions/${id}/archive?user_id=${userId}`, { method: "POST" });
+  await apiFetch(`/api/sessions/${id}/archive`, { method: "POST" });
   await Promise.all([loadSessions(), loadDashboard()]);
 }
 
 async function activateSession(id) {
-  await fetch(`/api/sessions/${id}/activate?user_id=${userId}`, { method: "POST" });
+  await apiFetch(`/api/sessions/${id}/activate`, { method: "POST" });
   await Promise.all([loadSessions(), loadDashboard()]);
 }
 
@@ -845,7 +851,6 @@ async function calculateRisk() {
 async function reviewTrade() {
   const form = new FormData(document.getElementById("riskForm"));
   const query = new URLSearchParams(form);
-  query.set("user_id", userId);
   document.getElementById("reviewResult").textContent = "Проверяю сделку...";
   try {
     const data = await api(`/api/review?${query.toString()}`);
@@ -881,7 +886,7 @@ async function suggestTrade() {
 async function closeTrade(id) {
   const exitPrice = prompt("Цена закрытия:");
   if (!exitPrice) return;
-  const response = await fetch(`/api/trades/${id}/close?user_id=${userId}&exit_price=${encodeURIComponent(exitPrice)}&note=miniapp`, { method: "POST" });
+  const response = await apiFetch(`/api/trades/${id}/close?exit_price=${encodeURIComponent(exitPrice)}&note=miniapp`, { method: "POST" });
   const data = await response.json();
   if (!data.ok) alert("Не удалось закрыть сделку");
   await loadAll();
@@ -899,7 +904,6 @@ function toggleEditTrade(id) {
 async function saveTradeEdit(id) {
   const value = suffix => document.getElementById(`edit-${suffix}-${id}`)?.value;
   const query = new URLSearchParams({
-    user_id: userId,
     entry_price: value("entry"),
     stop_price: value("stop"),
     quantity: value("qty"),
@@ -907,13 +911,13 @@ async function saveTradeEdit(id) {
     note: value("note") || "",
   });
   if (value("target")) query.set("target_price", value("target"));
-  const response = await fetch(`/api/trades/${id}/update?${query}`, { method: "POST" });
+  const response = await apiFetch(`/api/trades/${id}/update?${query}`, { method: "POST" });
   const result = await response.json();
   if (!result.ok) return alert("Не удалось изменить сделку");
 
   const files = [...(document.getElementById(`edit-photo-${id}`)?.files || [])];
   for (const file of files) {
-    const upload = await fetch(`/api/trades/${id}/attachment?user_id=${userId}&filename=${encodeURIComponent(file.name)}`, {
+    const upload = await apiFetch(`/api/trades/${id}/attachment?filename=${encodeURIComponent(file.name)}`, {
       method: "POST",
       headers: { "Content-Type": file.type || "application/octet-stream" },
       body: file,
@@ -928,13 +932,29 @@ async function saveTradeEdit(id) {
 function tradeAttachmentImages(items) {
   return items.map(item => {
     const src = item.local_path ? `/api/trade-attachment/${item.id}` : `/api/media/${encodeURIComponent(item.telegram_file_id)}`;
-    return `<img class="trade-shot" src="${src}" alt="Фото сделки" loading="lazy">`;
+    return `<img class="trade-shot" data-protected-src="${escapeHtml(src)}" alt="Фото сделки" loading="lazy">`;
   }).join("");
+}
+
+function hydrateProtectedImages(root = document) {
+  root.querySelectorAll("img[data-protected-src]").forEach(async image => {
+    const path = image.dataset.protectedSrc;
+    if (!path || image.dataset.loading === "true") return;
+    image.dataset.loading = "true";
+    try {
+      const response = await apiFetch(path);
+      if (!response.ok) throw new Error("image unavailable");
+      image.src = URL.createObjectURL(await response.blob());
+      image.addEventListener("load", () => URL.revokeObjectURL(image.src), { once: true });
+    } catch {
+      image.alt = "Изображение недоступно";
+    }
+  });
 }
 
 async function cancelTrade(id) {
   if (!confirm("Отменить открытую сделку?")) return;
-  const response = await fetch(`/api/trades/${id}/cancel?user_id=${userId}`, { method: "POST" });
+  const response = await apiFetch(`/api/trades/${id}/cancel`, { method: "POST" });
   const data = await response.json();
   if (!data.ok) alert("Не удалось отменить сделку");
   await loadAll();
@@ -993,6 +1013,10 @@ async function loadAll() {
   await calculateRisk();
 }
 
-loadAll();
-priceTimer = setInterval(() => loadPrices(), 3000);
-marketTimer = setInterval(loadMarketTop, 20000);
+if (telegramInitData) {
+  loadAll();
+  priceTimer = setInterval(() => loadPrices(), 3000);
+  marketTimer = setInterval(loadMarketTop, 20000);
+} else {
+  document.querySelector("main").textContent = "Откройте Mini App через Telegram.";
+}

@@ -66,6 +66,7 @@ def main() -> None:
         top_limit=settings.top_limit,
         alert_poll_seconds=settings.alert_poll_seconds,
         web_app_url=settings.web_app_url,
+        allowed_user_ids=settings.allowed_telegram_user_ids,
     ).register(application)
 
     application.run_polling(allowed_updates=None)

@@ -1,17 +1,22 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import os
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Annotated
 
 import httpx
+from PIL import Image, UnidentifiedImageError
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+from trading_bot.auth import require_telegram_user
 from trading_bot.db import Database
+from trading_bot.domain.trades import TradeValidationError, validate_trade
 from trading_bot.evaluator import review_trade
 from trading_bot.market import MarketClient, normalize_symbol
 from trading_bot.models import TradeDraft
@@ -49,9 +54,44 @@ daily_plans = DailyPlanRepository(db)
 templates = TemplateRepository(db)
 sessions = TradingSessionRepository(db)
 market = MarketClient(os.getenv("MARKET", "futures").strip().lower())
+AuthenticatedUser = Annotated[int, Depends(require_telegram_user)]
 
-app = FastAPI(title="Trading Assistant Mini App")
+IS_PRODUCTION = os.getenv("APP_ENV", "production").strip().lower() == "production"
+app = FastAPI(
+    title="Trading Assistant Mini App",
+    docs_url=None if IS_PRODUCTION else "/docs",
+    redoc_url=None if IS_PRODUCTION else "/redoc",
+    openapi_url=None if IS_PRODUCTION else "/openapi.json",
+)
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
+
+@app.middleware("http")
+async def security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; script-src 'self' https://telegram.org; "
+        "style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; "
+        "object-src 'none'; base-uri 'none'; frame-ancestors https://web.telegram.org https://*.telegram.org"
+    )
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+    if IS_PRODUCTION:
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    return response
+
+
+@app.get("/health/live")
+def health_live() -> dict[str, str]:
+    return {"status": "ok"}
+
+
+@app.get("/health/ready")
+def health_ready() -> dict[str, str]:
+    with db.connect() as connection:
+        connection.execute("SELECT 1").fetchone()
+    return {"status": "ready"}
 
 
 @app.get("/")
@@ -63,7 +103,7 @@ def index() -> FileResponse:
 
 
 @app.get("/api/dashboard")
-def dashboard(user_id: int = Query(...)) -> dict:
+def dashboard(user_id: AuthenticatedUser) -> dict:
     users.ensure_user(user_id)
     active_session = sessions.active(user_id)
     if active_session:
@@ -100,34 +140,34 @@ def dashboard(user_id: int = Query(...)) -> dict:
 
 
 @app.get("/api/sessions")
-def sessions_api(user_id: int = Query(...)) -> dict:
+def sessions_api(user_id: AuthenticatedUser) -> dict:
     return {"items": [row_to_dict(row) for row in sessions.list_for_user(user_id)]}
 
 
 @app.post("/api/sessions")
-def create_session_api(user_id: int = Query(...), name: str = Query(..., min_length=1, max_length=80), start_balance: float = Query(..., gt=0), target_balance: float | None = Query(None, gt=0), note: str = "") -> dict:
+def create_session_api(user_id: AuthenticatedUser, name: str = Query(..., min_length=1, max_length=80), start_balance: float = Query(..., gt=0), target_balance: float | None = Query(None, gt=0), note: str = "") -> dict:
     return {"ok": True, "id": sessions.create(user_id, name, start_balance, target_balance, note)}
 
 
 @app.post("/api/sessions/{session_id}/activate")
-def activate_session_api(session_id: int, user_id: int = Query(...)) -> dict:
+def activate_session_api(session_id: int, user_id: AuthenticatedUser) -> dict:
     return {"ok": sessions.activate(user_id, session_id)}
 
 
 @app.post("/api/sessions/{session_id}/archive")
-def archive_session_api(session_id: int, user_id: int = Query(...)) -> dict:
+def archive_session_api(session_id: int, user_id: AuthenticatedUser) -> dict:
     return {"ok": sessions.archive(user_id, session_id)}
 
 
 @app.get("/api/trades")
-def trades_api(user_id: int = Query(...), status: str | None = None) -> dict:
+def trades_api(user_id: AuthenticatedUser, status: str | None = None) -> dict:
     status = status if status in {"open", "closed", "cancelled"} else None
     return {"items": [trade_to_dict(row) for row in trades.list_for_user(user_id, status=status, limit=100)]}
 
 
 @app.post("/api/trades")
 async def create_trade_api(
-    user_id: int = Query(...),
+    user_id: AuthenticatedUser,
     symbol: str = Query(...),
     side: str = Query(...),
     entry_price: float = Query(..., gt=0),
@@ -139,17 +179,11 @@ async def create_trade_api(
     note: str = "",
 ) -> dict:
     symbol = normalize_symbol(symbol)
-    side = side.lower()
-    if side not in {"long", "short"}:
-        raise HTTPException(status_code=400, detail="Side must be long or short")
-    if side == "long" and stop_price >= entry_price:
-        raise HTTPException(status_code=400, detail="Long stop must be below entry")
-    if side == "short" and stop_price <= entry_price:
-        raise HTTPException(status_code=400, detail="Short stop must be above entry")
-    if target_price is not None and side == "long" and target_price <= entry_price:
-        raise HTTPException(status_code=400, detail="Long target must be above entry")
-    if target_price is not None and side == "short" and target_price >= entry_price:
-        raise HTTPException(status_code=400, detail="Short target must be below entry")
+    try:
+        validated = validate_trade(side=side, entry=entry_price, stop=stop_price, target=target_price, quantity=quantity, leverage=leverage)
+    except TradeValidationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    side = validated.side
     try:
         market_price = await market.get_price(symbol)
     except httpx.HTTPError as exc:
@@ -184,7 +218,7 @@ async def create_trade_api(
 @app.post("/api/trades/{trade_id}/update")
 def update_trade_api(
     trade_id: int,
-    user_id: int = Query(...),
+    user_id: AuthenticatedUser,
     entry_price: float = Query(..., gt=0),
     stop_price: float = Query(..., gt=0),
     target_price: float | None = Query(None, gt=0),
@@ -192,35 +226,63 @@ def update_trade_api(
     timeframe: str = "5m",
     note: str = "",
 ) -> dict:
+    existing = trades.get(user_id, trade_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail="Trade not found")
+    try:
+        validate_trade(side=existing["side"], entry=entry_price, stop=stop_price, target=target_price, quantity=quantity, leverage=existing["leverage"])
+    except TradeValidationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     timeframe = timeframe if timeframe in {"1m", "5m", "15m", "1h", "4h", "1d"} else "5m"
     row = trades.update(user_id, trade_id, entry_price, stop_price, target_price, quantity, timeframe, note)
     return {"ok": row is not None, "trade": trade_to_dict(row) if row else None}
 
 
 @app.post("/api/trades/{trade_id}/leverage")
-def update_trade_leverage_api(trade_id: int, user_id: int = Query(...), leverage: float = Query(..., gt=0)) -> dict:
+def update_trade_leverage_api(trade_id: int, user_id: AuthenticatedUser, leverage: float = Query(..., gt=0)) -> dict:
     row = trades.set_leverage(user_id, trade_id, leverage)
     return {"ok": row is not None, "trade": trade_to_dict(row) if row else None}
 
 
 @app.post("/api/trades/{trade_id}/attachment")
-async def upload_trade_attachment(trade_id: int, request: Request, user_id: int = Query(...), filename: str = "screenshot.jpg") -> dict:
+async def upload_trade_attachment(trade_id: int, request: Request, user_id: AuthenticatedUser, filename: str = "screenshot.jpg") -> dict:
     if not trades.get(user_id, trade_id):
         raise HTTPException(status_code=404, detail="Trade not found")
-    data = await request.body()
-    if not data or len(data) > 12 * 1024 * 1024:
-        raise HTTPException(status_code=400, detail="Image must be between 1 byte and 12 MB")
-    suffix = Path(filename).suffix.lower() if Path(filename).suffix.lower() in {".jpg", ".jpeg", ".png", ".webp"} else ".jpg"
+    max_bytes = 8 * 1024 * 1024
+    body = bytearray()
+    async for chunk in request.stream():
+        body.extend(chunk)
+        if len(body) > max_bytes:
+            raise HTTPException(status_code=413, detail="Image is too large")
+    if not body:
+        raise HTTPException(status_code=400, detail="Image is empty")
+    Image.MAX_IMAGE_PIXELS = 25_000_000
+    try:
+        with Image.open(io.BytesIO(body)) as source:
+            source.verify()
+        with Image.open(io.BytesIO(body)) as source:
+            if source.width > 8_000 or source.height > 8_000:
+                raise HTTPException(status_code=413, detail="Image dimensions are too large")
+            image = source.convert("RGB")
+            encoded = io.BytesIO()
+            image.save(encoded, format="JPEG", quality=88, optimize=True)
+            data = encoded.getvalue()
+    except (UnidentifiedImageError, OSError, Image.DecompressionBombError) as exc:
+        raise HTTPException(status_code=415, detail="Unsupported or unsafe image") from exc
     directory = TRADE_UPLOAD_DIR / str(user_id) / str(trade_id)
     directory.mkdir(parents=True, exist_ok=True)
-    target = directory / f"{hashlib.sha256(data).hexdigest()}{suffix}"
+    user_root = TRADE_UPLOAD_DIR / str(user_id)
+    used_bytes = sum(path.stat().st_size for path in user_root.rglob("*.jpg") if path.is_file())
+    if used_bytes + len(data) > 100 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="Attachment quota exceeded")
+    target = directory / f"{hashlib.sha256(data).hexdigest()}.jpg"
     target.write_bytes(data)
-    attachment_id = trades.add_attachment(user_id, trade_id, local_path=str(target), caption=filename)
+    attachment_id = trades.add_attachment(user_id, trade_id, local_path=str(target), caption=Path(filename).name[:255])
     return {"ok": True, "id": attachment_id}
 
 
 @app.post("/api/trades/{trade_id}/link-journal")
-def link_trade_journal_api(trade_id: int, user_id: int = Query(...), journal_id: int = Query(...)) -> dict:
+def link_trade_journal_api(trade_id: int, user_id: AuthenticatedUser, journal_id: int = Query(...)) -> dict:
     trade = trades.get(user_id, trade_id)
     entry = journal.get(user_id, journal_id)
     if not trade or not entry:
@@ -238,19 +300,19 @@ def link_trade_journal_api(trade_id: int, user_id: int = Query(...), journal_id:
 
 
 @app.get("/api/trade-attachment/{attachment_id}")
-def trade_attachment_api(attachment_id: int) -> FileResponse:
-    row = trades.attachment(attachment_id)
+def trade_attachment_api(attachment_id: int, user_id: AuthenticatedUser) -> FileResponse:
+    row = trades.attachment(user_id, attachment_id)
     if not row or not row["local_path"] or not Path(row["local_path"]).exists():
         raise HTTPException(status_code=404, detail="Attachment not found")
-    return FileResponse(row["local_path"])
+    return FileResponse(row["local_path"], headers={"X-Content-Type-Options": "nosniff"})
 
 
 @app.post("/api/trades/{trade_id}/close")
 def close_trade_api(
     trade_id: int,
-    user_id: int = Query(...),
-    exit_price: float = Query(...),
-    fees: float = 0,
+    user_id: AuthenticatedUser,
+    exit_price: float = Query(..., gt=0),
+    fees: float = Query(0, ge=0),
     note: str = "",
 ) -> dict:
     row = trades.close(user_id, trade_id, exit_price, fees, note or "closed from mini app", close_reason="manual")
@@ -258,28 +320,28 @@ def close_trade_api(
 
 
 @app.post("/api/trades/{trade_id}/cancel")
-def cancel_trade_api(trade_id: int, user_id: int = Query(...)) -> dict:
+def cancel_trade_api(trade_id: int, user_id: AuthenticatedUser) -> dict:
     return {"ok": trades.cancel(user_id, trade_id)}
 
 
 @app.get("/api/contexts")
-def contexts_api(user_id: int = Query(...), symbol: str = "") -> dict:
+def contexts_api(user_id: AuthenticatedUser, symbol: str = "") -> dict:
     return {"items": [row_to_dict(row) for row in contexts.list_for_user(user_id, symbol=symbol, limit=100)]}
 
 
 @app.get("/api/alerts")
-def alerts_api(user_id: int = Query(...)) -> dict:
+def alerts_api(user_id: AuthenticatedUser) -> dict:
     return {"items": [row_to_dict(row) for row in alerts.list_for_user(user_id)]}
 
 
 @app.get("/api/watchlist")
-def watchlist_api(user_id: int = Query(...)) -> dict:
+def watchlist_api(user_id: AuthenticatedUser) -> dict:
     users.ensure_user(user_id)
     return {"items": watchlist.list_symbols(user_id)}
 
 
 @app.post("/api/watchlist")
-async def add_watchlist_api(user_id: int = Query(...), symbol: str = Query(..., min_length=1)) -> dict:
+async def add_watchlist_api(user_id: AuthenticatedUser, symbol: str = Query(..., min_length=1)) -> dict:
     users.ensure_user(user_id)
     normalized = normalize_symbol(symbol)
     try:
@@ -291,19 +353,19 @@ async def add_watchlist_api(user_id: int = Query(...), symbol: str = Query(..., 
 
 
 @app.delete("/api/watchlist")
-def remove_watchlist_api(user_id: int = Query(...), symbol: str = Query(..., min_length=1)) -> dict:
+def remove_watchlist_api(user_id: AuthenticatedUser, symbol: str = Query(..., min_length=1)) -> dict:
     normalized = normalize_symbol(symbol)
     removed = watchlist.remove(user_id, normalized)
     return {"ok": removed, "symbol": normalized, "items": watchlist.list_symbols(user_id)}
 
 
 @app.get("/api/journal")
-def journal_api(user_id: int = Query(...), symbol: str = "") -> dict:
+def journal_api(user_id: AuthenticatedUser, symbol: str = "") -> dict:
     return {"items": [row_to_dict(row) for row in journal.list_for_user(user_id, symbol=symbol, limit=50)]}
 
 
 @app.get("/api/journal/{journal_id}/chart")
-async def journal_chart_api(journal_id: int, user_id: int = Query(...), interval: str = "1m") -> dict:
+async def journal_chart_api(journal_id: int, user_id: AuthenticatedUser, interval: str = "1m") -> dict:
     interval = normalized_interval(interval)
     entry = journal.get(user_id, journal_id)
     if not entry:
@@ -345,17 +407,17 @@ async def journal_chart_api(journal_id: int, user_id: int = Query(...), interval
 
 
 @app.post("/api/journal/{journal_id}/merge")
-def merge_journal_api(journal_id: int, user_id: int = Query(...), remove_id: int = Query(...)) -> dict:
+def merge_journal_api(journal_id: int, user_id: AuthenticatedUser, remove_id: int = Query(...)) -> dict:
     return {"ok": journal.merge(user_id, journal_id, remove_id)}
 
 
 @app.get("/api/templates")
-def templates_api(user_id: int = Query(...)) -> dict:
+def templates_api(user_id: AuthenticatedUser) -> dict:
     return {"items": templates.list_for_user(user_id)}
 
 
 @app.get("/api/prices")
-async def prices_api(user_id: int = Query(...), symbols: str = "") -> dict:
+async def prices_api(user_id: AuthenticatedUser, symbols: str = "") -> dict:
     requested = {item.strip() for item in symbols.split(",") if item.strip()}
     if not requested:
         requested.update(watchlist.list_symbols(user_id))
@@ -381,7 +443,7 @@ async def prices_api(user_id: int = Query(...), symbols: str = "") -> dict:
 
 
 @app.get("/api/market/top")
-async def market_top_api(limit: int = Query(30, ge=1, le=50)) -> dict:
+async def market_top_api(user_id: AuthenticatedUser, limit: int = Query(30, ge=1, le=50)) -> dict:
     tickers = await market.top_by_activity(limit)
     return {
         "items": [
@@ -402,7 +464,7 @@ async def market_top_api(limit: int = Query(30, ge=1, le=50)) -> dict:
 
 
 @app.get("/api/klines")
-async def klines_api(symbol: str, interval: str = "1m", limit: int = Query(80, ge=10, le=240)) -> dict:
+async def klines_api(user_id: AuthenticatedUser, symbol: str, interval: str = "1m", limit: int = Query(80, ge=10, le=240)) -> dict:
     allowed = {"1m", "5m", "15m", "1h", "4h", "1d"}
     interval = interval if interval in allowed else "1m"
     rows = await market.get_klines(symbol, interval, limit=limit)
@@ -410,7 +472,7 @@ async def klines_api(symbol: str, interval: str = "1m", limit: int = Query(80, g
 
 
 @app.get("/api/trades/{trade_id}/chart")
-async def trade_chart_api(trade_id: int, user_id: int = Query(...), interval: str = "1m") -> dict:
+async def trade_chart_api(trade_id: int, user_id: AuthenticatedUser, interval: str = "1m") -> dict:
     interval = normalized_interval(interval)
     trade = trades.get(user_id, trade_id)
     if not trade:
@@ -429,7 +491,9 @@ async def trade_chart_api(trade_id: int, user_id: int = Query(...), interval: st
 
 
 @app.get("/api/media/{file_id:path}")
-async def media_api(file_id: str) -> FileResponse:
+async def media_api(file_id: str, user_id: AuthenticatedUser) -> FileResponse:
+    if not trades.owns_telegram_file(user_id, file_id):
+        raise HTTPException(status_code=404, detail="Media not found")
     if not TELEGRAM_BOT_TOKEN:
         raise HTTPException(status_code=503, detail="TELEGRAM_BOT_TOKEN is not configured")
     MEDIA_CACHE_DIR.mkdir(parents=True, exist_ok=True)
@@ -444,11 +508,12 @@ async def media_api(file_id: str) -> FileResponse:
             data = await client.get(f"https://api.telegram.org/file/bot{TELEGRAM_BOT_TOKEN}/{file_path}")
             data.raise_for_status()
             target.write_bytes(data.content)
-    return FileResponse(target)
+    return FileResponse(target, headers={"X-Content-Type-Options": "nosniff"})
 
 
 @app.get("/api/risk")
 def risk_api(
+    user_id: AuthenticatedUser,
     symbol: str,
     side: str,
     entry: float,
@@ -477,7 +542,7 @@ def risk_api(
 
 @app.get("/api/review")
 async def review_api(
-    user_id: int,
+    user_id: AuthenticatedUser,
     symbol: str,
     side: str,
     entry: float,
@@ -535,7 +600,7 @@ async def review_api(
 
 
 @app.get("/api/setup")
-async def setup_api(symbol: str, timeframe: str = "5m", risk_reward: float = Query(2, ge=1, le=5)) -> dict:
+async def setup_api(user_id: AuthenticatedUser, symbol: str, timeframe: str = "5m", risk_reward: float = Query(2, ge=1, le=5)) -> dict:
     symbol = normalize_symbol(symbol)
     timeframe = timeframe if timeframe in {"1m", "5m", "15m", "1h"} else "5m"
     intervals = ["1d", "1h", "15m", "5m"]

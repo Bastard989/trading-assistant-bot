@@ -79,6 +79,8 @@ http://127.0.0.1:8080/?user_id=TELEGRAM_USER_ID
 
 ```env
 TELEGRAM_BOT_TOKEN=token_from_botfather
+ALLOWED_TELEGRAM_USER_IDS=123456789
+APP_ENV=production
 DATABASE_PATH=data/trading_bot.sqlite3
 MARKET=futures
 TOP_LIMIT=10

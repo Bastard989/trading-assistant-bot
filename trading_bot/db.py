@@ -8,6 +8,14 @@ from typing import Iterator
 
 SCHEMA = """
 PRAGMA journal_mode=WAL;
+PRAGMA foreign_keys=ON;
+PRAGMA busy_timeout=5000;
+
+CREATE TABLE IF NOT EXISTS schema_migrations (
+    version INTEGER PRIMARY KEY,
+    checksum TEXT NOT NULL,
+    applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
 
 CREATE TABLE IF NOT EXISTS users (
     telegram_id INTEGER PRIMARY KEY,
@@ -197,6 +205,17 @@ CREATE TABLE IF NOT EXISTS trade_attachments (
     FOREIGN KEY(trade_id) REFERENCES trades(id),
     FOREIGN KEY(user_id) REFERENCES users(telegram_id)
 );
+
+CREATE INDEX IF NOT EXISTS idx_trades_user_status_opened
+    ON trades(user_id, status, opened_at DESC);
+CREATE INDEX IF NOT EXISTS idx_journal_user_created
+    ON journal_entries(user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_alerts_status_symbol
+    ON alerts(status, symbol);
+CREATE INDEX IF NOT EXISTS idx_contexts_user_symbol_created
+    ON market_contexts(user_id, symbol, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_attachments_user_trade
+    ON trade_attachments(user_id, trade_id);
 """
 
 
@@ -208,16 +227,24 @@ class Database:
 
     @contextmanager
     def connect(self) -> Iterator[sqlite3.Connection]:
-        connection = sqlite3.connect(self.path)
+        connection = sqlite3.connect(self.path, timeout=5)
         connection.row_factory = sqlite3.Row
+        connection.execute("PRAGMA foreign_keys=ON")
+        connection.execute("PRAGMA busy_timeout=5000")
+        connection.execute("PRAGMA journal_mode=WAL")
         try:
             yield connection
             connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
         finally:
             connection.close()
 
     def migrate(self) -> None:
         with sqlite3.connect(self.path) as connection:
+            connection.execute("PRAGMA foreign_keys=ON")
+            connection.execute("PRAGMA busy_timeout=5000")
             connection.executescript(SCHEMA)
             self._add_column(connection, "trades", "risk_amount", "REAL NOT NULL DEFAULT 0")
             self._add_column(connection, "trades", "setup", "TEXT NOT NULL DEFAULT ''")
@@ -228,6 +255,14 @@ class Database:
             self._add_column(connection, "trades", "session_id", "INTEGER")
             self._add_column(connection, "trades", "timeframe", "TEXT NOT NULL DEFAULT '5m'")
             self._add_column(connection, "journal_entries", "session_id", "INTEGER")
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS idx_trades_user_session_status "
+                "ON trades(user_id, session_id, status)"
+            )
+            connection.execute(
+                "INSERT OR IGNORE INTO schema_migrations(version, checksum) VALUES (?, ?)",
+                (1, "baseline-schema-v1"),
+            )
 
     def _add_column(self, connection: sqlite3.Connection, table: str, column: str, definition: str) -> None:
         columns = {row[1] for row in connection.execute(f"PRAGMA table_info({table})")}

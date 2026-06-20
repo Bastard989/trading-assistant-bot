@@ -1,0 +1,28 @@
+[Unit]
+Description=Trading Assistant Telegram bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=trading-assistant
+Group=trading-assistant
+WorkingDirectory=/opt/trading-assistant/current
+EnvironmentFile=/etc/trading-assistant.env
+ExecStart=/opt/trading-assistant/current/.venv/bin/python -m trading_bot.main
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+KillSignal=SIGTERM
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/trading-assistant
+RestrictSUIDSGID=true
+LockPersonality=true
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target
+

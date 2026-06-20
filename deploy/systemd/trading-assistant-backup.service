@@ -1,0 +1,17 @@
+[Unit]
+Description=Trading Assistant verified SQLite backup
+
+[Service]
+Type=oneshot
+User=trading-assistant
+Group=trading-assistant
+WorkingDirectory=/opt/trading-assistant/current
+EnvironmentFile=/etc/trading-assistant.env
+ExecStart=/opt/trading-assistant/current/.venv/bin/python scripts/backup_daily.py --source ${DATABASE_PATH} --directory /var/lib/trading-assistant/backups
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/trading-assistant
+UMask=0077
+

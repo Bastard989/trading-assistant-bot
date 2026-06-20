@@ -1,0 +1,28 @@
+[Unit]
+Description=Trading Assistant API
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=trading-assistant
+Group=trading-assistant
+WorkingDirectory=/opt/trading-assistant/current
+EnvironmentFile=/etc/trading-assistant.env
+ExecStart=/opt/trading-assistant/current/.venv/bin/uvicorn trading_bot.web_app:app --host 127.0.0.1 --port 8080 --no-server-header
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+KillSignal=SIGTERM
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/trading-assistant
+RestrictSUIDSGID=true
+LockPersonality=true
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target
+

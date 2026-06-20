@@ -32,13 +32,14 @@ def mutation_headers(user_id: int, key: str = "test-key-0001") -> dict[str, str]
     return {**auth_header(user_id), "Idempotency-Key": key}
 
 
-def load_test_app(monkeypatch, tmp_path):
+def load_test_app(monkeypatch, tmp_path, *, read_limit: int = 120):
     monkeypatch.setenv("DATABASE_PATH", str(tmp_path / "api.sqlite3"))
     monkeypatch.setenv("TRADE_UPLOAD_DIR", str(tmp_path / "uploads"))
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", TOKEN)
     monkeypatch.setenv("ALLOWED_TELEGRAM_USER_IDS", "42,99")
     monkeypatch.setenv("APP_ENV", "production")
     monkeypatch.setenv("AUTO_MIGRATE", "true")
+    monkeypatch.setenv("API_RATE_LIMIT_READS", str(read_limit))
     sys.modules.pop("trading_bot.web_app", None)
     return importlib.import_module("trading_bot.web_app")
 
@@ -52,7 +53,8 @@ def test_api_requires_signed_identity_and_ignores_spoofed_query(monkeypatch, tmp
     client = TestClient(module.app)
 
     assert client.get("/api/trades").status_code == 401
-    response = client.get("/api/trades?user_id=99", headers=auth_header(42))
+    assert client.get("/api/trades?user_id=99", headers=auth_header(42)).status_code == 400
+    response = client.get("/api/trades", headers=auth_header(42))
     assert response.status_code == 200
     assert [item["symbol"] for item in response.json()["items"]] == ["BTCUSDT"]
     assert client.get("/docs").status_code == 404
@@ -118,3 +120,14 @@ def test_mutation_requires_key_and_replay_returns_original_response(monkeypatch,
 
     conflict = client.post("/api/sessions?name=Other&start_balance=2000", headers=headers)
     assert conflict.status_code == 409
+
+
+def test_api_rate_limit_returns_retry_after(monkeypatch, tmp_path) -> None:
+    module = load_test_app(monkeypatch, tmp_path, read_limit=2)
+    client = TestClient(module.app)
+    headers = auth_header(42)
+    assert client.get("/api/trades", headers=headers).status_code == 200
+    assert client.get("/api/trades", headers=headers).status_code == 200
+    limited = client.get("/api/trades", headers=headers)
+    assert limited.status_code == 429
+    assert int(limited.headers["retry-after"]) >= 1

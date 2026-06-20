@@ -35,6 +35,7 @@ from trading_bot.repositories import (
     WatchlistRepository,
 )
 from trading_bot.risk import calculate_risk
+from trading_bot.rate_limit import SlidingWindowLimiter
 
 
 load_dotenv()
@@ -59,6 +60,7 @@ sessions = TradingSessionRepository(db)
 idempotency = IdempotencyRepository(db)
 market = MarketClient(os.getenv("MARKET", "futures").strip().lower())
 AuthenticatedUser = Annotated[int, Depends(require_telegram_user)]
+rate_limiter = SlidingWindowLimiter()
 
 IS_PRODUCTION = os.getenv("APP_ENV", "production").strip().lower() == "production"
 app = FastAPI(
@@ -91,8 +93,8 @@ def apply_security_headers(response: Response) -> Response:
 
 
 @app.middleware("http")
-async def mutation_idempotency(request: Request, call_next):
-    if not request.url.path.startswith("/api/") or request.method not in {"POST", "PUT", "PATCH", "DELETE"}:
+async def api_guard(request: Request, call_next):
+    if not request.url.path.startswith("/api/"):
         return await call_next(request)
     if "user_id" in request.query_params:
         return apply_security_headers(JSONResponse({"detail": "user_id must not be supplied"}, status_code=400))
@@ -104,6 +106,35 @@ async def mutation_idempotency(request: Request, call_next):
         )
     except HTTPException as exc:
         return apply_security_headers(JSONResponse({"detail": exc.detail}, status_code=exc.status_code))
+    mutation = request.method in {"POST", "PUT", "PATCH", "DELETE"}
+    limit = int(os.getenv("API_RATE_LIMIT_MUTATIONS", "30")) if mutation else int(os.getenv("API_RATE_LIMIT_READS", "120"))
+    allowed, retry_after = rate_limiter.allow(
+        f"{user_id}:{request.method}:{request.url.path}",
+        limit=max(1, limit),
+        window_seconds=60,
+    )
+    if not allowed:
+        return apply_security_headers(JSONResponse(
+            {"detail": "Rate limit exceeded"},
+            status_code=429,
+            headers={"Retry-After": str(retry_after)},
+        ))
+    return await call_next(request)
+
+
+@app.middleware("http")
+async def mutation_idempotency(request: Request, call_next):
+    if not request.url.path.startswith("/api/") or request.method not in {"POST", "PUT", "PATCH", "DELETE"}:
+        return await call_next(request)
+    try:
+        user_id = authenticate_telegram_user(
+            request.headers.get("authorization"),
+            request.headers.get("x-telegram-init-data"),
+            request.headers.get("x-dev-user-id"),
+        )
+    except HTTPException as exc:
+        return apply_security_headers(JSONResponse({"detail": exc.detail}, status_code=exc.status_code))
+    users.ensure_user(user_id)
     key = request.headers.get("idempotency-key", "")
     if not re.fullmatch(r"[A-Za-z0-9._:-]{8,128}", key):
         return apply_security_headers(JSONResponse({"detail": "Valid Idempotency-Key header is required"}, status_code=400))

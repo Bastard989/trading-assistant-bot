@@ -126,7 +126,7 @@ def trades_api(user_id: int = Query(...), status: str | None = None) -> dict:
 
 
 @app.post("/api/trades")
-def create_trade_api(
+async def create_trade_api(
     user_id: int = Query(...),
     symbol: str = Query(...),
     side: str = Query(...),
@@ -146,6 +146,23 @@ def create_trade_api(
         raise HTTPException(status_code=400, detail="Long stop must be below entry")
     if side == "short" and stop_price <= entry_price:
         raise HTTPException(status_code=400, detail="Short stop must be above entry")
+    if target_price is not None and side == "long" and target_price <= entry_price:
+        raise HTTPException(status_code=400, detail="Long target must be above entry")
+    if target_price is not None and side == "short" and target_price >= entry_price:
+        raise HTTPException(status_code=400, detail="Short target must be below entry")
+    try:
+        market_price = await market.get_price(symbol)
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=400, detail="Монета не найдена на Binance Futures") from exc
+    market_distance = abs(entry_price - market_price) / market_price * 100
+    if market_distance > 15:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Цена входа отличается от текущей цены {symbol} на {market_distance:.1f}%. "
+                "Проверь монету и цену"
+            ),
+        )
     timeframe = timeframe if timeframe in {"1m", "5m", "15m", "1h", "4h", "1d"} else "1m"
     trade_id = trades.create(
         user_id=user_id,

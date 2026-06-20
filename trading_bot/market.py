@@ -127,7 +127,8 @@ def normalize_symbol(symbol: str) -> str:
     value = symbol.strip().lower()
     aliases = {
         "биткоин": "BTC", "биток": "BTC", "биточек": "BTC", "bitcoin": "BTC",
-        "эфир": "ETH", "эфириум": "ETH", "эфирка": "ETH", "ethereum": "ETH",
+        "эфир": "ETH", "ефир": "ETH", "эфириум": "ETH", "ефириум": "ETH",
+        "эфирка": "ETH", "ефирка": "ETH", "ethereum": "ETH",
         "солана": "SOL", "солянка": "SOL", "солик": "SOL", "соль": "SOL",
     }
     symbol = aliases.get(value, value).upper().replace("/", "").replace("-", "")

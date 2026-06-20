@@ -747,6 +747,14 @@ class BotHandlers:
             price = prices.get(trade["symbol"])
             if price is None:
                 continue
+            entry_price = float(trade["entry_price"])
+            market_distance = abs(price - entry_price) / entry_price * 100
+            if market_distance > 25:
+                logger.error(
+                    "Auto-close blocked for trade %s: %s market price %s is %.1f%% from entry %s",
+                    trade["id"], trade["symbol"], price, market_distance, entry_price,
+                )
+                continue
             close_reason = ""
             close_price = None
             if trade["side"] == "long":
@@ -1180,12 +1188,24 @@ class BotHandlers:
             leverage = float(draft.get("leverage") or 1)
             quantity = draft.get("quantity")
             try:
+                if price is None:
+                    raise ValueError("не удалось получить реальную цену Binance Futures")
+                market_distance_percent = abs(float(draft["entry"]) - price) / price * 100
+                if market_distance_percent > 15:
+                    raise ValueError(
+                        f"цена входа {money(draft['entry'])} не похожа на текущую цену "
+                        f"{draft['symbol']} {money(price)} (разница {market_distance_percent:.1f}%). "
+                        "Проверь монету и цену"
+                    )
                 stop_distance_percent = abs(float(draft["entry"]) - float(draft["stop"])) / float(draft["entry"]) * 100
                 if stop_distance_percent > 20:
                     raise ValueError(f"Стоп находится слишком далеко: {stop_distance_percent:.1f}% от входа. Похоже на опечатку")
                 if quantity:
                     quantity = float(quantity)
-                    validate_trade_input(str(draft["side"]), float(draft["entry"]), float(draft["stop"]), quantity, leverage)
+                    validate_trade_input(
+                        str(draft["side"]), float(draft["entry"]), float(draft["stop"]),
+                        quantity, leverage, float(draft["target"]) if draft.get("target") else None,
+                    )
                     trade_draft = TradeDraft(
                         symbol=normalize_symbol(str(draft["symbol"])),
                         side=str(draft["side"]),
@@ -1221,7 +1241,10 @@ class BotHandlers:
                     )
                 else:
                     quantity = 1.0
-                    validate_trade_input(str(draft["side"]), float(draft["entry"]), float(draft["stop"]), quantity, leverage)
+                    validate_trade_input(
+                        str(draft["side"]), float(draft["entry"]), float(draft["stop"]),
+                        quantity, leverage, float(draft["target"]) if draft.get("target") else None,
+                    )
                     trade_draft = TradeDraft(
                         symbol=normalize_symbol(str(draft["symbol"])),
                         side=str(draft["side"]),
@@ -1381,14 +1404,27 @@ def local_lan_ip() -> str:
 
 
 def guess_symbol(text: str) -> str:
-    value = text.lower()
-    if any(word in value for word in {"биткоин", "биток", "btc", "bitcoin"}):
-        return "BTCUSDT"
-    if any(word in value for word in {"эфир", "eth", "ethereum"}):
-        return "ETHUSDT"
-    if "sol" in value or "солана" in value:
-        return "SOLUSDT"
-    match = re.search(r"\b([a-zA-Z]{2,12})(?:usdt)?\b", text)
+    value = text.lower().replace("ё", "е")
+    explicit = re.search(r"(?im)^\s*монета\s*:\s*([^\n\r]+)", value)
+    if explicit:
+        candidate = explicit.group(1).strip().split()[0].strip(".,;:()[]")
+        return normalize_symbol(candidate)
+
+    aliases = {
+        "BTCUSDT": ("биткоин", "биток", "биточек", "bitcoin", "btc"),
+        "ETHUSDT": ("эфириум", "ефириум", "эфир", "ефир", "ethereum", "eth"),
+        "SOLUSDT": ("солана", "солянка", "солик", "соль", "sol"),
+    }
+    matches = [
+        (match.start(), symbol)
+        for symbol, words in aliases.items()
+        for word in words
+        if (match := re.search(rf"(?<![a-zа-я0-9]){re.escape(word)}(?![a-zа-я0-9])", value))
+    ]
+    if matches:
+        return min(matches)[1]
+
+    match = re.search(r"\b(?!open\b|trade\b|long\b|short\b)([a-zA-Z]{2,12})(?:usdt)?\b", text, re.IGNORECASE)
     if match:
         return normalize_symbol(match.group(1))
     return ""
@@ -1399,7 +1435,8 @@ def parse_trade_caption(text: str) -> dict[str, object] | None:
     # The first direction in the trade header is authoritative. The rationale
     # may legitimately mention an opposite future scenario.
     header = re.split(r"\b(?:причина(?:\s+входа)?|почему\s+вош[её]л|описание)\b", value, maxsplit=1)[0]
-    side_match = re.search(r"\b(лонг|long|шорт|short)\b", header)
+    explicit_side = re.search(r"(?im)^\s*сторона\s*:\s*(лонг|long|шорт|short)\b", value)
+    side_match = explicit_side or re.search(r"\b(лонг|long|шорт|short)\b", header)
     if not side_match:
         side_match = re.search(r"\b(лонг|long|шорт|short)\b", value)
     side = ""
@@ -1409,7 +1446,7 @@ def parse_trade_caption(text: str) -> dict[str, object] | None:
     stop = extract_price_after(value, ("стоп лосс", "стоплосс", "стоп", "sl"))
     target = extract_price_after(value, ("тейк профит", "тейкпрофит", "тейкт профит", "тейк", "профит", "tp"))
     entry = extract_price_after(value, ("вход", "entry", "открыл по", "цена входа"))
-    leverage = extract_price_after(value, ("плечо", "x", "leverage"))
+    leverage = extract_leverage(value)
     quantity = extract_price_after(value, ("qty", "количество", "объем", "обьем", "размер позиции"))
     if entry is None:
         entry = extract_first_trade_price(value, stop, target)
@@ -1424,6 +1461,13 @@ def parse_trade_caption(text: str) -> dict[str, object] | None:
         "leverage": leverage or 1,
         "quantity": quantity,
     }
+
+
+def extract_leverage(text: str) -> float | None:
+    match = re.search(r"(?:плечо|leverage)\s*:\s*(\d+(?:[,.]\d+)?)\s*(?:[:%]\s*1|[xх])?", text)
+    if match:
+        return parse_float(match.group(1))
+    return extract_price_after(text, ("плечо", "leverage"))
 
 
 def extract_price_after(text: str, labels: tuple[str, ...]) -> float | None:
@@ -1491,7 +1535,14 @@ def looks_number(value: str) -> bool:
     return True
 
 
-def validate_trade_input(side: str, entry: float, stop: float, quantity: float, leverage: float) -> None:
+def validate_trade_input(
+    side: str,
+    entry: float,
+    stop: float,
+    quantity: float,
+    leverage: float,
+    target: float | None = None,
+) -> None:
     if side not in {"long", "short"}:
         raise ValueError("side должен быть long или short")
     if entry <= 0 or stop <= 0 or quantity <= 0 or leverage <= 0:
@@ -1500,6 +1551,10 @@ def validate_trade_input(side: str, entry: float, stop: float, quantity: float, 
         raise ValueError("для long стоп должен быть ниже входа")
     if side == "short" and stop <= entry:
         raise ValueError("для short стоп должен быть выше входа")
+    if target is not None and side == "long" and target <= entry:
+        raise ValueError("для long тейк должен быть выше входа")
+    if target is not None and side == "short" and target >= entry:
+        raise ValueError("для short тейк должен быть ниже входа")
 
 
 def parse_alert_args(args: list[str]) -> tuple[str, str, float]:

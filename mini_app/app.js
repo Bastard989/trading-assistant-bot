@@ -3,7 +3,7 @@ const tgUser = window.Telegram?.WebApp?.initDataUnsafe?.user?.id;
 const userId = params.get("user_id") || tgUser || "1";
 window.Telegram?.WebApp?.ready();
 
-const fmt = (value, digits = 2) => Number(value || 0).toLocaleString("en-US", { maximumFractionDigits: digits });
+const fmt = (value, digits = 2) => Number(value || 0).toLocaleString("ru-RU", { maximumFractionDigits: digits });
 const signed = value => `${Number(value || 0) > 0 ? "+" : ""}${fmt(value)}`;
 const priceState = new Map();
 const candleCache = new Map();

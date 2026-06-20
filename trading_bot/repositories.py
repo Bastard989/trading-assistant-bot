@@ -629,9 +629,7 @@ class PendingTradeRepository:
 
     def create(self, user_id: int, draft: TradeDraft, review: TradeReview) -> int:
         payload = {
-            "score": review.score,
-            "win_probability": review.win_probability,
-            "loss_probability": review.loss_probability,
+            "rule_score": review.score,
             "severity": review.severity,
             "summary": review.summary,
             "issues": [issue.__dict__ for issue in review.issues],
@@ -903,10 +901,10 @@ class TradeReviewRepository:
             cursor = connection.execute(
                 """
                 INSERT INTO trade_reviews (
-                    user_id, trade_id, symbol, side, score, win_probability,
+                    user_id, trade_id, symbol, side, score, rule_score, win_probability,
                     loss_probability, severity, summary, payload
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     user_id,
@@ -914,8 +912,9 @@ class TradeReviewRepository:
                     symbol.upper(),
                     side,
                     review.score,
-                    review.win_probability,
-                    review.loss_probability,
+                    review.score,
+                    review.score,
+                    100 - review.score,
                     review.severity,
                     review.summary,
                     json.dumps(payload, ensure_ascii=False),

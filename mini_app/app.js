@@ -891,7 +891,7 @@ async function reviewTrade() {
     const r = data.review;
     const issues = r.issues.map(item => `- ${item.severity.toUpperCase()}: ${item.title}. ${item.detail}`).join("\n");
     document.getElementById("reviewResult").textContent =
-      `Score: ${fmt(r.score, 0)}/100\nВероятно зайдет: ${fmt(r.win_probability, 0)}%\nВероятно не зайдет: ${fmt(r.loss_probability, 0)}%\nSeverity: ${r.severity.toUpperCase()}\n${r.summary}\n\n${issues || "Критичных замечаний нет"}`;
+      `Оценка по правилам: ${fmt(r.rule_score, 0)}/100 (не вероятность)\nSeverity: ${r.severity.toUpperCase()}\n${r.summary}\n\n${issues || "Критичных замечаний нет"}`;
   } catch {
     document.getElementById("reviewResult").textContent = "Не удалось проверить сделку";
   }
@@ -906,7 +906,7 @@ async function suggestTrade() {
   try {
     const data = await api(`/api/setup?symbol=${encodeURIComponent(symbol)}&timeframe=${encodeURIComponent(timeframe)}`);
     const contexts = Object.entries(data.contexts).map(([tf, item]) => `${tf.toUpperCase()}: ${item.bias} · RSI ${item.rsi}`).join("\n");
-    target.textContent = `${data.symbol} · рабочий ТФ ${data.timeframe}\nСценарий: ${data.side.toUpperCase()}\nВход: ${fmt(data.entry, 6)}\nСтоп: ${fmt(data.stop, 6)}\nТейк: ${fmt(data.target, 6)}\nКачество сетапа: ${data.score}/100\nОценка успеха: ${data.win_probability}%\nОценка неуспеха: ${data.loss_probability}%\n\n${contexts}\n\n${data.note}`;
+    target.textContent = `${data.symbol} · рабочий ТФ ${data.timeframe}\nСценарий: ${data.side.toUpperCase()}\nВход: ${fmt(data.entry, 6)}\nСтоп: ${fmt(data.stop, 6)}\nТейк: ${fmt(data.target, 6)}\nЭвристическая оценка: ${data.rule_score}/100 (не вероятность)\n\n${contexts}\n\n${data.note}`;
     if (data.side !== "neutral") document.querySelector('#riskForm select[name="side"]').value = data.side;
     document.querySelector('#riskForm input[name="entry"]').value = data.entry.toFixed(6);
     document.querySelector('#riskForm input[name="stop"]').value = data.stop.toFixed(6);

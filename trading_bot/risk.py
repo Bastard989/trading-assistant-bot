@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import math
+
 from trading_bot.models import RiskCalculation
 
 
@@ -25,6 +27,16 @@ def calculate_risk(
     maintenance_margin_percent: float = 0.5,
     margin_mode: str = "isolated",
 ) -> RiskCalculation:
+    numeric_values = (
+        entry_price, stop_price, account_size, risk_percent, leverage,
+        entry_fee_percent, exit_fee_percent, slippage_percent,
+        funding_rate_percent, holding_hours, funding_interval_hours,
+        maintenance_margin_percent,
+    )
+    if target_price is not None:
+        numeric_values += (target_price,)
+    if not all(math.isfinite(value) for value in numeric_values):
+        raise RiskInputError("All numeric values must be finite.")
     side = side.lower()
     if side not in {"long", "short"}:
         raise RiskInputError("Side must be long or short.")
@@ -50,6 +62,10 @@ def calculate_risk(
         raise RiskInputError("For long trades stop must be below entry.")
     if side == "short" and stop_price <= entry_price:
         raise RiskInputError("For short trades stop must be above entry.")
+    if target_price is not None and side == "long" and target_price <= entry_price:
+        raise RiskInputError("For long trades target must be above entry.")
+    if target_price is not None and side == "short" and target_price >= entry_price:
+        raise RiskInputError("For short trades target must be below entry.")
 
     direction = 1 if side == "long" else -1
     funding_intervals = holding_hours / funding_interval_hours

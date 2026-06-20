@@ -168,6 +168,7 @@ CREATE TABLE IF NOT EXISTS trade_reviews (
     symbol TEXT NOT NULL,
     side TEXT NOT NULL,
     score REAL NOT NULL,
+    rule_score REAL,
     win_probability REAL NOT NULL,
     loss_probability REAL NOT NULL,
     severity TEXT NOT NULL,
@@ -267,12 +268,14 @@ class Database:
             self._add_column(connection, "trades", "session_id", "INTEGER")
             self._add_column(connection, "trades", "timeframe", "TEXT NOT NULL DEFAULT '5m'")
             self._add_column(connection, "journal_entries", "session_id", "INTEGER")
+            self._add_column(connection, "trade_reviews", "rule_score", "REAL")
             connection.execute(
                 "CREATE INDEX IF NOT EXISTS idx_trades_user_session_status "
                 "ON trades(user_id, session_id, status)"
             )
             self._record_migration(connection, 1, "baseline-schema-v1")
             self._record_migration(connection, 2, "idempotency-keys-v2")
+            self._record_migration(connection, 3, "trade-review-rule-score-v3")
             connection.commit()
         except Exception:
             connection.rollback()

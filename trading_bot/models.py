@@ -101,8 +101,6 @@ class ReviewIssue:
 @dataclass(frozen=True)
 class TradeReview:
     score: float
-    win_probability: float
-    loss_probability: float
     severity: str
     summary: str
     issues: tuple[ReviewIssue, ...]

@@ -219,7 +219,7 @@ def health_ready() -> dict[str, str]:
             version = connection.execute("SELECT max(version) FROM schema_migrations").fetchone()[0]
     except sqlite3.Error as exc:
         raise HTTPException(status_code=503, detail="Database schema is not ready") from exc
-    if version != 2:
+    if version != 3:
         raise HTTPException(status_code=503, detail="Database migrations are not current")
     return {"status": "ready"}
 
@@ -721,9 +721,7 @@ async def review_api(
     )
     return {
         "review": {
-            "score": review.score,
-            "win_probability": review.win_probability,
-            "loss_probability": review.loss_probability,
+            "rule_score": review.score,
             "severity": review.severity,
             "summary": review.summary,
             "issues": [issue.__dict__ for issue in review.issues],
@@ -765,10 +763,9 @@ async def setup_api(user_id: AuthenticatedUser, symbol: str, timeframe: str = "5
     score = min(82, round(48 + alignment * 28 + (6 if analyses["1d"]["bias"] == side else 0)))
     return {
         "symbol": symbol, "timeframe": timeframe, "side": side, "entry": price,
-        "stop": stop, "target": target, "score": score,
-        "win_probability": score, "loss_probability": 100 - score,
+        "stop": stop, "target": target, "rule_score": score,
         "contexts": analyses,
-        "note": "Оценка качества сетапа по тренду и волатильности, не статистическая гарантия исхода.",
+        "note": "Эвристическая оценка по правилам тренда и волатильности; это не вероятность и не гарантия исхода.",
     }
 
 

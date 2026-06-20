@@ -32,3 +32,4 @@ def test_schema_records_idempotency_migration(tmp_path) -> None:
     with db.connect() as connection:
         versions = dict(connection.execute("SELECT version, checksum FROM schema_migrations"))
     assert versions[2] == "idempotency-keys-v2"
+    assert versions[3] == "trade-review-rule-score-v3"

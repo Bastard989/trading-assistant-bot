@@ -154,8 +154,6 @@ def review_trade(
     else:
         severity = "low"
 
-    win_probability = score
-    loss_probability = 100 - score
     summary = build_summary(severity, score, conflicts, aligned, rr)
     levels = {
         "entry": draft.entry_price,
@@ -170,8 +168,6 @@ def review_trade(
 
     return TradeReview(
         score=score,
-        win_probability=win_probability,
-        loss_probability=loss_probability,
         severity=severity,
         summary=summary,
         issues=tuple(issues),

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
+from decimal import Decimal, InvalidOperation, ROUND_HALF_EVEN
 
 from trading_bot.models import Distance, MarketTicker, RiskCalculation, Sentiment, TradeReview
 
@@ -8,7 +9,15 @@ from trading_bot.models import Distance, MarketTicker, RiskCalculation, Sentimen
 def money(value: float | None) -> str:
     if value is None:
         return "-"
-    return f"{value:,.4f}".rstrip("0").rstrip(".")
+    try:
+        number = Decimal(str(value))
+    except InvalidOperation:
+        return "-"
+    if not number.is_finite():
+        return "-"
+    rounded = number.quantize(Decimal("0.00000001"), rounding=ROUND_HALF_EVEN)
+    raw = f"{rounded:,.8f}".rstrip("0").rstrip(".")
+    return raw.replace(",", " ").replace(".", ",")
 
 
 def signed_money(value: float | None) -> str:
@@ -91,8 +100,7 @@ def format_review(review: TradeReview) -> str:
     lines = [
         "Trade Review",
         review.summary,
-        f"Likely success: {review.win_probability:.0f}%",
-        f"Likely failure: {review.loss_probability:.0f}%",
+        f"Rule score: {review.score:.0f}/100 (heuristic, not probability)",
         f"Severity: {review.severity.upper()}",
     ]
     if review.issues:

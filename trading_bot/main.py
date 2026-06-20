@@ -11,6 +11,7 @@ from trading_bot.repositories import (
     AlertRepository,
     DailyPlanRepository,
     JournalRepository,
+    IdempotencyRepository,
     MarketContextRepository,
     PendingTradeRepository,
     TemplateRepository,
@@ -39,6 +40,7 @@ def main() -> None:
     db = Database(settings.database_path)
 
     users = UserRepository(db)
+    idempotency = IdempotencyRepository(db)
     alerts = AlertRepository(db)
     trades = TradeRepository(db)
     journal = JournalRepository(db)
@@ -67,6 +69,7 @@ def main() -> None:
         alert_poll_seconds=settings.alert_poll_seconds,
         web_app_url=settings.web_app_url,
         allowed_user_ids=settings.allowed_telegram_user_ids,
+        idempotency=idempotency,
     ).register(application)
 
     application.run_polling(allowed_updates=None)

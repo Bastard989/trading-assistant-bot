@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import io
 import os
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Annotated
@@ -11,10 +12,10 @@ import httpx
 from PIL import Image, UnidentifiedImageError
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from trading_bot.auth import require_telegram_user
+from trading_bot.auth import authenticate_telegram_user, require_telegram_user
 from trading_bot.db import Database
 from trading_bot.domain.trades import TradeValidationError, validate_trade
 from trading_bot.evaluator import review_trade
@@ -23,6 +24,7 @@ from trading_bot.models import TradeDraft
 from trading_bot.repositories import (
     AlertRepository,
     DailyPlanRepository,
+    IdempotencyRepository,
     JournalRepository,
     MarketContextRepository,
     TemplateRepository,
@@ -53,6 +55,7 @@ watchlist = WatchlistRepository(db)
 daily_plans = DailyPlanRepository(db)
 templates = TemplateRepository(db)
 sessions = TradingSessionRepository(db)
+idempotency = IdempotencyRepository(db)
 market = MarketClient(os.getenv("MARKET", "futures").strip().lower())
 AuthenticatedUser = Annotated[int, Depends(require_telegram_user)]
 
@@ -69,6 +72,10 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 @app.middleware("http")
 async def security_headers(request: Request, call_next):
     response = await call_next(request)
+    return apply_security_headers(response)
+
+
+def apply_security_headers(response: Response) -> Response:
     response.headers["Content-Security-Policy"] = (
         "default-src 'self'; script-src 'self' https://telegram.org; "
         "style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; "
@@ -80,6 +87,72 @@ async def security_headers(request: Request, call_next):
     if IS_PRODUCTION:
         response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
     return response
+
+
+@app.middleware("http")
+async def mutation_idempotency(request: Request, call_next):
+    if not request.url.path.startswith("/api/") or request.method not in {"POST", "PUT", "PATCH", "DELETE"}:
+        return await call_next(request)
+    if "user_id" in request.query_params:
+        return apply_security_headers(JSONResponse({"detail": "user_id must not be supplied"}, status_code=400))
+    try:
+        user_id = authenticate_telegram_user(
+            request.headers.get("authorization"),
+            request.headers.get("x-telegram-init-data"),
+            request.headers.get("x-dev-user-id"),
+        )
+    except HTTPException as exc:
+        return apply_security_headers(JSONResponse({"detail": exc.detail}, status_code=exc.status_code))
+    key = request.headers.get("idempotency-key", "")
+    if not re.fullmatch(r"[A-Za-z0-9._:-]{8,128}", key):
+        return apply_security_headers(JSONResponse({"detail": "Valid Idempotency-Key header is required"}, status_code=400))
+    try:
+        content_length = int(request.headers.get("content-length", "0"))
+    except ValueError:
+        return apply_security_headers(JSONResponse({"detail": "Invalid Content-Length"}, status_code=400))
+    if content_length > 8 * 1024 * 1024:
+        return apply_security_headers(JSONResponse({"detail": "Request body is too large"}, status_code=413))
+    if request.url.path.endswith("/attachment"):
+        body_fingerprint = f"stream:{content_length}:{request.headers.get('content-type', '')}".encode()
+    else:
+        body = await request.body()
+        if len(body) > 1024 * 1024:
+            return apply_security_headers(JSONResponse({"detail": "Request body is too large"}, status_code=413))
+        body_fingerprint = body
+    scope = f"{request.method}:{request.url.path}"
+    fingerprint = hashlib.sha256(
+        request.url.query.encode() + b"\0" + body_fingerprint
+    ).hexdigest()
+    state, stored = idempotency.begin(user_id, scope, key, fingerprint)
+    if state == "conflict":
+        return apply_security_headers(JSONResponse({"detail": "Idempotency key was reused for another request"}, status_code=409))
+    if state == "in_progress":
+        return apply_security_headers(JSONResponse({"detail": "Request with this idempotency key is in progress"}, status_code=409))
+    if state == "completed" and stored is not None:
+        replay = Response(
+            content=str(stored["response_body"] or ""),
+            status_code=int(stored["response_status"] or 200),
+            media_type="application/json",
+            headers={"Idempotency-Replayed": "true"},
+        )
+        return apply_security_headers(replay)
+    try:
+        response = await call_next(request)
+        response_body = b"".join([chunk async for chunk in response.body_iterator])
+    except Exception:
+        idempotency.release(user_id, scope, key)
+        raise
+    if response.status_code < 500:
+        idempotency.complete(user_id, scope, key, response.status_code, response_body.decode("utf-8", errors="replace"))
+    else:
+        idempotency.release(user_id, scope, key)
+    headers = {key: value for key, value in response.headers.items() if key.lower() not in {"content-length", "content-type"}}
+    return Response(
+        content=response_body,
+        status_code=response.status_code,
+        headers=headers,
+        media_type=response.headers.get("content-type", "application/json").split(";", 1)[0],
+    )
 
 
 @app.get("/health/live")
@@ -718,3 +791,4 @@ def trade_to_dict(row) -> dict:
     payload = row_to_dict(row)
     payload["attachments"] = [row_to_dict(item) for item in trades.attachments(int(row["user_id"]), int(row["id"]))]
     return payload
+    IdempotencyRepository,

@@ -79,6 +79,14 @@ def require_telegram_user(
     x_telegram_init_data: str | None = Header(default=None),
     x_dev_user_id: str | None = Header(default=None),
 ) -> int:
+    return authenticate_telegram_user(authorization, x_telegram_init_data, x_dev_user_id)
+
+
+def authenticate_telegram_user(
+    authorization: str | None,
+    x_telegram_init_data: str | None,
+    x_dev_user_id: str | None,
+) -> int:
     app_env = os.getenv("APP_ENV", "production").strip().lower()
     allowed = parse_allowed_user_ids(os.getenv("ALLOWED_TELEGRAM_USER_IDS"))
     if app_env != "production" and os.getenv("ENABLE_DEV_AUTH", "false").lower() == "true" and x_dev_user_id:

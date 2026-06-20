@@ -17,6 +17,19 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
     applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS idempotency_keys (
+    user_id INTEGER NOT NULL,
+    scope TEXT NOT NULL,
+    idempotency_key TEXT NOT NULL,
+    request_hash TEXT NOT NULL,
+    state TEXT NOT NULL CHECK(state IN ('in_progress', 'completed')),
+    response_status INTEGER,
+    response_body TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    completed_at TEXT,
+    PRIMARY KEY(user_id, scope, idempotency_key)
+);
+
 CREATE TABLE IF NOT EXISTS users (
     telegram_id INTEGER PRIMARY KEY,
     trading_profile TEXT NOT NULL DEFAULT '',
@@ -262,6 +275,10 @@ class Database:
             connection.execute(
                 "INSERT OR IGNORE INTO schema_migrations(version, checksum) VALUES (?, ?)",
                 (1, "baseline-schema-v1"),
+            )
+            connection.execute(
+                "INSERT OR IGNORE INTO schema_migrations(version, checksum) VALUES (?, ?)",
+                (2, "idempotency-keys-v2"),
             )
 
     def _add_column(self, connection: sqlite3.Connection, table: str, column: str, definition: str) -> None:

@@ -14,3 +14,11 @@ def test_frontend_has_no_url_identity_or_fallback_user() -> None:
 def test_stored_journal_fields_are_escaped() -> None:
     assert "${escapeHtml(row.description || \"-\")}" in APP_JS
     assert "${escapeHtml(row.theory || \"\")}" in APP_JS
+
+
+def test_inline_event_handlers_are_not_used() -> None:
+    assert "onclick=" not in APP_JS
+    assert "onchange=" not in APP_JS
+    assert "data-action=" in APP_JS
+    assert "style=" not in APP_JS
+    assert ".style." not in APP_JS

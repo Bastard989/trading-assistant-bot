@@ -21,6 +21,7 @@ class UserRepository:
                 (telegram_id,),
             )
 
+
     def set_profile(self, telegram_id: int, profile: str) -> None:
         self.ensure_user(telegram_id)
         with self.db.connect() as connection:
@@ -66,6 +67,59 @@ class UserRepository:
         with self.db.connect() as connection:
             rows = connection.execute("SELECT telegram_id FROM users ORDER BY telegram_id").fetchall()
         return [int(row["telegram_id"]) for row in rows]
+
+
+class IdempotencyRepository:
+    def __init__(self, db: Database) -> None:
+        self.db = db
+
+    def begin(self, user_id: int, scope: str, key: str, request_hash: str) -> tuple[str, sqlite3.Row | None]:
+        with self.db.connect() as connection:
+            try:
+                connection.execute(
+                    """
+                    INSERT INTO idempotency_keys
+                        (user_id, scope, idempotency_key, request_hash, state)
+                    VALUES (?, ?, ?, ?, 'in_progress')
+                    """,
+                    (user_id, scope, key, request_hash),
+                )
+                return "new", None
+            except sqlite3.IntegrityError:
+                row = connection.execute(
+                    """
+                    SELECT * FROM idempotency_keys
+                    WHERE user_id = ? AND scope = ? AND idempotency_key = ?
+                    """,
+                    (user_id, scope, key),
+                ).fetchone()
+                if row is None or row["request_hash"] != request_hash:
+                    return "conflict", row
+                return str(row["state"]), row
+
+    def complete(self, user_id: int, scope: str, key: str, status: int, body: str) -> None:
+        with self.db.connect() as connection:
+            connection.execute(
+                """
+                UPDATE idempotency_keys
+                SET state = 'completed', response_status = ?, response_body = ?,
+                    completed_at = CURRENT_TIMESTAMP
+                WHERE user_id = ? AND scope = ? AND idempotency_key = ?
+                  AND state = 'in_progress'
+                """,
+                (status, body, user_id, scope, key),
+            )
+
+    def release(self, user_id: int, scope: str, key: str) -> None:
+        with self.db.connect() as connection:
+            connection.execute(
+                """
+                DELETE FROM idempotency_keys
+                WHERE user_id = ? AND scope = ? AND idempotency_key = ?
+                  AND state = 'in_progress'
+                """,
+                (user_id, scope, key),
+            )
 
 
 class AlertRepository:

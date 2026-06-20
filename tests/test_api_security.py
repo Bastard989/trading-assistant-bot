@@ -28,6 +28,10 @@ def auth_header(user_id: int) -> dict[str, str]:
     return {"Authorization": f"tma {urlencode(values)}"}
 
 
+def mutation_headers(user_id: int, key: str = "test-key-0001") -> dict[str, str]:
+    return {**auth_header(user_id), "Idempotency-Key": key}
+
+
 def load_test_app(monkeypatch, tmp_path):
     monkeypatch.setenv("DATABASE_PATH", str(tmp_path / "api.sqlite3"))
     monkeypatch.setenv("TRADE_UPLOAD_DIR", str(tmp_path / "uploads"))
@@ -62,19 +66,19 @@ def test_attachment_upload_validates_image_and_owner(monkeypatch, tmp_path) -> N
 
     fake = client.post(
         f"/api/trades/{trade_id}/attachment?filename=fake.jpg",
-        content=b"<script>alert(1)</script>", headers={**auth_header(42), "Content-Type": "image/jpeg"},
+        content=b"<script>alert(1)</script>", headers={**mutation_headers(42, "fake-image-0001"), "Content-Type": "image/jpeg"},
     )
     assert fake.status_code == 415
     assert client.post(
         f"/api/trades/{trade_id}/attachment?filename=foreign.jpg",
-        content=b"not-an-image", headers=auth_header(99),
+        content=b"not-an-image", headers=mutation_headers(99, "foreign-image-1"),
     ).status_code == 404
 
     image_bytes = io.BytesIO()
     Image.new("RGB", (20, 20), "red").save(image_bytes, "PNG")
     uploaded = client.post(
         f"/api/trades/{trade_id}/attachment?filename=screen.png",
-        content=image_bytes.getvalue(), headers={**auth_header(42), "Content-Type": "image/png"},
+        content=image_bytes.getvalue(), headers={**mutation_headers(42, "valid-image-0001"), "Content-Type": "image/png"},
     )
     assert uploaded.status_code == 200
     attachment_id = uploaded.json()["id"]
@@ -91,3 +95,24 @@ def test_security_headers_and_public_health(monkeypatch, tmp_path) -> None:
     assert response.status_code == 200
     assert "unsafe-inline" not in response.headers["content-security-policy"]
     assert response.headers["x-content-type-options"] == "nosniff"
+
+
+def test_mutation_requires_key_and_replay_returns_original_response(monkeypatch, tmp_path) -> None:
+    module = load_test_app(monkeypatch, tmp_path)
+    module.users.ensure_user(42)
+    client = TestClient(module.app)
+    path = "/api/sessions?name=Main&start_balance=1000"
+    assert client.post(path, headers=auth_header(42)).status_code == 400
+
+    headers = mutation_headers(42, "session-create-1")
+    first = client.post(path, headers=headers)
+    second = client.post(path, headers=headers)
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert first.json() == second.json()
+    assert second.headers["idempotency-replayed"] == "true"
+    with module.db.connect() as connection:
+        assert connection.execute("SELECT count(*) FROM trading_sessions").fetchone()[0] == 1
+
+    conflict = client.post("/api/sessions?name=Other&start_balance=2000", headers=headers)
+    assert conflict.status_code == 409

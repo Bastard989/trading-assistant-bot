@@ -67,9 +67,43 @@ document.getElementById("watchlistForm").addEventListener("submit", addWatchlist
   document.getElementById(id).addEventListener("input", renderJournal);
 });
 
+document.addEventListener("click", async event => {
+  const target = event.target.closest("[data-action]");
+  if (!target) return;
+  if (target.tagName === "SELECT") return;
+  const id = Number(target.dataset.id || 0);
+  const symbol = cleanSymbol(target.dataset.symbol || "");
+  switch (target.dataset.action) {
+    case "fill-symbol": fillSymbol(symbol); break;
+    case "remove-watchlist": await removeWatchlistSymbol(symbol); break;
+    case "toggle-market": toggleMarketCard(target, symbol); break;
+    case "analyze-market":
+      event.stopPropagation(); fillSymbol(symbol); switchView("calculator"); break;
+    case "stop-propagation": event.stopPropagation(); break;
+    case "save-trade": event.stopPropagation(); await saveTradeEdit(id); break;
+    case "toggle-edit": event.stopPropagation(); toggleEditTrade(id); break;
+    case "set-trade-timeframe": event.stopPropagation(); setTradeChartInterval(id, target.dataset.timeframe, event); break;
+    case "toggle-trade": toggleTrade(id, event); break;
+    case "close-trade": event.stopPropagation(); await closeTrade(id); break;
+    case "cancel-trade": event.stopPropagation(); await cancelTrade(id); break;
+    case "archive-session": await archiveSession(id); break;
+    case "activate-session": await activateSession(id); break;
+  }
+});
+
+document.addEventListener("change", event => {
+  const target = event.target.closest('select[data-action="set-trade-timeframe"]');
+  if (target) setTradeChartInterval(Number(target.dataset.id), target.value, event);
+});
+
 async function apiFetch(path, options = {}) {
   const headers = new Headers(options.headers || {});
   if (telegramInitData) headers.set("Authorization", `tma ${telegramInitData}`);
+  const method = String(options.method || "GET").toUpperCase();
+  if (!["GET", "HEAD", "OPTIONS"].includes(method) && !headers.has("Idempotency-Key")) {
+    const fallback = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    headers.set("Idempotency-Key", globalThis.crypto?.randomUUID?.() || fallback);
+  }
   return fetch(path, { ...options, headers });
 }
 
@@ -107,8 +141,8 @@ function renderWatchlist() {
   const target = document.getElementById("watchlist");
   target.innerHTML = currentWatchlist.map(symbol => `
     <span class="favorite-item">
-      <button class="chip favorite-chip" type="button" onclick="fillSymbol('${symbol}')">★ ${symbol}</button>
-      <button class="favorite-remove" type="button" title="Убрать ${symbol}" aria-label="Убрать ${symbol}" onclick="removeWatchlistSymbol('${symbol}')">×</button>
+      <button class="chip favorite-chip" type="button" data-action="fill-symbol" data-symbol="${symbol}">★ ${symbol}</button>
+      <button class="favorite-remove" type="button" title="Убрать ${symbol}" aria-label="Убрать ${symbol}" data-action="remove-watchlist" data-symbol="${symbol}">×</button>
     </span>
   `).join("") || "<span class='chip'>Список пуст</span>";
 }
@@ -188,7 +222,7 @@ function renderPrices(items) {
     priceState.set(symbol, item.price);
     const changeClass = Number(item.price_change_percent) >= 0 ? "positive" : "negative";
     return `
-      <button class="price-card ${direction}" type="button" onclick="fillSymbol('${symbol}')">
+      <button class="price-card ${direction}" type="button" data-action="fill-symbol" data-symbol="${symbol}">
         <span class="price-symbol">${symbol.replace("USDT", "")}<small>USDT</small></span>
         <strong>${fmt(item.price, item.price > 10 ? 2 : 6)}</strong>
         <span class="${changeClass}">${signed(item.price_change_percent)}% за 24ч</span>
@@ -216,20 +250,20 @@ async function loadMarketTop() {
       const direction = item.price_change_percent > 1 ? "бычий импульс" : item.price_change_percent < -1 ? "медвежий импульс" : "нейтрально";
       const marketSymbol = cleanSymbol(item.symbol);
       const scannerScore = Math.min(99, Math.round(44 + Math.min(item.intraday_range_percent, 15) * 2.2 + Math.min(Math.log10(Math.max(item.quote_volume / 1000000, 1)), 4) * 4));
-      return `<article class="market-card ${expandedMarkets.has(marketSymbol) ? "expanded" : ""}" onclick="toggleMarketCard(this, '${marketSymbol}')">
+      return `<article class="market-card ${expandedMarkets.has(marketSymbol) ? "expanded" : ""}" data-action="toggle-market" data-symbol="${marketSymbol}">
         <div class="market-title"><span class="market-rank">${index + 1}</span><strong>${marketSymbol.replace("USDT", "")}<small>/USDT</small></strong></div>
         <span class="scanner-score">${scannerScore}<small>/100</small></span>
         <b>${fmt(item.price, item.price > 10 ? 2 : 6)}</b>
         <small class="market-change ${item.price_change_percent >= 0 ? "positive" : "negative"}">${item.price_change_percent >= 0 ? "↑" : "↓"} ${signed(item.price_change_percent)}% · 24ч</small>
         <span class="direction-pill ${item.price_change_percent >= 0 ? "positive" : "negative"}">${direction}</span>
         <small>VOL ${fmt(item.quote_volume / 1000000, 0)}M · RANGE ${fmt(item.intraday_range_percent)}%</small>
-        <div class="range-meter market-range"><i style="width:${Math.max(0, Math.min(100, position))}%"></i><span style="left:${Math.max(2, Math.min(98, position))}%"></span></div>
+        <progress class="range-meter market-range" max="100" value="${Math.max(0, Math.min(100, position))}"></progress>
         <small class="range-labels"><i>${fmt(item.low_price, 4)}</i><i>${item.exchange}</i><i>${fmt(item.high_price, 4)}</i></small>
         <div class="market-detail">
           <small>Цена на ${fmt(position, 0)}% суточного диапазона</small>
           <canvas id="market-chart-${cleanSymbol(item.symbol)}" class="mini-trend-chart" width="360" height="118"></canvas>
           <em id="market-trend-${cleanSymbol(item.symbol)}" class="trend-caption">Нажми для графика</em>
-          <button class="mini-action" onclick="event.stopPropagation(); fillSymbol('${cleanSymbol(item.symbol)}'); switchView('calculator')">Разобрать вход</button>
+          <button class="mini-action" data-action="analyze-market" data-symbol="${cleanSymbol(item.symbol)}">Разобрать вход</button>
         </div>
       </article>`;
     }).join("");
@@ -279,23 +313,23 @@ function renderTradeCard(row, compact) {
   const attachmentStrip = tradeAttachmentImages(row.attachments || []);
   const tradeTf = tradeChartInterval(row);
   const editPanel = isOpen ? `
-    <div class="trade-edit" onclick="event.stopPropagation()">
+    <div class="trade-edit" data-action="stop-propagation">
       <div class="edit-grid">
         <label>Вход<input id="edit-entry-${row.id}" type="number" step="any" value="${row.entry_price}"></label>
         <label>Стоп<input id="edit-stop-${row.id}" type="number" step="any" value="${row.stop_price}"></label>
         <label>Тейк<input id="edit-target-${row.id}" type="number" step="any" value="${row.target_price || ""}"></label>
         <label>Количество<input id="edit-qty-${row.id}" type="number" step="any" value="${row.quantity}"></label>
-        <label>Таймфрейм<select id="edit-timeframe-${row.id}" onchange="setTradeChartInterval(${row.id}, this.value, event)">${chartIntervals.map(tf => `<option ${tradeTf === tf ? "selected" : ""}>${tf}</option>`).join("")}</select></label>
+        <label>Таймфрейм<select id="edit-timeframe-${row.id}" data-action="set-trade-timeframe" data-id="${row.id}">${chartIntervals.map(tf => `<option ${tradeTf === tf ? "selected" : ""}>${tf}</option>`).join("")}</select></label>
         <label>Комментарий<input id="edit-note-${row.id}" placeholder="Почему перенес стоп или тейк"></label>
         <label class="photo-picker">Добавить фото<input id="edit-photo-${row.id}" type="file" accept="image/jpeg,image/png,image/webp" multiple></label>
       </div>
-      <div class="edit-actions"><button class="primary-action compact" onclick="saveTradeEdit(${row.id})">Сохранить</button><button class="mini-action" onclick="toggleEditTrade(${row.id})">Отмена</button></div>
+      <div class="edit-actions"><button class="primary-action compact" data-action="save-trade" data-id="${row.id}">Сохранить</button><button class="mini-action" data-action="toggle-edit" data-id="${row.id}">Отмена</button></div>
     </div>` : "";
   const details = `
     <div class="trade-details">
       <div class="trade-chart-panel">
         <div class="trade-timeframe-switch" aria-label="Таймфрейм графика сделки">
-          ${chartIntervals.map(tf => `<button type="button" data-trade-timeframe="${tf}" class="${tradeTf === tf ? "active" : ""}" onclick="setTradeChartInterval(${row.id}, '${tf}', event)">${tf.toUpperCase()}</button>`).join("")}
+          ${chartIntervals.map(tf => `<button type="button" data-trade-timeframe="${tf}" data-action="set-trade-timeframe" data-id="${row.id}" data-timeframe="${tf}" class="${tradeTf === tf ? "active" : ""}">${tf.toUpperCase()}</button>`).join("")}
         </div>
         <canvas id="chart-${row.id}" class="trade-chart" width="760" height="260"></canvas>
       </div>
@@ -317,17 +351,17 @@ function renderTradeCard(row, compact) {
     ${editPanel}
   `;
   return `
-    <article class="trade-card ${compact ? "compact-trade" : ""} ${expandedTrades.has(Number(row.id)) ? "expanded" : ""} ${editingTrades.has(Number(row.id)) ? "editing" : ""}" data-trade-id="${row.id}" onclick="toggleTrade(${row.id}, event)">
+    <article class="trade-card ${compact ? "compact-trade" : ""} ${expandedTrades.has(Number(row.id)) ? "expanded" : ""} ${editingTrades.has(Number(row.id)) ? "editing" : ""}" data-trade-id="${row.id}" data-action="toggle-trade" data-id="${row.id}">
       <div class="trade-main">
         <strong>#${row.id} ${symbol}<small>${row.side.toUpperCase()} ${row.status}${row.close_reason ? ` · ${closeReasonText(row.close_reason)}` : ""}</small></strong>
         <span>Entry ${fmt(row.entry_price, 6)}<small>Stop ${fmt(row.stop_price, 6)}</small></span>
         <span>Target ${row.target_price ? fmt(row.target_price, 6) : "-"}</span>
         <span data-trade-pnl class="${pnlClass}">${markPrice ? signed(pnl) : (row.pnl == null ? "-" : signed(row.pnl))} USDT<small data-trade-pnl-percent>${markPrice ? signed(pnlPct) : "0"}%</small></span>
-        <span class="trade-actions" onclick="event.stopPropagation()">
-          ${isOpen ? `<button class="mini-action" onclick="toggleEditTrade(${row.id})">Изменить</button><button class="mini-action" onclick="closeTrade(${row.id})">Закрыть</button><button class="mini-action" onclick="cancelTrade(${row.id})">Отменить</button>` : ""}
+        <span class="trade-actions" data-action="stop-propagation">
+          ${isOpen ? `<button class="mini-action" data-action="toggle-edit" data-id="${row.id}">Изменить</button><button class="mini-action" data-action="close-trade" data-id="${row.id}">Закрыть</button><button class="mini-action" data-action="cancel-trade" data-id="${row.id}">Отменить</button>` : ""}
         </span>
       </div>
-      <div class="progress-rail"><span data-trade-progress style="width:${progress}%"></span></div>
+      <progress class="progress-rail" data-trade-progress max="100" value="${progress}"></progress>
       ${details}
     </article>
   `;
@@ -359,7 +393,7 @@ function refreshTradeMetrics(rows) {
       const roiNode = card.querySelector("[data-trade-margin-roi]");
       if (roiNode) { roiNode.textContent = `${signed(marginRoi)}%`; roiNode.className = pnlClass; }
       const progressNode = card.querySelector("[data-trade-progress]");
-      if (progressNode) progressNode.style.width = `${tradeProgress(row, markPrice)}%`;
+      if (progressNode) progressNode.value = tradeProgress(row, markPrice);
     });
     if (expandedTrades.has(Number(row.id))) loadTradeChart(row);
   });
@@ -374,7 +408,7 @@ function updateSessionBalance() {
   if (!balanceNode || !activeSession) {
     if (balanceNode) balanceNode.textContent = "—";
     if (detailsNode) detailsNode.textContent = "Нет активной сессии";
-    if (progressNode) progressNode.style.width = "0%";
+    if (progressNode) progressNode.value = 0;
     return;
   }
   const unrealized = currentOpenTrades.reduce((sum, trade) => {
@@ -389,7 +423,7 @@ function updateSessionBalance() {
   balanceNode.textContent = `${fmt(equity)} USDT`;
   balanceNode.className = totalPnl >= 0 ? "positive" : "negative";
   detailsNode.textContent = `Старт ${fmt(start)} · закрыто ${signed(sessionRealizedPnl)} · открыто ${signed(unrealized)}`;
-  progressNode.style.width = `${Math.max(0, Math.min(100, progress))}%`;
+  progressNode.value = Math.max(0, Math.min(100, progress));
 }
 
 function toggleTrade(id, event) {
@@ -765,9 +799,9 @@ async function loadSessions() {
     return `<article class="session-card ${item.status}">
       <div><span class="session-status">${item.status === "active" ? "АКТИВНА" : "АРХИВ"}</span><h3>${escapeHtml(item.name)}</h3><small>${item.started_at}</small></div>
       <div class="session-money"><span>Старт <b>${fmt(item.start_balance)} USDT</b></span><span>Баланс <b class="${pnl >= 0 ? "positive" : "negative"}">${fmt(balance)} USDT</b></span><span>PnL <b class="${pnl >= 0 ? "positive" : "negative"}">${signed(pnl)} USDT</b></span></div>
-      <div class="session-progress"><i style="width:${Math.max(0, Math.min(100, progress))}%"></i></div>
+      <progress class="session-progress" max="100" value="${Math.max(0, Math.min(100, progress))}"></progress>
       <div class="session-meta"><span>${item.trade_count || 0} сделок</span><span>Winrate ${fmt(winrate)}%</span><span>Цель ${item.target_balance ? fmt(item.target_balance) : "-"}</span></div>
-      <div class="session-actions">${item.status === "active" ? `<button class="mini-action" onclick="archiveSession(${item.id})">В архив</button>` : `<button class="mini-action" onclick="activateSession(${item.id})">Продолжить</button>`}</div>
+      <div class="session-actions">${item.status === "active" ? `<button class="mini-action" data-action="archive-session" data-id="${item.id}">В архив</button>` : `<button class="mini-action" data-action="activate-session" data-id="${item.id}">Продолжить</button>`}</div>
     </article>`;
   }).join("") || emptyRow("Создай первую торговую сессию");
 }

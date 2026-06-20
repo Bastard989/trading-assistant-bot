@@ -5,6 +5,7 @@ import io
 import os
 import re
 import sqlite3
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Annotated
@@ -20,7 +21,7 @@ from trading_bot.auth import authenticate_telegram_user, require_telegram_user
 from trading_bot.db import Database
 from trading_bot.domain.trades import TradeValidationError, validate_trade
 from trading_bot.evaluator import review_trade
-from trading_bot.market import MarketClient, normalize_symbol
+from trading_bot.market import InvalidSymbolError, MarketClient, MarketError, MarketUnavailableError, normalize_symbol
 from trading_bot.models import TradeDraft
 from trading_bot.repositories import (
     AlertRepository,
@@ -63,13 +64,32 @@ AuthenticatedUser = Annotated[int, Depends(require_telegram_user)]
 rate_limiter = SlidingWindowLimiter()
 
 IS_PRODUCTION = os.getenv("APP_ENV", "production").strip().lower() == "production"
+
+
+@asynccontextmanager
+async def lifespan(application: FastAPI):
+    yield
+    await market.close()
+
+
 app = FastAPI(
     title="Trading Assistant Mini App",
     docs_url=None if IS_PRODUCTION else "/docs",
     redoc_url=None if IS_PRODUCTION else "/redoc",
     openapi_url=None if IS_PRODUCTION else "/openapi.json",
+    lifespan=lifespan,
 )
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
+
+@app.exception_handler(InvalidSymbolError)
+async def invalid_symbol_handler(request: Request, exc: InvalidSymbolError) -> JSONResponse:
+    return JSONResponse({"code": "invalid_symbol", "message": str(exc)}, status_code=400)
+
+
+@app.exception_handler(MarketUnavailableError)
+async def market_unavailable_handler(request: Request, exc: MarketUnavailableError) -> JSONResponse:
+    return JSONResponse({"code": "market_unavailable", "message": str(exc)}, status_code=503)
 
 
 @app.middleware("http")
@@ -204,6 +224,15 @@ def health_ready() -> dict[str, str]:
     return {"status": "ready"}
 
 
+@app.get("/health/binance")
+async def health_binance() -> dict[str, str]:
+    try:
+        await market.get_price("BTCUSDT")
+    except MarketError as exc:
+        raise HTTPException(status_code=503, detail="Binance market data is unavailable") from exc
+    return {"status": "available"}
+
+
 @app.get("/")
 def index() -> FileResponse:
     return FileResponse(
@@ -294,10 +323,7 @@ async def create_trade_api(
     except TradeValidationError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     side = validated.side
-    try:
-        market_price = await market.get_price(symbol)
-    except httpx.HTTPError as exc:
-        raise HTTPException(status_code=400, detail="Монета не найдена на Binance Futures") from exc
+    market_price = await market.get_price(symbol)
     market_distance = abs(entry_price - market_price) / market_price * 100
     if market_distance > 15:
         raise HTTPException(
@@ -454,10 +480,7 @@ def watchlist_api(user_id: AuthenticatedUser) -> dict:
 async def add_watchlist_api(user_id: AuthenticatedUser, symbol: str = Query(..., min_length=1)) -> dict:
     users.ensure_user(user_id)
     normalized = normalize_symbol(symbol)
-    try:
-        await market.get_price(normalized)
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail="Монета не найдена на Binance Futures") from exc
+    await market.get_price(normalized)
     watchlist.add(user_id, normalized)
     return {"ok": True, "symbol": normalized, "items": watchlist.list_symbols(user_id)}
 
@@ -489,7 +512,7 @@ async def journal_chart_api(journal_id: int, user_id: AuthenticatedUser, interva
     if trade:
         try:
             rows = await historical_trade_candles(trade, interval)
-        except httpx.HTTPError:
+        except MarketUnavailableError:
             rows = [row_to_dict(row) for row in trades.candles(int(trade["id"]), interval)]
         chart_trade = trade_to_dict(trade)
         anchor = trade["closed_at"] or trade["opened_at"]
@@ -595,7 +618,7 @@ async def trade_chart_api(trade_id: int, user_id: AuthenticatedUser, interval: s
     stored = [row_to_dict(row) for row in trades.candles(trade_id, interval)]
     try:
         historical = await historical_trade_candles(trade, interval)
-    except httpx.HTTPError:
+    except MarketUnavailableError:
         historical = stored
     return {"items": historical, "historical": True, "trade": trade_to_dict(trade), "market": market.market}
 

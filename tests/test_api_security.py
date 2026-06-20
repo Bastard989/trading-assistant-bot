@@ -12,6 +12,8 @@ from urllib.parse import urlencode
 from fastapi.testclient import TestClient
 from PIL import Image
 
+from trading_bot.market import InvalidSymbolError, MarketUnavailableError
+
 
 TOKEN = "123456:test-token"
 
@@ -131,3 +133,23 @@ def test_api_rate_limit_returns_retry_after(monkeypatch, tmp_path) -> None:
     limited = client.get("/api/trades", headers=headers)
     assert limited.status_code == 429
     assert int(limited.headers["retry-after"]) >= 1
+
+
+def test_market_errors_have_stable_http_mapping(monkeypatch, tmp_path) -> None:
+    module = load_test_app(monkeypatch, tmp_path)
+    client = TestClient(module.app)
+
+    class FailedMarket:
+        async def get_tickers(self, symbols):
+            raise MarketUnavailableError("temporary outage")
+
+        async def get_klines(self, *args, **kwargs):
+            raise InvalidSymbolError("invalid symbol")
+
+    module.market = FailedMarket()
+    outage = client.get("/api/prices?symbols=BTCUSDT", headers=auth_header(42))
+    assert outage.status_code == 503
+    assert outage.json()["code"] == "market_unavailable"
+    invalid = client.get("/api/klines?symbol=NOPE", headers=auth_header(42))
+    assert invalid.status_code == 400
+    assert invalid.json()["code"] == "invalid_symbol"

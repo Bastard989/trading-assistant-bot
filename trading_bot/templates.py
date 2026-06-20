@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import re
-from datetime import date
+import os
 from typing import Any
+
+from trading_bot.services.clock import business_date
 
 
 DEFAULT_TEMPLATES: dict[str, str] = {
@@ -83,7 +85,7 @@ def parse_key_values(tokens: list[str]) -> dict[str, str]:
 
 
 def base_values() -> dict[str, Any]:
-    today = date.today().isoformat()
+    today = business_date(os.getenv("BUSINESS_TIMEZONE", "Europe/Moscow")).isoformat()
     return {
         "date": today,
         "symbol": "",

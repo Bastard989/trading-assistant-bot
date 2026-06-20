@@ -3,7 +3,6 @@ from __future__ import annotations
 import logging
 import re
 import socket
-from datetime import date, datetime
 
 from telegram import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, Update, WebAppInfo
 from telegram.ext import (
@@ -46,6 +45,7 @@ from trading_bot.repositories import (
 )
 from trading_bot.risk import RiskInputError, calculate_risk
 from trading_bot.services.monitor import evaluate_level_observation
+from trading_bot.services.clock import business_date, business_now
 from trading_bot.templates import (
     base_values,
     enrich_trade_math,
@@ -93,6 +93,7 @@ class BotHandlers:
         web_app_url: str,
         allowed_user_ids: frozenset[int],
         idempotency: IdempotencyRepository,
+        business_timezone: str,
     ) -> None:
         self.users = users
         self.alerts = alerts
@@ -110,6 +111,7 @@ class BotHandlers:
         self.web_app_url = web_app_url
         self.allowed_user_ids = allowed_user_ids
         self.idempotency = idempotency
+        self.business_timezone = business_timezone
 
     def register(self, application: Application) -> None:
         application.add_handler(TypeHandler(Update, self.authorize_update), group=-1)
@@ -620,7 +622,7 @@ class BotHandlers:
             await update.message.reply_text("Риск и дневной стоп должны быть числами.")
             return
         text = " ".join(context.args[3:])
-        self.daily_plans.upsert(update.effective_user.id, date.today(), symbols, max_risk, max_loss, text)
+        self.daily_plans.upsert(update.effective_user.id, business_date(self.business_timezone), symbols, max_risk, max_loss, text)
         await update.message.reply_text(
             f"План на сегодня сохранен.\nМонеты: {', '.join(symbols)}\nРиск: {max_risk:.2f}% | стоп: {money(max_loss)} USDT"
         )
@@ -824,7 +826,7 @@ class BotHandlers:
                 logger.info("Could not send level observation to user %s", trade["user_id"])
 
     async def refresh_auto_contexts(self, context: ContextTypes.DEFAULT_TYPE) -> None:
-        now = datetime.now()
+        now = business_now(self.business_timezone)
         intervals = ["15m"]
         if now.hour % 4 == 0:
             intervals.append("1h")
@@ -908,9 +910,10 @@ class BotHandlers:
         account_size = float(defaults["default_account_size"] or 0)
         contexts = self.contexts.latest_for_symbol(user_id, draft.symbol)
         watchlist_symbols = self.watchlist.list_symbols(user_id)
-        daily_plan = self.daily_plans.get(user_id, date.today())
+        today = business_date(self.business_timezone)
+        daily_plan = self.daily_plans.get(user_id, today)
         open_risk_total = self.trades.open_risk_total(user_id)
-        today_pnl = self.trades.closed_pnl_for_date(user_id, date.today())
+        today_pnl = self.trades.closed_pnl_for_date(user_id, today, self.business_timezone)
         sentiment = None
         current_price = None
         try:

@@ -8,6 +8,7 @@ from datetime import date
 from trading_bot.db import Database
 from trading_bot.models import TradeDraft, TradeReview
 from trading_bot.templates import DEFAULT_TEMPLATES
+from trading_bot.services.clock import utc_day_bounds
 
 
 class UserRepository:
@@ -658,7 +659,10 @@ class TradeRepository:
             ).fetchone()
         return float(row["open_risk"] or 0)
 
-    def closed_pnl_for_date(self, user_id: int, plan_date: date) -> float:
+    def closed_pnl_for_date(self, user_id: int, plan_date: date, timezone_name: str = "UTC") -> float:
+        start, end = utc_day_bounds(plan_date, timezone_name)
+        start_text = start.strftime("%Y-%m-%d %H:%M:%S")
+        end_text = end.strftime("%Y-%m-%d %H:%M:%S")
         with self.db.connect() as connection:
             row = connection.execute(
                 """
@@ -666,9 +670,9 @@ class TradeRepository:
                 FROM trades
                 WHERE user_id = ?
                   AND status = 'closed'
-                  AND date(closed_at) = ?
+                  AND closed_at >= ? AND closed_at < ?
                 """,
-                (user_id, plan_date.isoformat()),
+                (user_id, start_text, end_text),
             ).fetchone()
         return float(row["pnl"] or 0)
 

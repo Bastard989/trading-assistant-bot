@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import sqlite3
-from datetime import date
 
 from trading_bot.models import Distance, Sentiment, TradeDraft, TradeReview, ReviewIssue
 
@@ -207,7 +206,3 @@ def build_summary(severity: str, score: float, conflicts: int, aligned: int, rr:
 
     rr_text = "-" if rr is None else f"{rr:.2f}"
     return f"{prefix} Score {score:.0f}/100, aligned TF {aligned}, conflict TF {conflicts}, R/R {rr_text}."
-
-
-def today() -> date:
-    return date.today()

@@ -70,6 +70,7 @@ def main() -> None:
         web_app_url=settings.web_app_url,
         allowed_user_ids=settings.allowed_telegram_user_ids,
         idempotency=idempotency,
+        business_timezone=settings.business_timezone,
     ).register(application)
 
     application.run_polling(allowed_updates=None)

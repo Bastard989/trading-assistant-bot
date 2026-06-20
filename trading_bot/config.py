@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from pathlib import Path
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from dotenv import load_dotenv
 
@@ -18,6 +19,7 @@ class Settings:
     web_host: str
     web_port: int
     allowed_telegram_user_ids: frozenset[int]
+    business_timezone: str
 
 
 def load_settings() -> Settings:
@@ -43,6 +45,12 @@ def load_settings() -> Settings:
     if not allowed_ids:
         raise RuntimeError("Set ALLOWED_TELEGRAM_USER_IDS before starting the bot.")
 
+    business_timezone = os.getenv("BUSINESS_TIMEZONE", "Europe/Moscow").strip()
+    try:
+        ZoneInfo(business_timezone)
+    except ZoneInfoNotFoundError as exc:
+        raise RuntimeError("BUSINESS_TIMEZONE must be a valid IANA timezone.") from exc
+
     return Settings(
         telegram_bot_token=token,
         database_path=Path(os.getenv("DATABASE_PATH", "data/trading_bot.sqlite3")).expanduser(),
@@ -53,4 +61,5 @@ def load_settings() -> Settings:
         web_host=os.getenv("WEB_HOST", "127.0.0.1").strip(),
         web_port=int(os.getenv("WEB_PORT", "8080")),
         allowed_telegram_user_ids=frozenset(allowed_ids),
+        business_timezone=business_timezone,
     )

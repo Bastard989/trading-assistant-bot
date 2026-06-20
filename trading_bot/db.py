@@ -26,6 +26,26 @@ CREATE TABLE IF NOT EXISTS idempotency_keys (
     PRIMARY KEY(user_id, scope, idempotency_key)
 );
 
+CREATE TABLE IF NOT EXISTS trade_level_observations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    trade_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    symbol TEXT NOT NULL,
+    source TEXT NOT NULL,
+    observed_price REAL NOT NULL,
+    level_price REAL,
+    matched_level TEXT NOT NULL,
+    candle_high REAL,
+    candle_low REAL,
+    ambiguity TEXT NOT NULL DEFAULT '',
+    notification_status TEXT NOT NULL DEFAULT 'pending' CHECK(notification_status IN ('pending', 'sent')),
+    observed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    notified_at TEXT,
+    UNIQUE(trade_id, matched_level),
+    FOREIGN KEY(trade_id) REFERENCES trades(id),
+    FOREIGN KEY(user_id) REFERENCES users(telegram_id)
+);
+
 CREATE TABLE IF NOT EXISTS users (
     telegram_id INTEGER PRIMARY KEY,
     trading_profile TEXT NOT NULL DEFAULT '',
@@ -276,6 +296,7 @@ class Database:
             self._record_migration(connection, 1, "baseline-schema-v1")
             self._record_migration(connection, 2, "idempotency-keys-v2")
             self._record_migration(connection, 3, "trade-review-rule-score-v3")
+            self._record_migration(connection, 4, "trade-level-observations-notify-v4")
             connection.commit()
         except Exception:
             connection.rollback()

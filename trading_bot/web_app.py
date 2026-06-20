@@ -219,7 +219,7 @@ def health_ready() -> dict[str, str]:
             version = connection.execute("SELECT max(version) FROM schema_migrations").fetchone()[0]
     except sqlite3.Error as exc:
         raise HTTPException(status_code=503, detail="Database schema is not ready") from exc
-    if version != 3:
+    if version != 4:
         raise HTTPException(status_code=503, detail="Database migrations are not current")
     return {"status": "ready"}
 

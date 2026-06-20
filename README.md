@@ -4,7 +4,7 @@
 
 Проект состоит из двух частей:
 
-- Telegram-бот быстро фиксирует сделки, заметки и скриншоты, следит за stop loss / take profit и присылает уведомления.
+- Telegram-бот фиксирует сделки, заметки и скриншоты, наблюдает stop/take по публичным данным и присылает уведомления.
 - Mini App показывает живые цены, сделки, графики, журнал, торговые сессии, аналитику и мультитаймфреймовый разбор входа.
 
 > Проект не обещает прибыль и не дает гарантированных сигналов. Rule score — эвристическая оценка по правилам, а не вероятность исхода.
@@ -12,7 +12,7 @@
 ## Основные возможности
 
 - сделки Long/Short с entry, stop, take, количеством монет и плечом;
-- автоматическое закрытие по цене Binance;
+- наблюдение достижения stop/take без ложного утверждения об исполнении ордера;
 - живой PnL в USDT и процентах;
 - изменение открытой сделки и перенос stop/take;
 - фотографии до/после сделки из Telegram и Mini App;
@@ -59,6 +59,7 @@ cp .env.example .env
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
+python scripts/migrate.py data/trading_bot.sqlite3
 python -m trading_bot.main
 ```
 
@@ -69,11 +70,7 @@ source .venv/bin/activate
 uvicorn trading_bot.web_app:app --host 127.0.0.1 --port 8080
 ```
 
-Открыть кабинет:
-
-```text
-http://127.0.0.1:8080/?user_id=TELEGRAM_USER_ID
-```
+Кабинет открывается через Telegram: Mini App передаёт подписанный `initData`. URL с `user_id` не поддерживается.
 
 ## Настройки
 
@@ -81,6 +78,7 @@ http://127.0.0.1:8080/?user_id=TELEGRAM_USER_ID
 TELEGRAM_BOT_TOKEN=token_from_botfather
 ALLOWED_TELEGRAM_USER_IDS=123456789
 APP_ENV=production
+AUTO_MIGRATE=false
 DATABASE_PATH=data/trading_bot.sqlite3
 MARKET=futures
 TOP_LIMIT=10

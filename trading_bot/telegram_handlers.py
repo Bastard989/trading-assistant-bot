@@ -45,6 +45,7 @@ from trading_bot.repositories import (
     WatchlistRepository,
 )
 from trading_bot.risk import RiskInputError, calculate_risk
+from trading_bot.services.monitor import evaluate_level_observation
 from trading_bot.templates import (
     base_values,
     enrich_trade_math,
@@ -155,6 +156,7 @@ class BotHandlers:
                 interval=self.alert_poll_seconds,
                 first=5,
                 name="price-alerts",
+                job_kwargs={"max_instances": 1, "coalesce": True},
             )
             application.job_queue.run_repeating(
                 self.refresh_auto_contexts,
@@ -209,7 +211,7 @@ class BotHandlers:
             "1. Нажми «Открыть сделку» и заполни шаблон. Количество позиций обязательно.\n"
             "2. Запись в дневник: /note BTC идея/ошибка/наблюдение\n"
             "3. Фото можно отправлять вместе с /open или /note — я сохраню их в дневнике.\n"
-            "4. Сделки закроются сами, когда цена Binance дойдет до стопа или тейка.\n\n"
+            "4. Я сообщу, если уровень stop/take достигнут по публичным данным; исполнение проверь на бирже.\n\n"
             "Перед учетом сделок лучше задать депозит и риск: /defaults 1000 1",
             reply_markup=self._main_markup(update.effective_user.id),
         )
@@ -765,9 +767,11 @@ class BotHandlers:
             logger.exception("Alert price check failed")
             return
 
+        candles_by_trade: dict[int, list[dict[str, float]]] = {}
         for trade in open_trades:
             try:
                 candles = await self.market.get_klines(trade["symbol"], "1m", limit=3)
+                candles_by_trade[int(trade["id"])] = candles
                 self.trades.save_candles(int(trade["id"]), candles, "1m")
             except Exception:
                 logger.info("Could not snapshot candles for trade %s", trade["id"], exc_info=True)
@@ -781,69 +785,43 @@ class BotHandlers:
             triggered = triggered or row["direction"] == "below" and price <= row["target_price"]
             if not triggered:
                 continue
-            self.alerts.mark_triggered(row["id"], price)
             sign = ">=" if row["direction"] == "above" else "<="
             try:
                 await context.bot.send_message(
                     chat_id=row["user_id"],
                     text=f"Price alert #{row['id']}: {row['symbol']} {sign} {money(row['target_price'])}\nNow: {money(price)}",
                 )
+                self.alerts.mark_triggered(row["id"], price)
             except TelegramError:
-                logger.info("Could not send price alert to user %s", row["user_id"])
+                logger.info("Could not send price alert to user %s; it remains active for retry", row["user_id"])
 
         for trade in open_trades:
             price = prices.get(trade["symbol"])
             if price is None:
                 continue
-            entry_price = float(trade["entry_price"])
-            market_distance = abs(price - entry_price) / entry_price * 100
-            if market_distance > 25:
-                logger.error(
-                    "Auto-close blocked for trade %s: %s market price %s is %.1f%% from entry %s",
-                    trade["id"], trade["symbol"], price, market_distance, entry_price,
-                )
-                continue
-            close_reason = ""
-            close_price = None
-            if trade["side"] == "long":
-                if price <= trade["stop_price"]:
-                    close_reason = "stop_loss"
-                    close_price = trade["stop_price"]
-                elif trade["target_price"] is not None and price >= trade["target_price"]:
-                    close_reason = "take_profit"
-                    close_price = trade["target_price"]
-            else:
-                if price >= trade["stop_price"]:
-                    close_reason = "stop_loss"
-                    close_price = trade["stop_price"]
-                elif trade["target_price"] is not None and price <= trade["target_price"]:
-                    close_reason = "take_profit"
-                    close_price = trade["target_price"]
-
-            if close_price is None:
-                continue
-            closed = self.trades.close(
-                trade["user_id"],
-                trade["id"],
-                close_price,
-                note=f"auto close by {close_reason}; market price {money(price)}",
-                close_reason=close_reason,
+            observation = evaluate_level_observation(
+                trade,
+                candles_by_trade.get(int(trade["id"]), []),
+                price,
             )
-            if not closed:
+            if observation is not None:
+                self.trades.record_level_observation(trade["user_id"], trade["id"], observation)
+            pending_observation = self.trades.pending_level_observation(trade["user_id"], trade["id"])
+            if pending_observation is None:
                 continue
-            result = "плюс" if float(closed["pnl"] or 0) >= 0 else "убыток"
             try:
                 await context.bot.send_message(
                     chat_id=trade["user_id"],
                     text=(
-                        f"Сделка #{trade['id']} {trade['symbol']} {trade['side'].upper()} закрылась: {format_close_reason_ru(close_reason)}.\n"
-                        f"Открыта: {trade['opened_at']}\n"
-                        f"Выход: {money(close_price)}\n"
-                        f"PnL: {signed_money(closed['pnl'])} USDT ({result})"
+                        f"Сделка #{trade['id']} {trade['symbol']}: по публичным данным Binance "
+                        f"достигнут уровень {pending_observation['matched_level']}.\n"
+                        f"Наблюдаемая цена: {money(pending_observation['observed_price'])}.\n"
+                        "Это не подтверждает исполнение ордера. Проверь биржу и закрой сделку вручную."
                     ),
                 )
+                self.trades.mark_level_observation_sent(trade["user_id"], int(pending_observation["id"]))
             except TelegramError:
-                logger.info("Could not send auto-close message to user %s", trade["user_id"])
+                logger.info("Could not send level observation to user %s", trade["user_id"])
 
     async def refresh_auto_contexts(self, context: ContextTypes.DEFAULT_TYPE) -> None:
         now = datetime.now()

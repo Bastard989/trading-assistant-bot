@@ -473,6 +473,56 @@ class TradeRepository:
                 (user_id, file_id, user_id, file_id, user_id, file_id),
             ).fetchone() is not None
 
+    def record_level_observation(self, user_id: int, trade_id: int, observation) -> sqlite3.Row | None:
+        trade = self.get(user_id, trade_id)
+        if not trade or trade["status"] != "open":
+            return None
+        with self.db.connect() as connection:
+            connection.execute(
+                """
+                INSERT OR IGNORE INTO trade_level_observations (
+                    trade_id, user_id, symbol, source, observed_price, level_price,
+                    matched_level, candle_high, candle_low, ambiguity
+                ) VALUES (?, ?, ?, 'binance_public', ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    trade_id, user_id, trade["symbol"], observation.observed_price,
+                    observation.level_price, observation.matched_level,
+                    observation.candle_high, observation.candle_low, observation.ambiguity,
+                ),
+            )
+            return connection.execute(
+                """
+                SELECT * FROM trade_level_observations
+                WHERE trade_id = ? AND user_id = ? AND matched_level = ?
+                  AND notification_status = 'pending'
+                """,
+                (trade_id, user_id, observation.matched_level),
+            ).fetchone()
+
+    def mark_level_observation_sent(self, user_id: int, observation_id: int) -> bool:
+        with self.db.connect() as connection:
+            cursor = connection.execute(
+                """
+                UPDATE trade_level_observations
+                SET notification_status = 'sent', notified_at = CURRENT_TIMESTAMP
+                WHERE id = ? AND user_id = ? AND notification_status = 'pending'
+                """,
+                (observation_id, user_id),
+            )
+            return cursor.rowcount > 0
+
+    def pending_level_observation(self, user_id: int, trade_id: int) -> sqlite3.Row | None:
+        with self.db.connect() as connection:
+            return connection.execute(
+                """
+                SELECT * FROM trade_level_observations
+                WHERE trade_id = ? AND user_id = ? AND notification_status = 'pending'
+                ORDER BY observed_at ASC LIMIT 1
+                """,
+                (trade_id, user_id),
+            ).fetchone()
+
     def list_for_user(self, user_id: int, status: str | None = None, limit: int = 20) -> list[sqlite3.Row]:
         status_filter = "AND status = ?" if status else ""
         params: tuple[object, ...] = (user_id, status, limit) if status else (user_id, limit)

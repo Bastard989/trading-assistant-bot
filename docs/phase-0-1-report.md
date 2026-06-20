@@ -11,6 +11,7 @@
 - Atomic checksum migrations, FK/WAL/busy timeout and required indexes.
 - Heuristic `rule_score` terminology and finite/geometry validation.
 - Public-market level observations no longer close trades or claim order execution.
+- UTC-aware business-day boundaries are calculated with the configured IANA timezone.
 
 ## Migrations
 
@@ -23,7 +24,7 @@ All four ran twice on a temporary copy of the fresh live backup. Integrity/FK ch
 
 ## Verification
 
-- `pytest`: 55 passed.
+- `pytest`: 60 passed.
 - Coverage: 37% overall; security/domain/DB critical paths are covered, legacy Telegram presentation code remains low.
 - `ruff check .`: passed.
 - `node --check mini_app/app.js`: passed.
@@ -42,7 +43,7 @@ Development rollback is `git revert` of the logical commits on `production-harde
 ## Remaining risks
 
 - Persisted money still uses legacy SQLite REAL columns.
-- Full service-layer extraction and business-timezone policy remain.
+- Full service-layer extraction remains.
 - Browser viewport suite and dependency audit need successful external tooling.
 - Telegram token rotation, HTTPS/domain, live permissions, migration and cutover require owner action/approval.
 - Multi-user readiness is not claimed; current configuration targets a personal allowlist.

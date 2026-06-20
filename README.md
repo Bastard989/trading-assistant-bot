@@ -79,6 +79,7 @@ TELEGRAM_BOT_TOKEN=token_from_botfather
 ALLOWED_TELEGRAM_USER_IDS=123456789
 APP_ENV=production
 AUTO_MIGRATE=false
+BUSINESS_TIMEZONE=Europe/Moscow
 DATABASE_PATH=data/trading_bot.sqlite3
 MARKET=futures
 TOP_LIMIT=10

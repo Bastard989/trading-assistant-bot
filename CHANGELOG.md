@@ -9,3 +9,4 @@
 - Added transactional checksum migrations, indexes, FK enforcement, backup/restore tooling, health endpoints, tests, and CI.
 - Replaced probability language with an explicitly heuristic rule score.
 - Replaced public-price auto-close with deduplicated, retryable level observations requiring manual execution confirmation.
+- Added UTC-aware business timezone boundaries for plans and daily PnL.

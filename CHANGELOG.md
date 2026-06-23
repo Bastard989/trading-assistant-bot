@@ -18,3 +18,4 @@
 - Documented the Obsidian vault export architecture for sessions, trades, journal notes, dashboards, and canvas maps.
 - Added Obsidian zip export API and Mini App download controls for full vault or active session exports.
 - Documented the Mini App model-connections architecture for cloud/local LLM providers, model discovery, task bindings, and secret handling.
+- Added a Mini App `Модели` UI scaffold with provider cards, setup instructions, task bindings, and connected-model placeholders.

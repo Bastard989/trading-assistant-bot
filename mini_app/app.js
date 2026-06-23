@@ -90,6 +90,7 @@ document.addEventListener("click", async event => {
     case "activate-session": await activateSession(id); break;
     case "download-obsidian": event.stopPropagation(); await downloadObsidianExport(); break;
     case "download-session-obsidian": event.stopPropagation(); await downloadObsidianExport(id); break;
+    case "model-placeholder": event.stopPropagation(); showModelPlaceholder(); break;
   }
 });
 
@@ -960,6 +961,15 @@ async function downloadObsidianExport(sessionId = 0) {
     }
     alert("Не удалось скачать Obsidian export");
   }
+}
+
+function showModelPlaceholder() {
+  const status = document.getElementById("modelSetupStatus");
+  if (status) {
+    status.textContent = "нужен backend";
+    status.className = "live-status is-offline";
+  }
+  alert("UI вкладки готов. Реальное сохранение ключей включу после backend-миграции и безопасного хранилища секретов.");
 }
 
 async function calculateRisk() {

@@ -934,12 +934,167 @@ pre {
   margin-top: 0;
 }
 
+.model-hero {
+  background:
+    linear-gradient(135deg, rgba(20, 16, 48, .84), rgba(4, 9, 18, .88)),
+    radial-gradient(circle at 82% 20%, rgba(67, 215, 255, .13), transparent 22rem),
+    var(--panel);
+}
+
+.model-status-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.model-status-card {
+  min-height: 64px;
+  border: 1px solid rgba(177, 191, 222, .16);
+  border-radius: 8px;
+  background: rgba(5, 9, 18, .66);
+  padding: 11px;
+}
+
+.model-status-card small,
+.connected-model-row small {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.25;
+}
+
+.model-status-card b {
+  display: block;
+  margin-top: 6px;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.model-provider-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.model-card {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background:
+    linear-gradient(145deg, rgba(17, 24, 42, .92), rgba(6, 9, 17, .92)),
+    var(--panel-strong);
+  padding: 14px;
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+
+.model-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.model-card-head h2 { margin: 8px 0 0; }
+
+.model-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  border: 1px solid rgba(177, 191, 222, .18);
+  border-radius: 999px;
+  padding: 4px 8px;
+  color: var(--muted);
+  background: rgba(255, 255, 255, .025);
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.model-badge.cloud { border-color: rgba(67, 215, 255, .32); color: #bcefff; background: rgba(67, 215, 255, .08); }
+.model-badge.local { border-color: rgba(168, 85, 247, .36); color: #ead5ff; background: rgba(168, 85, 247, .1); }
+.model-badge.offline { border-color: rgba(255, 196, 92, .34); color: #ffe3a6; background: rgba(255, 196, 92, .08); }
+
+.model-form {
+  grid-template-columns: 1fr 1fr;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+}
+
+.model-help {
+  margin-top: 12px;
+  border: 1px solid rgba(177, 191, 222, .14);
+  border-radius: 8px;
+  background: rgba(3, 7, 15, .52);
+  color: var(--muted);
+  padding: 9px 10px;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.model-help summary {
+  color: var(--text);
+  cursor: pointer;
+  font-weight: 800;
+}
+
+.model-help ol {
+  margin: 8px 0 0;
+  padding-left: 18px;
+}
+
+.model-offline-copy {
+  display: grid;
+  gap: 8px;
+  border: 1px solid rgba(85, 224, 138, .2);
+  border-radius: 8px;
+  background: rgba(85, 224, 138, .07);
+  color: var(--muted);
+  padding: 12px;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.model-offline-copy b { color: #b9ffd0; }
+
+.model-task-list {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.connected-models {
+  display: grid;
+  gap: 8px;
+}
+
+.connected-model-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid rgba(177, 191, 222, .14);
+  border-radius: 8px;
+  background: rgba(8, 13, 24, .76);
+  padding: 10px 12px;
+}
+
+.connected-model-row b {
+  display: block;
+  margin-bottom: 3px;
+  color: var(--text);
+}
+
 @media (max-width: 860px) {
   .app { padding: 12px; }
   .topbar { min-height: 140px; padding: 16px; align-items: flex-end; }
   .section-head { align-items: flex-start; flex-direction: column; }
   .head-actions { justify-content: flex-start; }
-  .metrics, .form-grid, .compact-grid, .analytics-grid, .session-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .metrics, .form-grid, .compact-grid, .analytics-grid, .session-form, .model-provider-grid, .model-task-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .price-tape, .market-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .row, .trade-main, .trade-details, .journal-card, .edit-grid { grid-template-columns: 1fr 1fr; }
   .space-backdrop img { top: -36px; width: 190vw; opacity: 0.56; }
@@ -948,11 +1103,12 @@ pre {
 @media (max-width: 440px) {
   .app { padding: 10px; }
   .topbar { min-height: 132px; }
-  .metrics, .form-grid, .compact-grid, .analytics-grid, .price-tape, .market-grid, .session-form, .session-card { grid-template-columns: 1fr; }
+  .metrics, .form-grid, .compact-grid, .analytics-grid, .price-tape, .market-grid, .session-form, .session-card, .model-status-grid, .model-provider-grid, .model-form, .model-task-list { grid-template-columns: 1fr; }
   .row, .trade-main, .trade-details, .journal-card, .edit-grid { grid-template-columns: 1fr; }
   .photo-picker { grid-column: 1; }
   .tab, .seg { min-height: 38px; padding: 8px 11px; }
   .icon-btn { width: 42px; height: 42px; }
   .session-meta, .session-progress { grid-column: 1; }
   .session-actions { justify-self: start; }
+  .connected-model-row { align-items: flex-start; flex-direction: column; }
 }

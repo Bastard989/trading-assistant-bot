@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Trading Assistant</title>
-    <link rel="stylesheet" href="/static/styles.css?v=20260619-4" />
+    <link rel="stylesheet" href="/static/styles.css?v=20260623-models-1" />
   </head>
   <body>
     <div class="space-backdrop" aria-hidden="true">
@@ -29,6 +29,7 @@
         <button class="tab" data-view="market">Монеты</button>
         <button class="tab" data-view="journal">Дневник</button>
         <button class="tab" data-view="analytics">Аналитика</button>
+        <button class="tab" data-view="models">Модели</button>
         <button class="tab" data-view="calculator">Калькулятор</button>
       </nav>
 
@@ -172,8 +173,126 @@
           <div id="analyticsPanel" class="analytics-grid"></div>
         </section>
       </section>
+
+      <section id="models" class="view">
+        <section class="band model-hero">
+          <div class="section-head">
+            <div>
+              <h2>Модели и агенты</h2>
+              <p class="section-copy">Подключи OpenAI, локальную OpenAI-compatible модель или оставь ручной режим. Ключи будут храниться только на backend и не будут показываться обратно в Mini App.</p>
+            </div>
+            <span id="modelSetupStatus" class="live-status is-offline">backend next</span>
+          </div>
+          <div class="model-status-grid">
+            <span class="model-status-card"><small>Vision</small><b>не настроено</b></span>
+            <span class="model-status-card"><small>Journal AI</small><b>manual</b></span>
+            <span class="model-status-card"><small>Obsidian AI</small><b>manual</b></span>
+          </div>
+        </section>
+
+        <section class="model-provider-grid">
+          <article class="model-card">
+            <div class="model-card-head">
+              <div>
+                <span class="model-badge cloud">облако</span>
+                <h2>OpenAI API</h2>
+                <p class="section-copy">Для распознавания скринов, анализа дневника и расширенных отчётов.</p>
+              </div>
+              <span class="live-status">не подключено</span>
+            </div>
+            <div class="form-grid model-form">
+              <label>API key<input type="password" autocomplete="off" placeholder="sk-..." /></label>
+              <label>Модель<select><option>gpt-5.5</option><option>gpt-5.5-mini</option><option>выбрать после проверки</option></select></label>
+              <button class="primary-action compact" type="button" data-action="model-placeholder">Проверить</button>
+              <button class="primary-action compact" type="button" data-action="model-placeholder">Сохранить</button>
+            </div>
+            <details class="model-help">
+              <summary>Как подключить</summary>
+              <ol>
+                <li>Создай API key в кабинете провайдера.</li>
+                <li>Вставь ключ сюда и нажми “Проверить”.</li>
+                <li>После проверки backend покажет список моделей, а ключ будет виден только маской.</li>
+              </ol>
+            </details>
+          </article>
+
+          <article class="model-card">
+            <div class="model-card-head">
+              <div>
+                <span class="model-badge local">локально</span>
+                <h2>Local / OpenAI-compatible</h2>
+                <p class="section-copy">Для локальных runtimes с OpenAI-compatible API.</p>
+              </div>
+              <span class="live-status">не проверено</span>
+            </div>
+            <div class="form-grid model-form">
+              <label>Base URL<input value="http://127.0.0.1:11434/v1" autocomplete="off" /></label>
+              <label>Модель<select><option>найти модели</option><option>llama vision</option><option>qwen</option></select></label>
+              <button class="primary-action compact" type="button" data-action="model-placeholder">Сканировать</button>
+              <button class="primary-action compact" type="button" data-action="model-placeholder">Сохранить</button>
+            </div>
+            <details class="model-help">
+              <summary>Как подключить локальную модель</summary>
+              <ol>
+                <li>Запусти локальный сервер, который отдаёт `/v1/models`.</li>
+                <li>Укажи base URL без секретов в строке.</li>
+                <li>Нажми “Сканировать”, чтобы backend получил список моделей.</li>
+              </ol>
+            </details>
+          </article>
+
+          <article class="model-card">
+            <div class="model-card-head">
+              <div>
+                <span class="model-badge offline">без ключей</span>
+                <h2>Offline / manual mode</h2>
+                <p class="section-copy">Без модели: бот не фантазирует, а просит ручной шаблон и уточнения.</p>
+              </div>
+              <span class="live-status is-live">активен</span>
+            </div>
+            <div class="model-offline-copy">
+              <b>Безопасный fallback включён.</b>
+              <span>Если модель не настроена, `/open` по фото вернёт ручной шаблон, а не будет выдумывать вход/стоп/тейк.</span>
+            </div>
+          </article>
+        </section>
+
+        <section class="band">
+          <div class="section-head">
+            <div>
+              <h2>Активные задачи</h2>
+              <p class="section-copy">Позже здесь можно будет назначить разные модели под разные задачи.</p>
+            </div>
+          </div>
+          <div class="model-task-list">
+            <label>Фото → сделка<select><option>manual/offline</option><option>gpt-5.5</option></select></label>
+            <label>Анализ дневника<select><option>manual/offline</option><option>gpt-5.5</option></select></label>
+            <label>Obsidian отчёт<select><option>manual/offline</option><option>gpt-5.5</option></select></label>
+            <label>Разбор сетапа<select><option>manual/offline</option><option>gpt-5.5</option></select></label>
+          </div>
+        </section>
+
+        <section class="band">
+          <div class="section-head">
+            <div>
+              <h2>Подключённые модели</h2>
+              <p class="section-copy">Ключи будут отображаться только маской. Реальное сохранение появится после backend-миграции.</p>
+            </div>
+          </div>
+          <div class="connected-models">
+            <div class="connected-model-row">
+              <span><b>OpenAI</b><small>sk-...abcd · 3 модели</small></span>
+              <button class="mini-action" type="button" data-action="model-placeholder">Активировать</button>
+            </div>
+            <div class="connected-model-row">
+              <span><b>Localhost</b><small>127.0.0.1 · не проверено</small></span>
+              <button class="mini-action" type="button" data-action="model-placeholder">Проверить</button>
+            </div>
+          </div>
+        </section>
+      </section>
     </main>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    <script src="/static/app.js?v=20260620-1"></script>
+    <script src="/static/app.js?v=20260623-models-1"></script>
   </body>
 </html>

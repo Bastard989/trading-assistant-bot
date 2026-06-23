@@ -18,7 +18,7 @@
 - Mini App template hardening now sanitizes generated IDs, state classes, media URLs, session metadata, and journal result updates before HTML insertion.
 - Telegram `/open` now has a planned/implemented optional screenshot recognition flow: one TradingView/order-panel photo can become a draft, missing fields are clarified, and manual `/open` remains the fallback.
 - Obsidian export is implemented as a portable Markdown/YAML/JSON Canvas vault zip API with Mini App download controls.
-- Model connections are specified for future Mini App setup of cloud/local LLM providers, model discovery, task bindings, and secure secret handling.
+- Model connections are specified for future Mini App setup of cloud/local LLM providers, model discovery, task bindings, and secure secret handling; a visible Mini App UI scaffold now exists.
 
 ## Migrations
 

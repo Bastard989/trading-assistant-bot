@@ -74,7 +74,7 @@ PUT  /api/model-task-bindings/{task}
 
 ## Первый релиз
 
-- Страница `Модели` в Mini App.
+- Страница `Модели` в Mini App. UI scaffold уже добавлен; кнопки пока показывают честную заглушку до backend-миграции.
 - Добавление OpenAI API connection.
 - Добавление OpenAI-compatible connection по `base_url`.
 - Тест соединения.

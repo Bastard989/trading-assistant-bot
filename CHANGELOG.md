@@ -12,3 +12,4 @@
 - Added UTC-aware business timezone boundaries for plans and daily PnL.
 - Added a shared trade service for API/Telegram create, update, and close flows with Decimal validation/PnL before legacy REAL persistence.
 - Added Pydantic JSON bodies for core mutation endpoints and moved Mini App session/watchlist/trade mutations away from URL payloads.
+- Added cross-user mutation regression tests for trade/session/journal ownership boundaries.

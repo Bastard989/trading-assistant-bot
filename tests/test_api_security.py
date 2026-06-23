@@ -155,6 +155,50 @@ def test_json_body_mutations_are_supported_without_url_payloads(monkeypatch, tmp
     assert closed.json()["trade"]["pnl"] == 19.75
 
 
+def test_cross_user_mutations_cannot_modify_foreign_records(monkeypatch, tmp_path) -> None:
+    module = load_test_app(monkeypatch, tmp_path)
+    module.users.ensure_user(42)
+    module.users.ensure_user(99)
+    trade_id = module.trades.create(42, "BTCUSDT", "long", 100, 90, 120, 1, 1)
+    session_id = module.sessions.create(42, "Owner Session", 1000)
+    journal_id = module.journal.create(42, "BTCUSDT", "idea", "owner note")
+    client = TestClient(module.app)
+
+    foreign_update = client.post(
+        f"/api/trades/{trade_id}/update",
+        json={"entry_price": 101, "stop_price": 91, "target_price": 121, "quantity": 2},
+        headers=mutation_headers(99, "idor-update-1"),
+    )
+    assert foreign_update.status_code == 404
+
+    foreign_close = client.post(
+        f"/api/trades/{trade_id}/close",
+        json={"exit_price": 111},
+        headers=mutation_headers(99, "idor-close-1"),
+    )
+    assert foreign_close.status_code == 200
+    assert foreign_close.json() == {"ok": False, "trade": None}
+
+    foreign_cancel = client.post(f"/api/trades/{trade_id}/cancel", headers=mutation_headers(99, "idor-cancel-1"))
+    assert foreign_cancel.status_code == 200
+    assert foreign_cancel.json() == {"ok": False}
+
+    foreign_archive = client.post(f"/api/sessions/{session_id}/archive", headers=mutation_headers(99, "idor-session-1"))
+    assert foreign_archive.status_code == 200
+    assert foreign_archive.json() == {"ok": False}
+
+    foreign_link = client.post(
+        f"/api/trades/{trade_id}/link-journal?journal_id={journal_id}",
+        headers=mutation_headers(99, "idor-link-1"),
+    )
+    assert foreign_link.status_code == 404
+
+    owner_trade = module.trades.get(42, trade_id)
+    assert owner_trade["status"] == "open"
+    assert owner_trade["entry_price"] == 100
+    assert module.sessions.active(42)["id"] == session_id
+
+
 def test_api_rate_limit_returns_retry_after(monkeypatch, tmp_path) -> None:
     module = load_test_app(monkeypatch, tmp_path, read_limit=2)
     client = TestClient(module.app)

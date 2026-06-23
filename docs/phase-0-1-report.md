@@ -14,6 +14,7 @@
 - UTC-aware business-day boundaries are calculated with the configured IANA timezone.
 - API and Telegram trade create/update/close flows now share a `TradeService` with Decimal validation, risk, and PnL calculation before legacy persistence.
 - Core Mini App mutations now use Pydantic JSON bodies while old query payloads remain temporarily supported for compatibility.
+- Cross-user regression tests cover trade update/close/cancel, session archive, and trade-journal linking ownership boundaries.
 
 ## Migrations
 
@@ -26,7 +27,7 @@ All four ran twice on a temporary copy of the fresh live backup. Integrity/FK ch
 
 ## Verification
 
-- `pytest`: 65 passed.
+- `pytest`: 66 passed.
 - Coverage: 40% overall; security/domain/DB critical paths are covered, legacy Telegram presentation code remains low.
 - `ruff check .`: passed.
 - `node --check mini_app/app.js`: passed.

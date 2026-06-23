@@ -46,6 +46,17 @@ from trading_bot.repositories import (
 )
 from trading_bot.risk import RiskInputError, calculate_risk
 from trading_bot.services.monitor import evaluate_level_observation
+from trading_bot.services.photo_trade import (
+    DisabledPhotoTradeExtractor,
+    PhotoTradeCandidate,
+    PhotoTradeExtractionUnavailable,
+    PhotoTradeExtractor,
+    candidate_to_open_note,
+    field_prompt,
+    format_candidate_summary,
+    merge_candidate_with_text,
+    missing_fields,
+)
 from trading_bot.services.clock import business_date, business_now
 from trading_bot.services.trades import TradeService
 from trading_bot.templates import (
@@ -61,6 +72,8 @@ from trading_bot.timeframe_analyzer import analyze_klines
 logger = logging.getLogger(__name__)
 
 AWAITING_PROFILE = "awaiting_profile"
+AWAITING_OPEN_PHOTO = "awaiting_open_photo"
+PENDING_PHOTO_TRADE = "pending_photo_trade"
 OUTCOMES = {"win", "loss", "breakeven", "idea"}
 BOT_COMMANDS = [
     BotCommand("miniapp", "открыть кабинет трейдера"),
@@ -96,6 +109,7 @@ class BotHandlers:
         allowed_user_ids: frozenset[int],
         idempotency: IdempotencyRepository,
         business_timezone: str,
+        photo_trade_extractor: PhotoTradeExtractor | None = None,
     ) -> None:
         self.users = users
         self.alerts = alerts
@@ -115,6 +129,7 @@ class BotHandlers:
         self.allowed_user_ids = allowed_user_ids
         self.idempotency = idempotency
         self.business_timezone = business_timezone
+        self.photo_trade_extractor = photo_trade_extractor or DisabledPhotoTradeExtractor()
 
     def register(self, application: Application) -> None:
         application.add_handler(TypeHandler(Update, self.authorize_update), group=-1)
@@ -213,7 +228,7 @@ class BotHandlers:
         await update.message.reply_text(
             "Я фиксирую твои сделки и дневник.\n\n"
             "Как пользоваться:\n"
-            "1. Нажми «Открыть сделку» и заполни шаблон. Количество позиций обязательно.\n"
+            "1. Нажми «Открыть сделку»: можно отправить скрин TradingView или заполнить шаблон вручную. Количество позиций обязательно.\n"
             "2. Запись в дневник: /note BTC идея/ошибка/наблюдение\n"
             "3. Фото можно отправлять вместе с /open или /note — я сохраню их в дневнике.\n"
             "4. Я сообщу, если уровень stop/take достигнут по публичным данным; исполнение проверь на бирже.\n\n"
@@ -230,7 +245,8 @@ class BotHandlers:
     async def help(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text(
             "Бот — для фиксации сделок и дневника.\n\n"
-            "Открыть сделку: нажми кнопку в /menu или отправь /open без данных, затем заполни шаблон.\n\n"
+            "Открыть сделку: отправь /open без данных, затем пришли скрин TradingView/панели заявки "
+            "или заполни шаблон вручную.\n\n"
             "Запись в дневник:\n"
             "/note BTC идея/ошибка/наблюдение\n\n"
             "С фото: прикрепи скрин и сделай подпись /open ... или /note ...\n\n"
@@ -265,6 +281,31 @@ class BotHandlers:
         await update.message.reply_text(f"Сохранил: депозит {money(account_size)} USDT, риск {risk_percent:.2f}%.")
 
     async def on_text(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        pending = context.user_data.get(PENDING_PHOTO_TRADE)
+        if pending:
+            candidate = pending["candidate"]
+            if isinstance(candidate, PhotoTradeCandidate):
+                merged = merge_candidate_with_text(candidate, update.message.text)
+                missing = missing_fields(merged)
+                pending["candidate"] = merged
+                if missing:
+                    await update.message.reply_text(self._photo_trade_clarification_text(merged, missing))
+                    return
+                context.user_data.pop(PENDING_PHOTO_TRADE, None)
+                text = await self._handle_trade_note(
+                    update.effective_user.id,
+                    candidate_to_open_note(merged),
+                    list(pending.get("file_ids", [])),
+                    require_trade=True,
+                )
+                await update.message.reply_text(text, reply_markup=self._main_markup(update.effective_user.id))
+                return
+
+        if context.user_data.pop(AWAITING_OPEN_PHOTO, False):
+            text = await self._handle_trade_note(update.effective_user.id, update.message.text, [], require_trade=True)
+            await update.message.reply_text(text, reply_markup=self._main_markup(update.effective_user.id))
+            return
+
         if context.user_data.pop(AWAITING_PROFILE, False):
             self.users.set_profile(update.effective_user.id, update.message.text.strip())
             await update.message.reply_text("Профиль торговли сохранил.")
@@ -348,8 +389,18 @@ class BotHandlers:
     async def open_trade_note(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         note = command_body(update.effective_message.text or "", "open")
         if not note:
-            await update.effective_message.reply_text(open_trade_template())
+            context.user_data.pop(PENDING_PHOTO_TRADE, None)
+            context.user_data[AWAITING_OPEN_PHOTO] = True
+            await update.effective_message.reply_text(
+                "Открываем сделку. Можешь сделать двумя способами:\n\n"
+                "1. Пришли один скрин TradingView/панели заявки — я попробую сам заполнить монету, сторону, вход, стоп, тейк, qty и плечо.\n"
+                "2. Или отправь данные вручную по шаблону ниже, можно вместе с фото.\n\n"
+                "Если по скрину будет не всё понятно, я спрошу уточнение перед записью.\n\n"
+                + open_trade_template()
+            )
             return
+        context.user_data.pop(AWAITING_OPEN_PHOTO, None)
+        context.user_data.pop(PENDING_PHOTO_TRADE, None)
         text = await self._handle_trade_note(update.effective_user.id, note, [], require_trade=True)
         await update.effective_message.reply_text(text, reply_markup=self._main_markup(update.effective_user.id))
 
@@ -517,6 +568,15 @@ class BotHandlers:
             return
         caption = message.caption or ""
         file_id = message.photo[-1].file_id
+        awaiting_photo_open = bool(context.user_data.pop(AWAITING_OPEN_PHOTO, False))
+        manual_open_caption = caption.strip().lower().startswith("/open") and bool(command_body(caption, "open"))
+        if awaiting_photo_open and not manual_open_caption:
+            if message.media_group_id:
+                await message.reply_text("Для авторазбора сделки пришли один скрин одним сообщением. Альбомы пока сохраняю только с ручной подписью.")
+                return
+            text = await self._handle_open_photo(update.effective_user.id, caption, [file_id], context)
+            await message.reply_text(text, reply_markup=self._main_markup(update.effective_user.id))
+            return
         if message.media_group_id:
             albums = context.application.bot_data.setdefault(ALBUMS_KEY, {})
             key = f"{update.effective_chat.id}:{message.media_group_id}"
@@ -1093,6 +1153,58 @@ class BotHandlers:
             screenshot_file_id=screenshot_file_id,
             confidence=confidence,
         )
+
+    async def _handle_open_photo(
+        self,
+        user_id: int,
+        caption: str,
+        file_ids: list[str],
+        context: ContextTypes.DEFAULT_TYPE,
+    ) -> str:
+        try:
+            telegram_file = await context.bot.get_file(file_ids[-1])
+            image_bytes = bytes(await telegram_file.download_as_bytearray())
+            candidate = await self.photo_trade_extractor.extract(image_bytes, mime_type="image/jpeg")
+        except PhotoTradeExtractionUnavailable:
+            logger.info("Photo trade extraction unavailable", exc_info=True)
+            return (
+                "Авторазбор скрина пока не включён на сервере: нужен OPENAI_API_KEY.\n\n"
+                "Но сделку можно открыть классикой — пришли фото с подписью по шаблону:\n\n"
+                + open_trade_template()
+            )
+        except Exception:
+            logger.exception("Could not extract trade from screenshot")
+            return (
+                "Не смог надежно разобрать скрин. Давай классикой: пришли фото с подписью по шаблону.\n\n"
+                + open_trade_template()
+            )
+
+        clarification = command_body(caption, "open") if caption.strip().lower().startswith("/open") else caption
+        candidate = merge_candidate_with_text(candidate, clarification)
+        missing = missing_fields(candidate)
+        if missing:
+            context.user_data[PENDING_PHOTO_TRADE] = {"candidate": candidate, "file_ids": list(file_ids)}
+            return self._photo_trade_clarification_text(candidate, missing)
+
+        return await self._handle_trade_note(
+            user_id,
+            candidate_to_open_note(candidate),
+            file_ids,
+            require_trade=True,
+        )
+
+    def _photo_trade_clarification_text(self, candidate: PhotoTradeCandidate, missing: tuple[str, ...]) -> str:
+        questions = "\n".join(f"• {field_prompt(field)}" for field in missing)
+        model_questions = "\n".join(f"• {question}" for question in candidate.questions)
+        text = (
+            "Я собрал черновик по скрину, но сделку пока не открываю — не хватает данных.\n\n"
+            f"Черновик: {format_candidate_summary(candidate)}\n\n"
+            f"Уточни одним сообщением:\n{questions}"
+        )
+        if model_questions:
+            text += f"\n\nЧто показалось неясным на скрине:\n{model_questions}"
+        text += "\n\nМожно коротко, например: «причина входа: ретест уровня, qty 0.01, плечо 10»."
+        return text
 
     async def _handle_photo_note(self, user_id: int, caption: str, file_ids: list[str]) -> str:
         joined_file_ids = ",".join(file_ids)

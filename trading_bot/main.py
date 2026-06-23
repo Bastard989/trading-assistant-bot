@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 
 from telegram.ext import ApplicationBuilder
 
@@ -20,6 +21,7 @@ from trading_bot.repositories import (
     UserRepository,
     WatchlistRepository,
 )
+from trading_bot.services.photo_trade import OpenAIPhotoTradeExtractor
 from trading_bot.telegram_handlers import BotHandlers
 from trading_bot.telegram_handlers import BOT_COMMANDS
 
@@ -51,6 +53,10 @@ def main() -> None:
     trade_reviews = TradeReviewRepository(db)
     templates = TemplateRepository(db)
     market = MarketClient(settings.market)
+    photo_trade_extractor = OpenAIPhotoTradeExtractor(
+        api_key=os.getenv("OPENAI_API_KEY", ""),
+        model=os.getenv("OPENAI_VISION_MODEL", "gpt-5.5"),
+    )
 
     application = ApplicationBuilder().token(settings.telegram_bot_token).post_init(post_init).build()
     BotHandlers(
@@ -71,6 +77,7 @@ def main() -> None:
         allowed_user_ids=settings.allowed_telegram_user_ids,
         idempotency=idempotency,
         business_timezone=settings.business_timezone,
+        photo_trade_extractor=photo_trade_extractor,
     ).register(application)
 
     application.run_polling(allowed_updates=None)

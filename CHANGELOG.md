@@ -14,3 +14,5 @@
 - Added Pydantic JSON bodies for core mutation endpoints and moved Mini App session/watchlist/trade mutations away from URL payloads.
 - Added cross-user mutation regression tests for trade/session/journal ownership boundaries.
 - Hardened remaining Mini App HTML templates for sessions, trades, journal results, media URLs, and generated IDs/status values.
+- Added optional Telegram `/open` screenshot-to-trade draft recognition with clarification flow before opening.
+- Documented the Obsidian vault export architecture for sessions, trades, journal notes, dashboards, and canvas maps.

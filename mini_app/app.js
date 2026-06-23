@@ -147,12 +147,15 @@ async function loadDashboard() {
 
 function renderWatchlist() {
   const target = document.getElementById("watchlist");
-  target.innerHTML = currentWatchlist.map(symbol => `
+  target.innerHTML = currentWatchlist.map(rawSymbol => {
+    const symbol = cleanSymbol(rawSymbol);
+    return `
     <span class="favorite-item">
       <button class="chip favorite-chip" type="button" data-action="fill-symbol" data-symbol="${symbol}">★ ${symbol}</button>
       <button class="favorite-remove" type="button" title="Убрать ${symbol}" aria-label="Убрать ${symbol}" data-action="remove-watchlist" data-symbol="${symbol}">×</button>
     </span>
-  `).join("") || "<span class='chip'>Список пуст</span>";
+  `;
+  }).join("") || "<span class='chip'>Список пуст</span>";
 }
 
 function toggleWatchlistEditor() {
@@ -266,7 +269,7 @@ async function loadMarketTop() {
         <span class="direction-pill ${item.price_change_percent >= 0 ? "positive" : "negative"}">${direction}</span>
         <small>VOL ${fmt(item.quote_volume / 1000000, 0)}M · RANGE ${fmt(item.intraday_range_percent)}%</small>
         <progress class="range-meter market-range" max="100" value="${Math.max(0, Math.min(100, position))}"></progress>
-        <small class="range-labels"><i>${fmt(item.low_price, 4)}</i><i>${item.exchange}</i><i>${fmt(item.high_price, 4)}</i></small>
+        <small class="range-labels"><i>${fmt(item.low_price, 4)}</i><i>${escapeHtml(item.exchange)}</i><i>${fmt(item.high_price, 4)}</i></small>
         <div class="market-detail">
           <small>Цена на ${fmt(position, 0)}% суточного диапазона</small>
           <canvas id="market-chart-${cleanSymbol(item.symbol)}" class="mini-trend-chart" width="360" height="118"></canvas>
@@ -308,9 +311,12 @@ function renderTrades(targetId, rows, compact = false) {
 }
 
 function renderTradeCard(row, compact) {
+  const tradeId = safeId(row.id);
   const symbol = cleanSymbol(row.symbol);
+  const side = safeTradeSide(row.side);
+  const status = safeTradeStatus(row.status);
   const livePrice = priceState.get(symbol);
-  const isOpen = row.status === "open";
+  const isOpen = status === "open";
   const markPrice = isOpen ? livePrice : row.exit_price;
   const pnl = markPrice ? calcPnl(row, markPrice) : Number(row.pnl || 0);
   const pnlPct = markPrice ? pnlPercent(row, markPrice) : 0;
@@ -323,23 +329,23 @@ function renderTradeCard(row, compact) {
   const editPanel = isOpen ? `
     <div class="trade-edit" data-action="stop-propagation">
       <div class="edit-grid">
-        <label>Вход<input id="edit-entry-${row.id}" type="number" step="any" value="${row.entry_price}"></label>
-        <label>Стоп<input id="edit-stop-${row.id}" type="number" step="any" value="${row.stop_price}"></label>
-        <label>Тейк<input id="edit-target-${row.id}" type="number" step="any" value="${row.target_price || ""}"></label>
-        <label>Количество<input id="edit-qty-${row.id}" type="number" step="any" value="${row.quantity}"></label>
-        <label>Таймфрейм<select id="edit-timeframe-${row.id}" data-action="set-trade-timeframe" data-id="${row.id}">${chartIntervals.map(tf => `<option ${tradeTf === tf ? "selected" : ""}>${tf}</option>`).join("")}</select></label>
-        <label>Комментарий<input id="edit-note-${row.id}" placeholder="Почему перенес стоп или тейк"></label>
-        <label class="photo-picker">Добавить фото<input id="edit-photo-${row.id}" type="file" accept="image/jpeg,image/png,image/webp" multiple></label>
+        <label>Вход<input id="edit-entry-${tradeId}" type="number" step="any" value="${numberAttr(row.entry_price)}"></label>
+        <label>Стоп<input id="edit-stop-${tradeId}" type="number" step="any" value="${numberAttr(row.stop_price)}"></label>
+        <label>Тейк<input id="edit-target-${tradeId}" type="number" step="any" value="${numberAttr(row.target_price)}"></label>
+        <label>Количество<input id="edit-qty-${tradeId}" type="number" step="any" value="${numberAttr(row.quantity)}"></label>
+        <label>Таймфрейм<select id="edit-timeframe-${tradeId}" data-action="set-trade-timeframe" data-id="${tradeId}">${chartIntervals.map(tf => `<option ${tradeTf === tf ? "selected" : ""}>${tf}</option>`).join("")}</select></label>
+        <label>Комментарий<input id="edit-note-${tradeId}" placeholder="Почему перенес стоп или тейк"></label>
+        <label class="photo-picker">Добавить фото<input id="edit-photo-${tradeId}" type="file" accept="image/jpeg,image/png,image/webp" multiple></label>
       </div>
-      <div class="edit-actions"><button class="primary-action compact" data-action="save-trade" data-id="${row.id}">Сохранить</button><button class="mini-action" data-action="toggle-edit" data-id="${row.id}">Отмена</button></div>
+      <div class="edit-actions"><button class="primary-action compact" data-action="save-trade" data-id="${tradeId}">Сохранить</button><button class="mini-action" data-action="toggle-edit" data-id="${tradeId}">Отмена</button></div>
     </div>` : "";
   const details = `
     <div class="trade-details">
       <div class="trade-chart-panel">
         <div class="trade-timeframe-switch" aria-label="Таймфрейм графика сделки">
-          ${chartIntervals.map(tf => `<button type="button" data-trade-timeframe="${tf}" data-action="set-trade-timeframe" data-id="${row.id}" data-timeframe="${tf}" class="${tradeTf === tf ? "active" : ""}">${tf.toUpperCase()}</button>`).join("")}
+          ${chartIntervals.map(tf => `<button type="button" data-trade-timeframe="${tf}" data-action="set-trade-timeframe" data-id="${tradeId}" data-timeframe="${tf}" class="${tradeTf === tf ? "active" : ""}">${tf.toUpperCase()}</button>`).join("")}
         </div>
-        <canvas id="chart-${row.id}" class="trade-chart" width="760" height="260"></canvas>
+        <canvas id="chart-${tradeId}" class="trade-chart" width="760" height="260"></canvas>
       </div>
       <div class="trade-stats">
         <span>Цена сейчас <b data-trade-current-price>${markPrice ? fmt(markPrice, markPrice > 10 ? 2 : 6) : "-"}</b></span>
@@ -351,7 +357,7 @@ function renderTradeCard(row, compact) {
         <span>Количество <b>${fmt(row.quantity, 8)} ${symbol.replace("USDT", "")}</b></span>
         <span>Плечо <b>${fmt(row.leverage || 1, 2)}x</b></span>
         <span>Маржа <b>${fmt(margin, 2)} USDT</b></span>
-        <span>ROI на маржу <b data-trade-margin-roi class="${pnlClass}">${markPrice || row.status === "closed" ? signed(marginRoi) : "-"}%</b></span>
+        <span>ROI на маржу <b data-trade-margin-roi class="${pnlClass}">${markPrice || status === "closed" ? signed(marginRoi) : "-"}%</b></span>
         <span>Теги <b>${escapeHtml(row.tags || `coin:${symbol.replace("USDT", "")}`)}</b></span>
       </div>
       ${attachmentStrip ? `<div class="trade-media">${attachmentStrip}</div>` : ""}
@@ -359,14 +365,14 @@ function renderTradeCard(row, compact) {
     ${editPanel}
   `;
   return `
-    <article class="trade-card ${compact ? "compact-trade" : ""} ${expandedTrades.has(Number(row.id)) ? "expanded" : ""} ${editingTrades.has(Number(row.id)) ? "editing" : ""}" data-trade-id="${row.id}" data-action="toggle-trade" data-id="${row.id}">
+    <article class="trade-card ${compact ? "compact-trade" : ""} ${expandedTrades.has(Number(tradeId)) ? "expanded" : ""} ${editingTrades.has(Number(tradeId)) ? "editing" : ""}" data-trade-id="${tradeId}" data-action="toggle-trade" data-id="${tradeId}">
       <div class="trade-main">
-        <strong>#${row.id} ${symbol}<small>${row.side.toUpperCase()} ${row.status}${row.close_reason ? ` · ${closeReasonText(row.close_reason)}` : ""}</small></strong>
+        <strong>#${tradeId} ${symbol}<small>${side.toUpperCase()} ${status}${row.close_reason ? ` · ${escapeHtml(closeReasonText(row.close_reason))}` : ""}</small></strong>
         <span>Entry ${fmt(row.entry_price, 6)}<small>Stop ${fmt(row.stop_price, 6)}</small></span>
         <span>Target ${row.target_price ? fmt(row.target_price, 6) : "-"}</span>
         <span data-trade-pnl class="${pnlClass}">${markPrice ? signed(pnl) : (row.pnl == null ? "-" : signed(row.pnl))} USDT<small data-trade-pnl-percent>${markPrice ? signed(pnlPct) : "0"}%</small></span>
         <span class="trade-actions" data-action="stop-propagation">
-          ${isOpen ? `<button class="mini-action" data-action="toggle-edit" data-id="${row.id}">Изменить</button><button class="mini-action" data-action="close-trade" data-id="${row.id}">Закрыть</button><button class="mini-action" data-action="cancel-trade" data-id="${row.id}">Отменить</button>` : ""}
+          ${isOpen ? `<button class="mini-action" data-action="toggle-edit" data-id="${tradeId}">Изменить</button><button class="mini-action" data-action="close-trade" data-id="${tradeId}">Закрыть</button><button class="mini-action" data-action="cancel-trade" data-id="${tradeId}">Отменить</button>` : ""}
         </span>
       </div>
       <progress class="progress-rail" data-trade-progress max="100" value="${progress}"></progress>
@@ -704,8 +710,11 @@ function renderJournal() {
     const searchOk = !search || text.includes(search);
     return symbolOk && fromOk && toOk && searchOk;
   });
-  document.getElementById("journalList").innerHTML = rows.map(row => `
-    <article class="journal-card ${journalResult(row).className}">
+  document.getElementById("journalList").innerHTML = rows.map(row => {
+    const result = journalResult(row);
+    const entryId = safeId(row.id);
+    return `
+    <article class="journal-card ${result.className}">
       <div>
         <strong>${escapeHtml(cleanSymbol(row.symbol) || "-")}<small>${escapeHtml(row.outcome)} · ${escapeHtml(row.created_at)}</small></strong>
         <p>${escapeHtml(row.description || "-")}</p>
@@ -713,13 +722,14 @@ function renderJournal() {
         <small>${escapeHtml(row.theory || "")}</small>
       </div>
       <div class="journal-visuals">
-        <div class="journal-result ${journalResult(row).className}" data-journal-entry-id="${row.id}">${journalResult(row).icon}<strong>${journalResult(row).label}</strong><span>${journalResult(row).amount}</span></div>
-        <canvas id="journal-chart-${row.id}" class="journal-trend-chart" width="560" height="190"></canvas>
-        <em id="journal-trend-${row.id}" class="trend-caption">загрузка ${chartIntervalLabel()}</em>
+        <div class="journal-result ${result.className}" data-journal-entry-id="${entryId}"><i>${result.icon}</i><strong>${result.label}</strong><span>${result.amount}</span></div>
+        <canvas id="journal-chart-${entryId}" class="journal-trend-chart" width="560" height="190"></canvas>
+        <em id="journal-trend-${entryId}" class="trend-caption">загрузка ${chartIntervalLabel()}</em>
         <div class="media-strip">${mediaImages(row.screenshot_file_id)}</div>
       </div>
     </article>
-  `).join("") || emptyRow("Дневник пуст");
+  `;
+  }).join("") || emptyRow("Дневник пуст");
   hydrateProtectedImages(document.getElementById("journalList"));
   rows.forEach(row => {
     if (cleanSymbol(row.symbol)) loadJournalHistory(row);
@@ -751,21 +761,22 @@ function updateJournalResults() {
     if (!node) return;
     const result = journalResult(row);
     node.className = `journal-result ${result.className}`;
-    node.innerHTML = `${result.icon}<strong>${result.label}</strong><span>${result.amount}</span>`;
+    setJournalResultContent(node, result);
     node.closest(".journal-card")?.classList.remove("is-profit", "is-loss", "is-even", "is-open", "is-idea");
     result.className.split(" ").forEach(className => node.closest(".journal-card")?.classList.add(className));
   });
 }
 
 async function loadJournalHistory(row) {
-  const canvas = document.getElementById(`journal-chart-${row.id}`);
-  const caption = document.getElementById(`journal-trend-${row.id}`);
+  const entryId = safeId(row.id);
+  const canvas = document.getElementById(`journal-chart-${entryId}`);
+  const caption = document.getElementById(`journal-trend-${entryId}`);
   if (!canvas) return;
   try {
     const data = await api(`/api/journal/${row.id}/chart?interval=${chartInterval}`);
     const chartTrade = data.trade || {};
     if (data.items.length > 2) {
-      clearInterval(chartAnimations.get(`journal-${row.id}`));
+      clearInterval(chartAnimations.get(`journal-${entryId}`));
       let count = 2;
       const step = Math.max(1, Math.ceil(data.items.length / 70));
       const timer = setInterval(() => {
@@ -773,7 +784,7 @@ async function loadJournalHistory(row) {
         if (count >= data.items.length) count = 2;
         drawTradeChart(canvas, data.items.slice(0, count), chartTrade, chartInterval);
       }, 220);
-      chartAnimations.set(`journal-${row.id}`, timer);
+      chartAnimations.set(`journal-${entryId}`, timer);
       caption.textContent = `${data.market === "spot" ? "Binance Spot" : "Binance Futures"} · ${chartIntervalLabel()} · история на ${data.anchor_time}`;
     } else {
       drawTradeChart(canvas, data.items, chartTrade, chartInterval);
@@ -787,7 +798,7 @@ async function loadJournalHistory(row) {
 
 function mediaImages(value) {
   return String(value || "").split(",").filter(Boolean).map(fileId => `
-    <img class="journal-shot" data-protected-src="/api/media/${encodeURIComponent(fileId)}" alt="Скрин сделки" loading="lazy" />
+    <img class="journal-shot" data-protected-src="${escapeHtml(`/api/media/${encodeURIComponent(fileId)}`)}" alt="Скрин сделки" loading="lazy" />
   `).join("");
 }
 
@@ -804,12 +815,14 @@ async function loadSessions() {
     const progress = item.target_balance ? ((balance - item.start_balance) / Math.max(item.target_balance - item.start_balance, 0.000001)) * 100 : 0;
     const closed = Number(item.closed_count || 0);
     const winrate = closed ? Number(item.wins || 0) / closed * 100 : 0;
-    return `<article class="session-card ${item.status}">
-      <div><span class="session-status">${item.status === "active" ? "АКТИВНА" : "АРХИВ"}</span><h3>${escapeHtml(item.name)}</h3><small>${item.started_at}</small></div>
+    const status = safeSessionStatus(item.status);
+    const sessionId = safeId(item.id);
+    return `<article class="session-card ${status}">
+      <div><span class="session-status">${status === "active" ? "АКТИВНА" : "АРХИВ"}</span><h3>${escapeHtml(item.name)}</h3><small>${escapeHtml(item.started_at)}</small></div>
       <div class="session-money"><span>Старт <b>${fmt(item.start_balance)} USDT</b></span><span>Баланс <b class="${pnl >= 0 ? "positive" : "negative"}">${fmt(balance)} USDT</b></span><span>PnL <b class="${pnl >= 0 ? "positive" : "negative"}">${signed(pnl)} USDT</b></span></div>
       <progress class="session-progress" max="100" value="${Math.max(0, Math.min(100, progress))}"></progress>
       <div class="session-meta"><span>${item.trade_count || 0} сделок</span><span>Winrate ${fmt(winrate)}%</span><span>Цель ${item.target_balance ? fmt(item.target_balance) : "-"}</span></div>
-      <div class="session-actions">${item.status === "active" ? `<button class="mini-action" data-action="archive-session" data-id="${item.id}">В архив</button>` : `<button class="mini-action" data-action="activate-session" data-id="${item.id}">Продолжить</button>`}</div>
+      <div class="session-actions">${status === "active" ? `<button class="mini-action" data-action="archive-session" data-id="${sessionId}">В архив</button>` : `<button class="mini-action" data-action="activate-session" data-id="${sessionId}">Продолжить</button>`}</div>
     </article>`;
   }).join("") || emptyRow("Создай первую торговую сессию");
 }
@@ -842,6 +855,39 @@ function escapeHtml(value) {
   return String(value || "").replace(/[&<>'"]/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[char]);
 }
 
+function safeId(value) {
+  const id = Number(value);
+  return Number.isInteger(id) && id > 0 ? String(id) : "0";
+}
+
+function safeTradeSide(value) {
+  return value === "short" ? "short" : "long";
+}
+
+function safeTradeStatus(value) {
+  return ["open", "closed", "cancelled"].includes(value) ? value : "closed";
+}
+
+function safeSessionStatus(value) {
+  return value === "active" ? "active" : "archived";
+}
+
+function numberAttr(value) {
+  const number = Number(value);
+  return Number.isFinite(number) && number > 0 ? String(number) : "";
+}
+
+function setJournalResultContent(node, result) {
+  node.replaceChildren();
+  const icon = document.createElement("i");
+  icon.textContent = result.icon;
+  const label = document.createElement("strong");
+  label.textContent = result.label;
+  const amount = document.createElement("span");
+  amount.textContent = result.amount;
+  node.append(icon, label, amount);
+}
+
 function sessionName(id) {
   return currentSessions.find(item => Number(item.id) === Number(id))?.name || `#${id}`;
 }
@@ -853,14 +899,15 @@ function renderAnalytics() {
   const worst = closed.reduce((acc, row) => Math.min(acc, Number(row.pnl || 0)), 0);
   const bySymbol = {};
   [...currentTrades, ...currentOpenTrades].forEach(row => {
-    bySymbol[row.symbol] = (bySymbol[row.symbol] || 0) + 1;
+    const symbol = cleanSymbol(row.symbol) || "UNKNOWN";
+    bySymbol[symbol] = (bySymbol[symbol] || 0) + 1;
   });
   document.getElementById("analyticsPanel").innerHTML = `
     <div class="metric"><span>Открытых</span><strong>${open}</strong></div>
     <div class="metric"><span>Закрытых</span><strong>${closed.length}</strong></div>
     <div class="metric"><span>Лучший PnL</span><strong class="positive">${signed(best)}</strong></div>
     <div class="metric"><span>Худший PnL</span><strong class="negative">${signed(worst)}</strong></div>
-    <div class="band analytics-wide"><h2>Активность по монетам</h2>${Object.entries(bySymbol).map(([symbol, count]) => `<span class="chip">${symbol}: ${count}</span>`).join("") || "<span class='chip'>Нет данных</span>"}</div>
+    <div class="band analytics-wide"><h2>Активность по монетам</h2>${Object.entries(bySymbol).map(([symbol, count]) => `<span class="chip">${escapeHtml(symbol)}: ${count}</span>`).join("") || "<span class='chip'>Нет данных</span>"}</div>
   `;
 }
 
@@ -976,7 +1023,7 @@ async function saveTradeEdit(id) {
 
 function tradeAttachmentImages(items) {
   return items.map(item => {
-    const src = item.local_path ? `/api/trade-attachment/${item.id}` : `/api/media/${encodeURIComponent(item.telegram_file_id)}`;
+    const src = item.local_path ? `/api/trade-attachment/${safeId(item.id)}` : `/api/media/${encodeURIComponent(item.telegram_file_id || "")}`;
     return `<img class="trade-shot" data-protected-src="${escapeHtml(src)}" alt="Фото сделки" loading="lazy">`;
   }).join("");
 }
@@ -1045,11 +1092,12 @@ function rrText(row) {
 }
 
 function closeReasonText(reason) {
-  return { stop_loss: "стоп", take_profit: "тейк", manual: "вручную" }[reason] || String(reason).replace(/_/g, " ");
+  const normalized = String(reason || "").replace(/[^a-z_]/g, "");
+  return { stop_loss: "стоп", take_profit: "тейк", manual: "вручную" }[normalized] || normalized.replace(/_/g, " ");
 }
 
 function emptyRow(text) {
-  return `<div class="row"><strong>${text}</strong><span></span><span></span><span></span><span></span></div>`;
+  return `<div class="row"><strong>${escapeHtml(text)}</strong><span></span><span></span><span></span><span></span></div>`;
 }
 
 async function loadAll() {

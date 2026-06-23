@@ -37,6 +37,7 @@ from trading_bot.repositories import (
     WatchlistRepository,
 )
 from trading_bot.risk import calculate_risk
+from trading_bot.services.obsidian_export import build_obsidian_vault_zip, safe_filename
 from trading_bot.rate_limit import SlidingWindowLimiter
 from trading_bot.services.trades import TradeService, normalize_timeframe
 
@@ -595,6 +596,42 @@ def remove_watchlist_api(user_id: AuthenticatedUser, symbol: str = Query(..., mi
 @app.get("/api/journal")
 def journal_api(user_id: AuthenticatedUser, symbol: str = "") -> dict:
     return {"items": [row_to_dict(row) for row in journal.list_for_user(user_id, symbol=symbol, limit=50)]}
+
+
+@app.get("/api/export/obsidian.zip")
+def obsidian_export_api(user_id: AuthenticatedUser, session_id: int | None = None) -> Response:
+    user_sessions = [row_to_dict(row) for row in sessions.list_for_user(user_id)]
+    if session_id is not None:
+        selected_session = next((item for item in user_sessions if int(item["id"]) == session_id), None)
+        if selected_session is None:
+            raise HTTPException(status_code=404, detail="Session not found")
+        export_sessions = [selected_session]
+        export_trades = [row_to_dict(row) for row in trades.list_for_session(user_id, session_id, limit=5000)]
+        export_journal = [
+            row_to_dict(row)
+            for row in journal.list_for_user(user_id, limit=5000)
+            if row["session_id"] == session_id
+        ]
+        archive_name = safe_filename(f"trading-assistant-session-{session_id}") + ".zip"
+    else:
+        export_sessions = user_sessions
+        export_trades = [row_to_dict(row) for row in trades.list_for_user(user_id, limit=5000)]
+        export_journal = [row_to_dict(row) for row in journal.list_for_user(user_id, limit=5000)]
+        archive_name = "trading-assistant-obsidian.zip"
+
+    content = build_obsidian_vault_zip(
+        sessions=export_sessions,
+        trades=export_trades,
+        journal_entries=export_journal,
+    )
+    return Response(
+        content=content,
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f'attachment; filename="{archive_name}"',
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
 
 
 @app.get("/api/journal/{journal_id}/chart")

@@ -88,6 +88,8 @@ document.addEventListener("click", async event => {
     case "cancel-trade": event.stopPropagation(); await cancelTrade(id); break;
     case "archive-session": await archiveSession(id); break;
     case "activate-session": await activateSession(id); break;
+    case "download-obsidian": event.stopPropagation(); await downloadObsidianExport(); break;
+    case "download-session-obsidian": event.stopPropagation(); await downloadObsidianExport(id); break;
   }
 });
 
@@ -908,7 +910,56 @@ function renderAnalytics() {
     <div class="metric"><span>Лучший PnL</span><strong class="positive">${signed(best)}</strong></div>
     <div class="metric"><span>Худший PnL</span><strong class="negative">${signed(worst)}</strong></div>
     <div class="band analytics-wide"><h2>Активность по монетам</h2>${Object.entries(bySymbol).map(([symbol, count]) => `<span class="chip">${escapeHtml(symbol)}: ${count}</span>`).join("") || "<span class='chip'>Нет данных</span>"}</div>
+    <div class="band analytics-wide">
+      <div class="section-head">
+        <div>
+          <h2>Obsidian Export</h2>
+          <p class="section-copy">Скачай готовый vault: Dashboard, Sessions, Trades, Journal, Coins и Canvas-карта связей.</p>
+        </div>
+        <span id="obsidianExportStatus" class="live-status">готов</span>
+      </div>
+      <div class="toolbar">
+        <button class="primary-action compact" type="button" data-action="download-obsidian">Скачать всё</button>
+        ${activeSession ? `<button class="primary-action compact" type="button" data-action="download-session-obsidian" data-id="${Number(activeSession.id)}">Активная сессия</button>` : ""}
+      </div>
+    </div>
   `;
+}
+
+async function downloadObsidianExport(sessionId = 0) {
+  const status = document.getElementById("obsidianExportStatus");
+  if (status) {
+    status.textContent = "собираю";
+    status.className = "live-status";
+  }
+  const path = sessionId ? `/api/export/obsidian.zip?session_id=${Number(sessionId)}` : "/api/export/obsidian.zip";
+  try {
+    const response = await apiFetch(path);
+    if (!response.ok) throw new Error(await response.text());
+    const blob = await response.blob();
+    const disposition = response.headers.get("content-disposition") || "";
+    const match = disposition.match(/filename="([^"]+)"/);
+    const filename = match ? match[1] : "trading-assistant-obsidian.zip";
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+    if (status) {
+      status.textContent = "скачано";
+      status.className = "live-status is-live";
+    }
+  } catch (error) {
+    console.error("Obsidian export failed", error);
+    if (status) {
+      status.textContent = "ошибка";
+      status.className = "live-status is-offline";
+    }
+    alert("Не удалось скачать Obsidian export");
+  }
 }
 
 async function calculateRisk() {

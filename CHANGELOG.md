@@ -16,3 +16,5 @@
 - Hardened remaining Mini App HTML templates for sessions, trades, journal results, media URLs, and generated IDs/status values.
 - Added optional Telegram `/open` screenshot-to-trade draft recognition with clarification flow before opening.
 - Documented the Obsidian vault export architecture for sessions, trades, journal notes, dashboards, and canvas maps.
+- Added Obsidian zip export API and Mini App download controls for full vault or active session exports.
+- Documented the Mini App model-connections architecture for cloud/local LLM providers, model discovery, task bindings, and secret handling.

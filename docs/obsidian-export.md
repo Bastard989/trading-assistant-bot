@@ -90,7 +90,7 @@ tags:
 ## UX
 
 1. Пользователь выбирает экспорт в Mini App: все данные, конкретную сессию, диапазон дат или одну монету.
-2. Backend формирует zip-архив vault.
+2. Backend формирует zip-архив vault через `GET /api/export/obsidian.zip`.
 3. Пользователь распаковывает архив в папку Obsidian или импортирует как новый vault.
 4. Внутри уже есть `Dashboard.md`, daily notes, ссылки и canvas-карта.
 
@@ -105,8 +105,9 @@ tags:
 
 - Экспорт всех сделок, сессий и дневника текущего пользователя в Markdown.
 - Один `Dashboard.md` с простыми ссылками и сводкой.
-- `.canvas` для каждой торговой сессии.
-- API endpoint `GET /api/export/obsidian.zip` или кнопка в Mini App.
+- `.canvas` карта связей.
+- API endpoint `GET /api/export/obsidian.zip`.
+- Кнопки скачивания в Mini App: весь vault или активная сессия.
 
 ## Расширения
 

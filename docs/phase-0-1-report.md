@@ -17,7 +17,8 @@
 - Cross-user regression tests cover trade update/close/cancel, session archive, and trade-journal linking ownership boundaries.
 - Mini App template hardening now sanitizes generated IDs, state classes, media URLs, session metadata, and journal result updates before HTML insertion.
 - Telegram `/open` now has a planned/implemented optional screenshot recognition flow: one TradingView/order-panel photo can become a draft, missing fields are clarified, and manual `/open` remains the fallback.
-- Obsidian export architecture is documented as a portable Markdown/YAML/JSON Canvas vault design.
+- Obsidian export is implemented as a portable Markdown/YAML/JSON Canvas vault zip API with Mini App download controls.
+- Model connections are specified for future Mini App setup of cloud/local LLM providers, model discovery, task bindings, and secure secret handling.
 
 ## Migrations
 
@@ -30,7 +31,7 @@ All four ran twice on a temporary copy of the fresh live backup. Integrity/FK ch
 
 ## Verification
 
-- `pytest`: 73 passed.
+- `pytest`: 76 passed.
 - Coverage: 40% overall; security/domain/DB critical paths are covered, legacy Telegram presentation code remains low.
 - `ruff check .`: passed.
 - `node --check mini_app/app.js`: passed.
@@ -53,4 +54,4 @@ Development rollback is `git revert` of the logical commits on `production-harde
 - Browser viewport suite and dependency audit need successful external tooling.
 - Telegram token rotation, HTTPS/domain, live permissions, migration and cutover require owner action/approval.
 - Multi-user readiness is not claimed; current configuration targets a personal allowlist.
-- Obsidian export is designed but not yet exposed as an API/Mini App download endpoint.
+- Model connections are designed but not yet backed by migrations/API/UI.

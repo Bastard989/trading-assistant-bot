@@ -327,8 +327,15 @@ class TradeRepository:
         fees: float = 0,
         note: str = "",
         close_reason: str = "manual",
+        pnl: float | None = None,
     ) -> sqlite3.Row | None:
-        if not math.isfinite(exit_price) or exit_price <= 0 or not math.isfinite(fees) or fees < 0:
+        if (
+            not math.isfinite(exit_price)
+            or exit_price <= 0
+            or not math.isfinite(fees)
+            or fees < 0
+            or (pnl is not None and not math.isfinite(pnl))
+        ):
             return None
         with self.db.connect() as connection:
             row = connection.execute(
@@ -336,8 +343,10 @@ class TradeRepository:
                 UPDATE trades
                 SET status = 'closed',
                     exit_price = ?,
-                    pnl = (? - entry_price) * quantity *
-                        CASE WHEN side = 'long' THEN 1 ELSE -1 END - ?,
+                    pnl = COALESCE(
+                        ?,
+                        (? - entry_price) * quantity * CASE WHEN side = 'long' THEN 1 ELSE -1 END - ?
+                    ),
                     fees = ?,
                     close_reason = ?,
                     note = trim(note || char(10) || ?),
@@ -345,7 +354,7 @@ class TradeRepository:
                 WHERE id = ? AND user_id = ? AND status = 'open'
                 RETURNING *
                 """,
-                (exit_price, exit_price, fees, fees, close_reason.strip(), note.strip(), trade_id, user_id),
+                (exit_price, pnl, exit_price, fees, fees, close_reason.strip(), note.strip(), trade_id, user_id),
             ).fetchone()
         return row
 

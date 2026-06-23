@@ -19,7 +19,7 @@ from fastapi.staticfiles import StaticFiles
 
 from trading_bot.auth import authenticate_telegram_user, require_telegram_user
 from trading_bot.db import Database
-from trading_bot.domain.trades import TradeValidationError, validate_trade
+from trading_bot.domain.trades import TradeValidationError
 from trading_bot.evaluator import review_trade
 from trading_bot.market import InvalidSymbolError, MarketClient, MarketError, MarketUnavailableError, normalize_symbol
 from trading_bot.models import TradeDraft
@@ -37,6 +37,7 @@ from trading_bot.repositories import (
 )
 from trading_bot.risk import calculate_risk
 from trading_bot.rate_limit import SlidingWindowLimiter
+from trading_bot.services.trades import TradeService, normalize_timeframe
 
 
 load_dotenv()
@@ -51,6 +52,7 @@ TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 db = Database(DATABASE_PATH, auto_migrate=os.getenv("AUTO_MIGRATE", "false").lower() == "true")
 users = UserRepository(db)
 trades = TradeRepository(db)
+trade_service = TradeService(trades)
 alerts = AlertRepository(db)
 journal = JournalRepository(db)
 contexts = MarketContextRepository(db)
@@ -318,35 +320,23 @@ async def create_trade_api(
     note: str = "",
 ) -> dict:
     symbol = normalize_symbol(symbol)
+    market_price = await market.get_price(symbol)
     try:
-        validated = validate_trade(side=side, entry=entry_price, stop=stop_price, target=target_price, quantity=quantity, leverage=leverage)
+        trade_id = trade_service.create(
+            user_id=user_id,
+            symbol=symbol,
+            side=side,
+            entry_price=entry_price,
+            stop_price=stop_price,
+            target_price=target_price,
+            quantity=quantity,
+            leverage=leverage,
+            note=note,
+            timeframe=timeframe,
+            current_market_price=market_price,
+        )
     except TradeValidationError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    side = validated.side
-    market_price = await market.get_price(symbol)
-    market_distance = abs(entry_price - market_price) / market_price * 100
-    if market_distance > 15:
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                f"Цена входа отличается от текущей цены {symbol} на {market_distance:.1f}%. "
-                "Проверь монету и цену"
-            ),
-        )
-    timeframe = timeframe if timeframe in {"1m", "5m", "15m", "1h", "4h", "1d"} else "1m"
-    trade_id = trades.create(
-        user_id=user_id,
-        symbol=symbol,
-        side=side,
-        entry_price=entry_price,
-        stop_price=stop_price,
-        target_price=target_price,
-        quantity=quantity,
-        leverage=leverage,
-        risk_amount=abs(entry_price - stop_price) * quantity,
-        note=note,
-        timeframe=timeframe,
-    )
     row = trades.get(user_id, trade_id)
     return {"ok": True, "trade": trade_to_dict(row)}
 
@@ -366,11 +356,18 @@ def update_trade_api(
     if not existing:
         raise HTTPException(status_code=404, detail="Trade not found")
     try:
-        validate_trade(side=existing["side"], entry=entry_price, stop=stop_price, target=target_price, quantity=quantity, leverage=existing["leverage"])
+        row = trade_service.update(
+            user_id=user_id,
+            trade_id=trade_id,
+            entry_price=entry_price,
+            stop_price=stop_price,
+            target_price=target_price,
+            quantity=quantity,
+            timeframe=timeframe,
+            note=note,
+        )
     except TradeValidationError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    timeframe = timeframe if timeframe in {"1m", "5m", "15m", "1h", "4h", "1d"} else "5m"
-    row = trades.update(user_id, trade_id, entry_price, stop_price, target_price, quantity, timeframe, note)
     return {"ok": row is not None, "trade": trade_to_dict(row) if row else None}
 
 
@@ -451,7 +448,17 @@ def close_trade_api(
     fees: float = Query(0, ge=0),
     note: str = "",
 ) -> dict:
-    row = trades.close(user_id, trade_id, exit_price, fees, note or "closed from mini app", close_reason="manual")
+    try:
+        row = trade_service.close(
+            user_id=user_id,
+            trade_id=trade_id,
+            exit_price=exit_price,
+            fees=fees,
+            note=note or "closed from mini app",
+            close_reason="manual",
+        )
+    except TradeValidationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     return {"ok": row is not None, "trade": row_to_dict(row) if row else None}
 
 
@@ -598,8 +605,7 @@ async def market_top_api(user_id: AuthenticatedUser, limit: int = Query(30, ge=1
 
 @app.get("/api/klines")
 async def klines_api(user_id: AuthenticatedUser, symbol: str, interval: str = "1m", limit: int = Query(80, ge=10, le=240)) -> dict:
-    allowed = {"1m", "5m", "15m", "1h", "4h", "1d"}
-    interval = interval if interval in allowed else "1m"
+    interval = normalize_timeframe(interval, default="1m")
     rows = await market.get_klines(symbol, interval, limit=limit)
     return {"items": rows}
 

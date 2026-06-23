@@ -28,6 +28,7 @@ from trading_bot.formatting import (
     signed_money,
 )
 from trading_bot.evaluator import build_distances, review_trade
+from trading_bot.domain.trades import TradeValidationError
 from trading_bot.market import MarketClient, normalize_symbol
 from trading_bot.models import TradeDraft
 from trading_bot.repositories import (
@@ -46,6 +47,7 @@ from trading_bot.repositories import (
 from trading_bot.risk import RiskInputError, calculate_risk
 from trading_bot.services.monitor import evaluate_level_observation
 from trading_bot.services.clock import business_date, business_now
+from trading_bot.services.trades import TradeService
 from trading_bot.templates import (
     base_values,
     enrich_trade_math,
@@ -98,6 +100,7 @@ class BotHandlers:
         self.users = users
         self.alerts = alerts
         self.trades = trades
+        self.trade_service = TradeService(trades)
         self.journal = journal
         self.contexts = contexts
         self.watchlist = watchlist
@@ -393,7 +396,18 @@ class BotHandlers:
             await update.message.reply_text("ID, exit_price и fees должны быть числами.")
             return
 
-        trade = self.trades.close(update.effective_user.id, trade_id, exit_price, fees, note, close_reason="manual")
+        try:
+            trade = self.trade_service.close(
+                user_id=update.effective_user.id,
+                trade_id=trade_id,
+                exit_price=exit_price,
+                fees=fees,
+                note=note,
+                close_reason="manual",
+            )
+        except TradeValidationError as exc:
+            await update.message.reply_text(f"Не закрыл сделку: {exc}")
+            return
         if not trade:
             await update.message.reply_text("Не нашел открытую сделку с таким ID.")
             return
@@ -943,21 +957,11 @@ class BotHandlers:
         review_score: float | None = None,
         ignored_warnings: bool = False,
     ) -> int:
-        return self.trades.create(
+        return self.trade_service.create_from_draft(
             user_id,
-            draft.symbol,
-            draft.side,
-            draft.entry_price,
-            draft.stop_price,
-            draft.target_price,
-            draft.quantity,
-            draft.leverage,
-            risk_amount=draft.risk_amount,
-            setup=draft.setup,
-            tags=draft.tags,
+            draft,
             review_score=review_score,
             ignored_warnings=ignored_warnings,
-            note=draft.note,
         )
 
     def _main_markup(self, user_id: int) -> InlineKeyboardMarkup:
@@ -1151,10 +1155,18 @@ class BotHandlers:
         timeframe_match = re.search(r"\b(1m|5m|15m|1h|4h|1d)\b", body.lower())
         timeframe = timeframe_match.group(1) if timeframe_match else str(trade["timeframe"] or "5m")
         try:
-            validate_trade_input(str(trade["side"]), entry, stop, quantity, float(trade["leverage"]))
-        except ValueError as exc:
+            updated = self.trade_service.update(
+                user_id=user_id,
+                trade_id=trade_id,
+                entry_price=entry,
+                stop_price=stop,
+                target_price=target,
+                quantity=quantity,
+                timeframe=timeframe,
+                note=body,
+            )
+        except TradeValidationError as exc:
             return f"Не изменил сделку: {exc}"
-        updated = self.trades.update(user_id, trade_id, entry, stop, float(target) if target else None, quantity, timeframe, body)
         if not updated:
             return "Не удалось изменить сделку."
         for file_id in file_ids:

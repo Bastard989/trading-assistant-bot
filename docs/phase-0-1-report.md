@@ -12,6 +12,7 @@
 - Heuristic `rule_score` terminology and finite/geometry validation.
 - Public-market level observations no longer close trades or claim order execution.
 - UTC-aware business-day boundaries are calculated with the configured IANA timezone.
+- API and Telegram trade create/update/close flows now share a `TradeService` with Decimal validation, risk, and PnL calculation before legacy persistence.
 
 ## Migrations
 
@@ -24,8 +25,8 @@ All four ran twice on a temporary copy of the fresh live backup. Integrity/FK ch
 
 ## Verification
 
-- `pytest`: 60 passed.
-- Coverage: 37% overall; security/domain/DB critical paths are covered, legacy Telegram presentation code remains low.
+- `pytest`: 64 passed.
+- Coverage: 38% overall; security/domain/DB critical paths are covered, legacy Telegram presentation code remains low.
 - `ruff check .`: passed.
 - `node --check mini_app/app.js`: passed.
 - Static checks confirm no URL `user_id`, `initDataUnsafe`, inline event handlers, or inline styles in Mini App JS.
@@ -43,7 +44,7 @@ Development rollback is `git revert` of the logical commits on `production-harde
 ## Remaining risks
 
 - Persisted money still uses legacy SQLite REAL columns.
-- Full service-layer extraction remains.
+- Service-layer extraction is partial; non-trade flows still call repositories directly.
 - Browser viewport suite and dependency audit need successful external tooling.
 - Telegram token rotation, HTTPS/domain, live permissions, migration and cutover require owner action/approval.
 - Multi-user readiness is not claimed; current configuration targets a personal allowlist.

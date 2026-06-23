@@ -124,6 +124,37 @@ def test_mutation_requires_key_and_replay_returns_original_response(monkeypatch,
     assert conflict.status_code == 409
 
 
+def test_json_body_mutations_are_supported_without_url_payloads(monkeypatch, tmp_path) -> None:
+    module = load_test_app(monkeypatch, tmp_path)
+    module.users.ensure_user(42)
+    client = TestClient(module.app)
+
+    session = client.post(
+        "/api/sessions",
+        json={"name": "Body Session", "start_balance": 1000, "target_balance": 1300},
+        headers=mutation_headers(42, "json-session-1"),
+    )
+    assert session.status_code == 200
+
+    trade_id = module.trades.create(42, "BTCUSDT", "long", 100, 90, 120, 1, 1)
+    updated = client.post(
+        f"/api/trades/{trade_id}/update",
+        json={"entry_price": 101, "stop_price": 91, "target_price": 121, "quantity": 2, "timeframe": "15m"},
+        headers=mutation_headers(42, "json-update-1"),
+    )
+    assert updated.status_code == 200
+    assert updated.json()["trade"]["risk_amount"] == 20
+    assert updated.json()["trade"]["timeframe"] == "15m"
+
+    closed = client.post(
+        f"/api/trades/{trade_id}/close",
+        json={"exit_price": 111, "fees": 0.25, "note": "json close"},
+        headers=mutation_headers(42, "json-close-1"),
+    )
+    assert closed.status_code == 200
+    assert closed.json()["trade"]["pnl"] == 19.75
+
+
 def test_api_rate_limit_returns_retry_after(monkeypatch, tmp_path) -> None:
     module = load_test_app(monkeypatch, tmp_path, read_limit=2)
     client = TestClient(module.app)

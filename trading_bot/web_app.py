@@ -13,9 +13,10 @@ from typing import Annotated
 import httpx
 from PIL import Image, UnidentifiedImageError
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, HTTPException, Query, Request
+from fastapi import Body, Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel, Field, ValidationError
 
 from trading_bot.auth import authenticate_telegram_user, require_telegram_user
 from trading_bot.db import Database
@@ -66,6 +67,44 @@ AuthenticatedUser = Annotated[int, Depends(require_telegram_user)]
 rate_limiter = SlidingWindowLimiter()
 
 IS_PRODUCTION = os.getenv("APP_ENV", "production").strip().lower() == "production"
+
+
+class SessionCreateRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+    start_balance: float = Field(gt=0)
+    target_balance: float | None = Field(default=None, gt=0)
+    note: str = ""
+
+
+class TradeCreateRequest(BaseModel):
+    symbol: str
+    side: str
+    entry_price: float = Field(gt=0)
+    stop_price: float = Field(gt=0)
+    target_price: float | None = Field(default=None, gt=0)
+    quantity: float = Field(gt=0)
+    leverage: float = Field(default=1, gt=0)
+    timeframe: str = "1m"
+    note: str = ""
+
+
+class TradeUpdateRequest(BaseModel):
+    entry_price: float = Field(gt=0)
+    stop_price: float = Field(gt=0)
+    target_price: float | None = Field(default=None, gt=0)
+    quantity: float = Field(gt=0)
+    timeframe: str = "5m"
+    note: str = ""
+
+
+class TradeCloseRequest(BaseModel):
+    exit_price: float = Field(gt=0)
+    fees: float = Field(default=0, ge=0)
+    note: str = ""
+
+
+class WatchlistMutationRequest(BaseModel):
+    symbol: str = Field(min_length=1)
 
 
 @asynccontextmanager
@@ -243,6 +282,13 @@ def index() -> FileResponse:
     )
 
 
+def require_query_payload(model: type[BaseModel], **values):
+    try:
+        return model(**values)
+    except ValidationError as exc:
+        raise HTTPException(status_code=422, detail=exc.errors()) from exc
+
+
 @app.get("/api/dashboard")
 def dashboard(user_id: AuthenticatedUser) -> dict:
     users.ensure_user(user_id)
@@ -286,8 +332,25 @@ def sessions_api(user_id: AuthenticatedUser) -> dict:
 
 
 @app.post("/api/sessions")
-def create_session_api(user_id: AuthenticatedUser, name: str = Query(..., min_length=1, max_length=80), start_balance: float = Query(..., gt=0), target_balance: float | None = Query(None, gt=0), note: str = "") -> dict:
-    return {"ok": True, "id": sessions.create(user_id, name, start_balance, target_balance, note)}
+def create_session_api(
+    user_id: AuthenticatedUser,
+    body: SessionCreateRequest | None = Body(default=None),
+    name: str | None = Query(None, min_length=1, max_length=80),
+    start_balance: float | None = Query(None, gt=0),
+    target_balance: float | None = Query(None, gt=0),
+    note: str = "",
+) -> dict:
+    payload = body or require_query_payload(
+        SessionCreateRequest,
+        name=name,
+        start_balance=start_balance,
+        target_balance=target_balance,
+        note=note,
+    )
+    return {
+        "ok": True,
+        "id": sessions.create(user_id, payload.name, payload.start_balance, payload.target_balance, payload.note),
+    }
 
 
 @app.post("/api/sessions/{session_id}/activate")
@@ -309,30 +372,43 @@ def trades_api(user_id: AuthenticatedUser, status: str | None = None) -> dict:
 @app.post("/api/trades")
 async def create_trade_api(
     user_id: AuthenticatedUser,
-    symbol: str = Query(...),
-    side: str = Query(...),
-    entry_price: float = Query(..., gt=0),
-    stop_price: float = Query(..., gt=0),
+    body: TradeCreateRequest | None = Body(default=None),
+    symbol: str | None = Query(None),
+    side: str | None = Query(None),
+    entry_price: float | None = Query(None, gt=0),
+    stop_price: float | None = Query(None, gt=0),
     target_price: float | None = Query(None, gt=0),
-    quantity: float = Query(..., gt=0),
+    quantity: float | None = Query(None, gt=0),
     leverage: float = Query(1, gt=0),
     timeframe: str = "1m",
     note: str = "",
 ) -> dict:
-    symbol = normalize_symbol(symbol)
+    payload = body or require_query_payload(
+        TradeCreateRequest,
+        symbol=symbol,
+        side=side,
+        entry_price=entry_price,
+        stop_price=stop_price,
+        target_price=target_price,
+        quantity=quantity,
+        leverage=leverage,
+        timeframe=timeframe,
+        note=note,
+    )
+    symbol = normalize_symbol(payload.symbol)
     market_price = await market.get_price(symbol)
     try:
         trade_id = trade_service.create(
             user_id=user_id,
             symbol=symbol,
-            side=side,
-            entry_price=entry_price,
-            stop_price=stop_price,
-            target_price=target_price,
-            quantity=quantity,
-            leverage=leverage,
-            note=note,
-            timeframe=timeframe,
+            side=payload.side,
+            entry_price=payload.entry_price,
+            stop_price=payload.stop_price,
+            target_price=payload.target_price,
+            quantity=payload.quantity,
+            leverage=payload.leverage,
+            note=payload.note,
+            timeframe=payload.timeframe,
             current_market_price=market_price,
         )
     except TradeValidationError as exc:
@@ -345,26 +421,36 @@ async def create_trade_api(
 def update_trade_api(
     trade_id: int,
     user_id: AuthenticatedUser,
-    entry_price: float = Query(..., gt=0),
-    stop_price: float = Query(..., gt=0),
+    body: TradeUpdateRequest | None = Body(default=None),
+    entry_price: float | None = Query(None, gt=0),
+    stop_price: float | None = Query(None, gt=0),
     target_price: float | None = Query(None, gt=0),
-    quantity: float = Query(..., gt=0),
+    quantity: float | None = Query(None, gt=0),
     timeframe: str = "5m",
     note: str = "",
 ) -> dict:
     existing = trades.get(user_id, trade_id)
     if not existing:
         raise HTTPException(status_code=404, detail="Trade not found")
+    payload = body or require_query_payload(
+        TradeUpdateRequest,
+        entry_price=entry_price,
+        stop_price=stop_price,
+        target_price=target_price,
+        quantity=quantity,
+        timeframe=timeframe,
+        note=note,
+    )
     try:
         row = trade_service.update(
             user_id=user_id,
             trade_id=trade_id,
-            entry_price=entry_price,
-            stop_price=stop_price,
-            target_price=target_price,
-            quantity=quantity,
-            timeframe=timeframe,
-            note=note,
+            entry_price=payload.entry_price,
+            stop_price=payload.stop_price,
+            target_price=payload.target_price,
+            quantity=payload.quantity,
+            timeframe=payload.timeframe,
+            note=payload.note,
         )
     except TradeValidationError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -444,17 +530,19 @@ def trade_attachment_api(attachment_id: int, user_id: AuthenticatedUser) -> File
 def close_trade_api(
     trade_id: int,
     user_id: AuthenticatedUser,
-    exit_price: float = Query(..., gt=0),
+    body: TradeCloseRequest | None = Body(default=None),
+    exit_price: float | None = Query(None, gt=0),
     fees: float = Query(0, ge=0),
     note: str = "",
 ) -> dict:
+    payload = body or require_query_payload(TradeCloseRequest, exit_price=exit_price, fees=fees, note=note)
     try:
         row = trade_service.close(
             user_id=user_id,
             trade_id=trade_id,
-            exit_price=exit_price,
-            fees=fees,
-            note=note or "closed from mini app",
+            exit_price=payload.exit_price,
+            fees=payload.fees,
+            note=payload.note or "closed from mini app",
             close_reason="manual",
         )
     except TradeValidationError as exc:
@@ -484,9 +572,14 @@ def watchlist_api(user_id: AuthenticatedUser) -> dict:
 
 
 @app.post("/api/watchlist")
-async def add_watchlist_api(user_id: AuthenticatedUser, symbol: str = Query(..., min_length=1)) -> dict:
+async def add_watchlist_api(
+    user_id: AuthenticatedUser,
+    body: WatchlistMutationRequest | None = Body(default=None),
+    symbol: str | None = Query(None, min_length=1),
+) -> dict:
     users.ensure_user(user_id)
-    normalized = normalize_symbol(symbol)
+    payload = body or require_query_payload(WatchlistMutationRequest, symbol=symbol)
+    normalized = normalize_symbol(payload.symbol)
     await market.get_price(normalized)
     watchlist.add(user_id, normalized)
     return {"ok": True, "symbol": normalized, "items": watchlist.list_symbols(user_id)}

@@ -113,6 +113,14 @@ async function api(path, options = undefined) {
   return response.json();
 }
 
+function jsonRequest(method, payload) {
+  return {
+    method,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  };
+}
+
 function switchView(view) {
   const button = document.querySelector(`.tab[data-view="${view}"]`);
   button?.click();
@@ -159,7 +167,7 @@ async function addWatchlistSymbol(event) {
   const symbol = input.value.trim();
   if (!symbol) return;
   try {
-    const data = await api(`/api/watchlist?symbol=${encodeURIComponent(symbol)}`, { method: "POST" });
+    const data = await api("/api/watchlist", jsonRequest("POST", { symbol }));
     currentWatchlist = data.items || [];
     input.value = "";
     document.getElementById("watchlistForm").hidden = true;
@@ -809,9 +817,12 @@ async function loadSessions() {
 async function createSession(event) {
   event.preventDefault();
   const form = new FormData(event.currentTarget);
-  const query = new URLSearchParams({ name: form.get("name"), start_balance: form.get("start_balance") });
-  if (form.get("target_balance")) query.set("target_balance", form.get("target_balance"));
-  const response = await apiFetch(`/api/sessions?${query}`, { method: "POST" });
+  const payload = {
+    name: form.get("name"),
+    start_balance: Number(form.get("start_balance")),
+  };
+  if (form.get("target_balance")) payload.target_balance = Number(form.get("target_balance"));
+  const response = await apiFetch("/api/sessions", jsonRequest("POST", payload));
   if (!response.ok) return alert("Не удалось создать сессию");
   event.currentTarget.reset();
   await Promise.all([loadSessions(), loadDashboard()]);
@@ -920,7 +931,7 @@ async function suggestTrade() {
 async function closeTrade(id) {
   const exitPrice = prompt("Цена закрытия:");
   if (!exitPrice) return;
-  const response = await apiFetch(`/api/trades/${id}/close?exit_price=${encodeURIComponent(exitPrice)}&note=miniapp`, { method: "POST" });
+  const response = await apiFetch(`/api/trades/${id}/close`, jsonRequest("POST", { exit_price: Number(exitPrice), note: "miniapp" }));
   const data = await response.json();
   if (!data.ok) alert("Не удалось закрыть сделку");
   await loadAll();
@@ -937,15 +948,15 @@ function toggleEditTrade(id) {
 
 async function saveTradeEdit(id) {
   const value = suffix => document.getElementById(`edit-${suffix}-${id}`)?.value;
-  const query = new URLSearchParams({
-    entry_price: value("entry"),
-    stop_price: value("stop"),
-    quantity: value("qty"),
+  const payload = {
+    entry_price: Number(value("entry")),
+    stop_price: Number(value("stop")),
+    quantity: Number(value("qty")),
     timeframe: value("timeframe") || "5m",
     note: value("note") || "",
-  });
-  if (value("target")) query.set("target_price", value("target"));
-  const response = await apiFetch(`/api/trades/${id}/update?${query}`, { method: "POST" });
+  };
+  if (value("target")) payload.target_price = Number(value("target"));
+  const response = await apiFetch(`/api/trades/${id}/update`, jsonRequest("POST", payload));
   const result = await response.json();
   if (!result.ok) return alert("Не удалось изменить сделку");
 

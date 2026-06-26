@@ -1,4 +1,6 @@
 .env
+.env.*
+!.env.example
 .venv/
 __pycache__/
 *.py[cod]
@@ -6,7 +8,19 @@ data/
 media/
 logs/
 backups/
+*.sqlite
+*.sqlite3
+*.sqlite3-*
+*.db
+*.db-*
+*.log
+.DS_Store
+*.command
+*.local
 .pytest_cache/
 .ruff_cache/
 .coverage
 htmlcov/
+node_modules/
+dist/
+tmp/

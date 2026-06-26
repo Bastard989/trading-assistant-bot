@@ -1,0 +1,16 @@
+title = "Trading Assistant gitleaks config"
+
+[allowlist]
+description = "Allow deterministic test tokens and documented placeholders only"
+paths = [
+  '''tests/test_auth\.py''',
+  '''tests/test_api_security\.py''',
+  '''tests/browser\.env''',
+  '''\.env\.example''',
+]
+regexes = [
+  '''put_your_bot_token_here''',
+  '''token_from_botfather''',
+  '''123456:test-token''',
+  '''123:test-token''',
+]

@@ -21,3 +21,4 @@
 - Added a Mini App `Модели` UI scaffold with provider cards, setup instructions, task bindings, and connected-model placeholders.
 - Added per-market-card timeframe switching for expanded market scanner charts.
 - Documented the multi-asset market provider plan for crypto, stocks, ETF/funds, indices, forex, commodities, and futures.
+- Reworked the README and repository metadata for public portfolio presentation, added a source-available license, gitleaks allowlist, public release checklist, and stricter ignore rules for local secrets/data.

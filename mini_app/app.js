@@ -11,6 +11,7 @@ const chartAnimations = new Map();
 const expandedMarkets = new Set();
 const editingTrades = new Set();
 const tradeChartIntervals = new Map();
+const marketChartIntervals = new Map();
 const chartIntervals = ["1m", "5m", "15m", "1h", "4h", "1d"];
 let chartInterval = "1m";
 let currentOpenTrades = [];
@@ -77,6 +78,7 @@ document.addEventListener("click", async event => {
     case "fill-symbol": fillSymbol(symbol); break;
     case "remove-watchlist": await removeWatchlistSymbol(symbol); break;
     case "toggle-market": toggleMarketCard(target, symbol); break;
+    case "set-market-timeframe": event.stopPropagation(); setMarketChartInterval(symbol, target.dataset.timeframe); break;
     case "analyze-market":
       event.stopPropagation(); fillSymbol(symbol); switchView("calculator"); break;
     case "stop-propagation": event.stopPropagation(); break;
@@ -275,6 +277,9 @@ async function loadMarketTop() {
         <small class="range-labels"><i>${fmt(item.low_price, 4)}</i><i>${escapeHtml(item.exchange)}</i><i>${fmt(item.high_price, 4)}</i></small>
         <div class="market-detail">
           <small>Цена на ${fmt(position, 0)}% суточного диапазона</small>
+          <div class="market-timeframe-switch" data-action="stop-propagation" aria-label="Таймфрейм графика монеты">
+            ${chartIntervals.map(tf => `<button type="button" data-action="set-market-timeframe" data-symbol="${marketSymbol}" data-timeframe="${tf}" class="${marketChartInterval(marketSymbol) === tf ? "active" : ""}">${tf.toUpperCase()}</button>`).join("")}
+          </div>
           <canvas id="market-chart-${cleanSymbol(item.symbol)}" class="mini-trend-chart" width="360" height="118"></canvas>
           <em id="market-trend-${cleanSymbol(item.symbol)}" class="trend-caption">Нажми для графика</em>
           <button class="mini-action" data-action="analyze-market" data-symbol="${cleanSymbol(item.symbol)}">Разобрать вход</button>
@@ -291,10 +296,27 @@ function toggleMarketCard(card, symbol) {
   card.classList.toggle("expanded");
   if (card.classList.contains("expanded")) {
     expandedMarkets.add(symbol);
-    loadMiniTrend(symbol, `market-chart-${symbol}`, `market-trend-${symbol}`);
+    loadMiniTrend(symbol, `market-chart-${symbol}`, `market-trend-${symbol}`, marketChartInterval(symbol));
   } else {
     expandedMarkets.delete(symbol);
   }
+}
+
+function marketChartInterval(symbol) {
+  return marketChartIntervals.get(cleanSymbol(symbol)) || chartInterval;
+}
+
+function setMarketChartInterval(symbol, interval) {
+  const clean = cleanSymbol(symbol);
+  if (!clean || !chartIntervals.includes(interval)) return;
+  marketChartIntervals.set(clean, interval);
+  const card = document.querySelector(`.market-card[data-symbol="${clean}"]`);
+  if (card) {
+    card.querySelectorAll("[data-action='set-market-timeframe']").forEach(button => {
+      button.classList.toggle("active", button.dataset.timeframe === interval);
+    });
+  }
+  loadMiniTrend(clean, `market-chart-${clean}`, `market-trend-${clean}`, interval, true);
 }
 
 async function loadTrades(status = "") {
@@ -506,29 +528,29 @@ function animateTradeChart(canvas, candles, row, interval, animationKey = row.id
   chartAnimations.set(animationKey, timer);
 }
 
-async function loadMiniTrend(symbol, canvasId, captionId) {
+async function loadMiniTrend(symbol, canvasId, captionId, interval = chartInterval, force = false) {
   const canvas = document.getElementById(canvasId);
   if (!canvas || !symbol) return;
   const caption = document.getElementById(captionId);
   try {
-    const cacheKey = candlesKey(symbol);
+    const cacheKey = candlesKey(symbol, interval);
     const stale = Date.now() - (candleUpdatedAt.get(cacheKey) || 0) > 10000;
-    if (stale || !candleCache.has(cacheKey)) {
-      const data = await api(`/api/klines?symbol=${symbol}&interval=${chartInterval}&limit=80`);
+    if (force || stale || !candleCache.has(cacheKey)) {
+      const data = await api(`/api/klines?symbol=${symbol}&interval=${interval}&limit=80`);
       candleCache.set(cacheKey, data.items);
       candleUpdatedAt.set(cacheKey, Date.now());
     }
     const trend = drawMiniTrend(canvas, candleCache.get(cacheKey));
-    if (caption) caption.textContent = `${chartIntervalLabel()} · ${trend.label} · ${signed(trend.change)}%`;
+    if (caption) caption.textContent = `${chartIntervalLabel(interval)} · ${trend.label} · ${signed(trend.change)}%`;
     if (caption) caption.className = `trend-caption ${trend.className}`;
   } catch {
     drawMiniTrend(canvas, []);
-    if (caption) caption.textContent = `${chartIntervalLabel()} · нет данных`;
+    if (caption) caption.textContent = `${chartIntervalLabel(interval)} · нет данных`;
   }
 }
 
-function candlesKey(symbol) {
-  return `${cleanSymbol(symbol)}:${chartInterval}`;
+function candlesKey(symbol, interval = chartInterval) {
+  return `${cleanSymbol(symbol)}:${interval}`;
 }
 
 function drawTradeChart(canvas, candles, row, interval = chartInterval) {

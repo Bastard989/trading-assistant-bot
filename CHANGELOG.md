@@ -19,3 +19,5 @@
 - Added Obsidian zip export API and Mini App download controls for full vault or active session exports.
 - Documented the Mini App model-connections architecture for cloud/local LLM providers, model discovery, task bindings, and secret handling.
 - Added a Mini App `Модели` UI scaffold with provider cards, setup instructions, task bindings, and connected-model placeholders.
+- Added per-market-card timeframe switching for expanded market scanner charts.
+- Documented the multi-asset market provider plan for crypto, stocks, ETF/funds, indices, forex, commodities, and futures.

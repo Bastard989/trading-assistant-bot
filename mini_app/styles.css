@@ -666,6 +666,26 @@ pre {
 .market-detail { display: none; grid-column: 1 / -1; gap: 8px; padding-top: 9px; border-top: 1px solid var(--line); }
 .market-card.expanded { border-color: rgba(67, 215, 255, 0.5); }
 .market-card.expanded .market-detail { display: grid; }
+.market-timeframe-switch {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(38px, 1fr));
+  gap: 4px;
+}
+.market-timeframe-switch button {
+  min-height: 28px;
+  border: 1px solid rgba(177, 191, 222, .16);
+  border-radius: 6px;
+  background: rgba(8, 12, 24, .82);
+  color: var(--muted);
+  padding: 4px 6px;
+  font-size: 11px;
+  font-weight: 800;
+}
+.market-timeframe-switch button.active {
+  border-color: rgba(67, 215, 255, .55);
+  background: rgba(67, 215, 255, .12);
+  color: var(--cyan);
+}
 .direction-pill { font-weight: 700; }
 .range-meter, .session-progress { width: 100%; height: 5px; overflow: hidden; border: 0; border-radius: 999px; background: rgba(177, 191, 222, 0.12); appearance: none; }
 .range-meter::-webkit-progress-bar, .session-progress::-webkit-progress-bar, .progress-rail::-webkit-progress-bar, .session-balance-track::-webkit-progress-bar { background: rgba(177, 191, 222, 0.12); }

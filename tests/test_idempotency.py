@@ -34,3 +34,8 @@ def test_schema_records_idempotency_migration(tmp_path) -> None:
     assert versions[2] == "idempotency-keys-v2"
     assert versions[3] == "trade-review-rule-score-v3"
     assert versions[4] == "trade-level-observations-notify-v4"
+    assert versions[5] == "crisis-radar-foundation-v5"
+    assert versions[6] == "crisis-radar-market-stage-v6"
+    assert versions[7] == "crisis-radar-scenarios-alerts-v7"
+    assert versions[8] == "crisis-radar-calendar-reports-v8"
+    assert versions[9] == "crisis-radar-stability-audit-v9"

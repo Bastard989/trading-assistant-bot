@@ -41,6 +41,7 @@ def load_test_app(monkeypatch, tmp_path, *, read_limit: int = 120):
     monkeypatch.setenv("ALLOWED_TELEGRAM_USER_IDS", "42,99")
     monkeypatch.setenv("APP_ENV", "production")
     monkeypatch.setenv("AUTO_MIGRATE", "true")
+    monkeypatch.setenv("CRISIS_RADAR_ENABLED", "true")
     monkeypatch.setenv("API_RATE_LIMIT_READS", str(read_limit))
     sys.modules.pop("trading_bot.web_app", None)
     return importlib.import_module("trading_bot.web_app")

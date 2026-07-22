@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import io
 import os
@@ -7,6 +8,7 @@ import re
 import sqlite3
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Annotated
 
@@ -19,7 +21,23 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, ValidationError
 
 from trading_bot.auth import authenticate_telegram_user, require_telegram_user
-from trading_bot.db import Database
+from trading_bot.crisis_radar.agent import (
+    AgentProtocolError,
+    AgentUnavailableError,
+    AnthropicAgentClient,
+    CrisisAgentRepository,
+    CrisisAgentService,
+    OllamaAgentClient,
+    OpenAIAgentClient,
+    OpenAICompatibleAgentClient,
+)
+from trading_bot.crisis_radar.repositories import CrisisRadarRepository
+from trading_bot.crisis_radar.opportunities import AssetClass, MarketQuote
+from trading_bot.crisis_radar.bybit_options import build_defined_risk_put_spread
+from trading_bot.crisis_radar.service import CrisisRadarService
+from trading_bot.crisis_radar.sources.base import SourcePayloadError
+from trading_bot.crisis_radar.sources.bybit import BybitClient, BybitSourceError
+from trading_bot.db import CURRENT_SCHEMA_VERSION, Database
 from trading_bot.domain.trades import TradeValidationError
 from trading_bot.evaluator import review_trade
 from trading_bot.market import InvalidSymbolError, MarketClient, MarketError, MarketUnavailableError, normalize_symbol
@@ -52,6 +70,56 @@ TRADE_UPLOAD_DIR = Path(os.getenv("TRADE_UPLOAD_DIR", str(BASE_DIR / "data" / "t
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 
 db = Database(DATABASE_PATH, auto_migrate=os.getenv("AUTO_MIGRATE", "false").lower() == "true")
+crisis_radar_enabled = os.getenv("CRISIS_RADAR_ENABLED", "false").strip().lower() == "true"
+crisis_radar = CrisisRadarService(CrisisRadarRepository(db))
+crisis_agent_enabled = os.getenv("CRISIS_AGENT_ENABLED", "false").strip().lower() == "true"
+bybit_option_client = BybitClient(attempts=2, timeout_seconds=5)
+_bybit_option_lock = asyncio.Lock()
+_bybit_option_cache: tuple[datetime, MarketQuote | None] | None = None
+
+
+def _build_crisis_agent_client():
+    provider = os.getenv("CRISIS_AGENT_PROVIDER", "ollama").strip().lower()
+    model = os.getenv("CRISIS_AGENT_MODEL", "qwen3.5:9b").strip()
+    timeout = float(os.getenv("CRISIS_AGENT_TIMEOUT_SECONDS", "90"))
+    if provider == "ollama":
+        return OllamaAgentClient(
+            base_url=os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434"),
+            model=model,
+            timeout_seconds=timeout,
+            keep_alive_minutes=int(os.getenv("CRISIS_AGENT_KEEP_ALIVE_MINUTES", "10")),
+        )
+    if provider == "openai":
+        return OpenAIAgentClient(
+            api_key=os.getenv("CRISIS_AGENT_API_KEY") or os.getenv("OPENAI_API_KEY", ""),
+            model=model,
+            timeout_seconds=timeout,
+        )
+    if provider == "anthropic":
+        return AnthropicAgentClient(
+            api_key=os.getenv("CRISIS_AGENT_API_KEY") or os.getenv("ANTHROPIC_API_KEY", ""),
+            model=model,
+            timeout_seconds=timeout,
+        )
+    if provider in {"openai-compatible", "openai_compatible"}:
+        return OpenAICompatibleAgentClient(
+            api_key=os.getenv("CRISIS_AGENT_API_KEY", ""),
+            base_url=os.getenv("CRISIS_AGENT_BASE_URL", ""),
+            model=model,
+            timeout_seconds=timeout,
+        )
+    raise ValueError(
+        "CRISIS_AGENT_PROVIDER must be ollama, openai, anthropic or openai-compatible"
+    )
+
+
+crisis_agent = CrisisAgentService(
+    repository=CrisisAgentRepository(db),
+    client=_build_crisis_agent_client(),
+    crisis_service=crisis_radar,
+    cooldown_seconds=int(os.getenv("CRISIS_AGENT_COOLDOWN_SECONDS", "120")),
+)
+crisis_agent_lock = asyncio.Lock()
 users = UserRepository(db)
 trades = TradeRepository(db)
 trade_service = TradeService(trades)
@@ -106,6 +174,13 @@ class TradeCloseRequest(BaseModel):
 
 class WatchlistMutationRequest(BaseModel):
     symbol: str = Field(min_length=1)
+
+
+class CrisisAgentChatRequest(BaseModel):
+    question: str = Field(min_length=1, max_length=1000)
+    locale: str = Field(default="ru", pattern="^(ru|en)$")
+    mode: str = Field(default="fast", pattern="^(fast|deep)$")
+    thread_id: int | None = Field(default=None, gt=0)
 
 
 @asynccontextmanager
@@ -261,7 +336,7 @@ def health_ready() -> dict[str, str]:
             version = connection.execute("SELECT max(version) FROM schema_migrations").fetchone()[0]
     except sqlite3.Error as exc:
         raise HTTPException(status_code=503, detail="Database schema is not ready") from exc
-    if version != 4:
+    if version != CURRENT_SCHEMA_VERSION:
         raise HTTPException(status_code=503, detail="Database migrations are not current")
     return {"status": "ready"}
 
@@ -273,6 +348,330 @@ async def health_binance() -> dict[str, str]:
     except MarketError as exc:
         raise HTTPException(status_code=503, detail="Binance market data is unavailable") from exc
     return {"status": "available"}
+
+
+@app.get("/api/crisis-radar/overview")
+def crisis_radar_overview(
+    user_id: AuthenticatedUser,
+    locale: str = Query(default="ru", pattern="^(ru|en)$"),
+) -> dict:
+    if not crisis_radar_enabled:
+        raise HTTPException(status_code=503, detail="Crisis Radar is disabled")
+    return crisis_radar.overview(locale=locale)
+
+
+@app.get("/api/crisis-radar/world")
+def crisis_radar_world(
+    user_id: AuthenticatedUser,
+    locale: str = Query(default="ru", pattern="^(ru|en)$"),
+) -> dict:
+    if not crisis_radar_enabled:
+        raise HTTPException(status_code=503, detail="Crisis Radar is disabled")
+    return crisis_radar.world(locale=locale)
+
+
+@app.get("/api/crisis-radar/sources/health")
+def crisis_radar_sources_health(
+    user_id: AuthenticatedUser,
+    locale: str = Query(default="ru", pattern="^(ru|en)$"),
+) -> dict:
+    if not crisis_radar_enabled:
+        raise HTTPException(status_code=503, detail="Crisis Radar is disabled")
+    return crisis_radar.source_health(locale=locale)
+
+
+def _decimal_indicator(indicators: dict[str, dict], code: str, field: str) -> Decimal | None:
+    raw = indicators.get(code, {}).get(field)
+    if raw is None:
+        return None
+    try:
+        value = Decimal(str(raw))
+    except InvalidOperation:
+        return None
+    return value if value.is_finite() else None
+
+
+async def _crypto_opportunity_quotes(locale: str) -> tuple[MarketQuote, ...]:
+    overview = crisis_radar.overview(locale=locale)
+    indicators = {
+        str(item.get("code")): item
+        for item in overview.get("indicators", [])
+        if isinstance(item, dict) and item.get("code")
+    }
+    quotes: list[MarketQuote] = []
+    as_of = datetime.now(timezone.utc)
+    for asset, liquidity in (("btc", Decimal("0.50")), ("eth", Decimal("0.45"))):
+        drawdown = _decimal_indicator(indicators, f"{asset}_30d_drawdown", "value_text")
+        quality_values = [
+            _decimal_indicator(indicators, f"{asset}_{suffix}", "quality_score")
+            for suffix in ("30d_drawdown", "funding_rate", "oi_7d_abs_change")
+        ]
+        stress_values = [
+            _decimal_indicator(indicators, f"{asset}_{suffix}", "stress_score")
+            for suffix in ("30d_drawdown", "funding_rate", "oi_7d_abs_change")
+        ]
+        quality = [value for value in quality_values if value is not None]
+        stress = [value for value in stress_values if value is not None]
+        if drawdown is None or not quality or not stress or drawdown == 0:
+            continue
+        try:
+            price = Decimal(str(await market.get_price(f"{asset.upper()}USDT")))
+        except (MarketError, InvalidOperation):
+            continue
+        observed_range = abs(drawdown)
+        quotes.append(
+            MarketQuote(
+                symbol=f"{asset.upper()}USDT",
+                asset_class=AssetClass.CRYPTO_FUTURES,
+                price=price,
+                as_of=as_of,
+                exposures=frozenset({"crypto"}),
+                # A conservative methodology constant: no order-book liquidity feed is connected.
+                liquidity_score=liquidity,
+                data_quality_score=max(Decimal("0"), min(Decimal("1"), min(quality))),
+                risk_score=max(Decimal("0"), min(Decimal("1"), max(stress))),
+                expected_move_pct=observed_range,
+                adverse_move_pct=observed_range,
+                max_age_seconds=120,
+            )
+        )
+    option_quote = await _bybit_option_quote()
+    if option_quote is not None:
+        quotes.append(option_quote)
+    return tuple(quotes)
+
+
+async def _bybit_option_quote() -> MarketQuote | None:
+    global _bybit_option_cache
+    now = datetime.now(timezone.utc)
+    if _bybit_option_cache is not None and (now - _bybit_option_cache[0]).total_seconds() < 60:
+        return _bybit_option_cache[1]
+    async with _bybit_option_lock:
+        now = datetime.now(timezone.utc)
+        if _bybit_option_cache is not None and (now - _bybit_option_cache[0]).total_seconds() < 60:
+            return _bybit_option_cache[1]
+        try:
+            payload = await bybit_option_client.fetch_option_tickers("BTC")
+            quote = build_defined_risk_put_spread(payload, base_coin="BTC", fetched_at=now)
+        except (BybitSourceError, SourcePayloadError, ValueError):
+            quote = None
+        _bybit_option_cache = (now, quote)
+        return quote
+
+
+@app.get("/api/crisis-radar/opportunities")
+async def crisis_radar_opportunities(
+    user_id: AuthenticatedUser,
+    locale: str = Query(default="ru", pattern="^(ru|en)$"),
+    limit: int = Query(default=10, ge=1, le=10),
+) -> dict:
+    if not crisis_radar_enabled:
+        raise HTTPException(status_code=503, detail="Crisis Radar is disabled")
+    quotes = await _crypto_opportunity_quotes(locale)
+    payload = crisis_radar.opportunities(quotes=quotes, locale=locale, max_ideas=limit)
+    bybit_options_ready = any(item.asset_class is AssetClass.OPTIONS for item in quotes)
+    payload["market_data_status"] = {
+        "bybit_options": {
+            "status": "healthy" if bybit_options_ready else "degraded",
+            "reason": (
+                "Найдена ликвидная BTC put-spread конструкция с ограниченным риском."
+                if locale == "ru" and bybit_options_ready
+                else "A liquid defined-risk BTC put spread is available."
+                if bybit_options_ready
+                else "Не найдены две одновременно котируемые ликвидные BTC put-ноги подходящего срока."
+                if locale == "ru"
+                else "Two simultaneously quoted liquid BTC put legs with a suitable expiry were not available."
+            ),
+        },
+        "tradfi_options": {
+            "status": "degraded",
+            "reason": (
+                "Контракт адаптера готов, но разрешённый бесплатный live-источник TradFi-опционов не настроен."
+                if locale == "ru"
+                else "The adapter contract is ready, but no permitted free live TradFi-options source is configured."
+            ),
+        },
+    }
+    return payload
+
+
+@app.get("/api/crisis-radar/calendar")
+def crisis_radar_calendar(
+    user_id: AuthenticatedUser,
+    locale: str = Query(default="ru", pattern="^(ru|en)$"),
+    days: int = Query(default=30, ge=1, le=90),
+) -> dict:
+    if not crisis_radar_enabled:
+        raise HTTPException(status_code=503, detail="Crisis Radar is disabled")
+    return crisis_radar.calendar(locale=locale, days=days)
+
+
+@app.get("/api/crisis-radar/news")
+def crisis_radar_news(
+    user_id: AuthenticatedUser,
+    locale: str = Query(default="ru", pattern="^(ru|en)$"),
+    days: int = Query(default=14, ge=1, le=90),
+    limit: int = Query(default=20, ge=1, le=50),
+) -> dict:
+    if not crisis_radar_enabled:
+        raise HTTPException(status_code=503, detail="Crisis Radar is disabled")
+    return crisis_radar.news(locale=locale, days=days, limit=limit)
+
+
+@app.get("/api/crisis-radar/indicators/{code}/history")
+def crisis_radar_indicator_history(
+    code: str,
+    user_id: AuthenticatedUser,
+    limit: int = Query(default=180, ge=2, le=500),
+) -> dict:
+    if not crisis_radar_enabled:
+        raise HTTPException(status_code=503, detail="Crisis Radar is disabled")
+    payload = crisis_radar.indicator_history(code, limit=limit)
+    if payload is None:
+        raise HTTPException(status_code=404, detail="Crisis Radar indicator not found")
+    return payload
+
+
+@app.get("/api/crisis-radar/backtests/{run_id}")
+def crisis_radar_backtest_run(run_id: int, user_id: AuthenticatedUser) -> dict:
+    if not crisis_radar_enabled:
+        raise HTTPException(status_code=503, detail="Crisis Radar is disabled")
+    payload = crisis_radar.backtest_run(run_id)
+    if payload is None:
+        raise HTTPException(status_code=404, detail="Crisis Radar backtest not found")
+    return payload
+
+
+@app.get("/api/crisis-radar/replays/{run_id}")
+def crisis_radar_replay_run(run_id: int, user_id: AuthenticatedUser) -> dict:
+    if not crisis_radar_enabled:
+        raise HTTPException(status_code=503, detail="Crisis Radar is disabled")
+    payload = crisis_radar.replay_run(run_id)
+    if payload is None:
+        raise HTTPException(status_code=404, detail="Crisis Radar replay not found")
+    return payload
+
+
+@app.get("/api/crisis-radar/scenarios/{code}/event-catalog")
+def crisis_radar_event_catalog(
+    code: str,
+    user_id: AuthenticatedUser,
+    version: str | None = Query(default=None, min_length=1, max_length=80),
+) -> dict:
+    if not crisis_radar_enabled:
+        raise HTTPException(status_code=503, detail="Crisis Radar is disabled")
+    payload = crisis_radar.event_catalog(code, version=version)
+    if payload is None:
+        raise HTTPException(status_code=404, detail="Crisis Radar event catalog not found")
+    return payload
+
+
+@app.get("/api/crisis-radar/scenarios/{code}/calibration")
+def crisis_radar_scenario_calibration(code: str, user_id: AuthenticatedUser) -> dict:
+    if not crisis_radar_enabled:
+        raise HTTPException(status_code=503, detail="Crisis Radar is disabled")
+    payload = crisis_radar.scenario_calibration(code)
+    if payload is None:
+        raise HTTPException(status_code=404, detail="Crisis Radar scenario not found")
+    return payload
+
+
+@app.get("/api/crisis-radar/agent/status")
+async def crisis_agent_status(user_id: AuthenticatedUser) -> dict:
+    vision_enabled = bool(os.getenv("OPENAI_API_KEY"))
+    task_bindings = {
+        "crisis_analysis": {
+            "provider": getattr(crisis_agent.client, "provider", "unknown"),
+            "model": crisis_agent.client.model,
+            "status": "enabled" if crisis_agent_enabled else "disabled",
+            "read_only": True,
+        },
+        "vision_trade_extraction": {
+            "provider": "openai" if vision_enabled else "manual",
+            "model": (
+                os.getenv("OPENAI_VISION_MODEL", "gpt-5.5")
+                if vision_enabled
+                else "manual/offline"
+            ),
+            "status": "enabled" if vision_enabled else "fallback",
+            "read_only": True,
+        },
+        "journal_summary": {"provider": "manual", "model": "deterministic", "status": "fallback", "read_only": True},
+        "obsidian_report": {"provider": "local", "model": "deterministic", "status": "enabled", "read_only": True},
+        "trade_review": {"provider": "local", "model": "deterministic", "status": "enabled", "read_only": True},
+    }
+    if not crisis_agent_enabled:
+        return {
+            "enabled": False,
+            "available": False,
+            "model_installed": False,
+            "model_loaded": False,
+            "provider": getattr(crisis_agent.client, "provider", "unknown"),
+            "model": crisis_agent.client.model,
+            "read_only": True,
+            "state": "disabled",
+            "cooldown_remaining_seconds": 0,
+            "consecutive_failures": 0,
+            "last_failure": None,
+            "last_latency_ms": None,
+            "selection_source": "backend_environment",
+            "task_bindings": task_bindings,
+        }
+    return {
+        "enabled": True,
+        **await crisis_agent.status(),
+        "selection_source": "backend_environment",
+        "task_bindings": task_bindings,
+    }
+
+
+@app.get("/api/crisis-radar/agent/threads")
+def crisis_agent_threads(user_id: AuthenticatedUser) -> dict:
+    return {"items": crisis_agent.repository.list_threads(user_id)}
+
+
+@app.get("/api/crisis-radar/agent/threads/{thread_id}")
+def crisis_agent_thread(thread_id: int, user_id: AuthenticatedUser) -> dict:
+    messages = crisis_agent.repository.thread_messages(user_id, thread_id)
+    if messages is None:
+        raise HTTPException(status_code=404, detail="Analyst thread not found")
+    return {"thread_id": thread_id, "messages": messages}
+
+
+@app.post("/api/crisis-radar/agent/chat")
+async def crisis_agent_chat(payload: CrisisAgentChatRequest, user_id: AuthenticatedUser) -> dict:
+    if not crisis_radar_enabled:
+        raise HTTPException(status_code=503, detail="Crisis Radar is disabled")
+    if not crisis_agent_enabled:
+        raise HTTPException(status_code=503, detail="Local analyst is disabled")
+    question = " ".join(payload.question.split())
+    if not question:
+        raise HTTPException(status_code=422, detail="Question must not be blank")
+    agent_limit = max(1, min(int(os.getenv("CRISIS_AGENT_RATE_LIMIT", "6")), 30))
+    allowed, retry_after = rate_limiter.allow(
+        f"{user_id}:crisis-agent-generation",
+        limit=agent_limit,
+        window_seconds=600,
+    )
+    if not allowed:
+        raise HTTPException(
+            status_code=429,
+            detail="Local analyst rate limit exceeded",
+            headers={"Retry-After": str(retry_after)},
+        )
+    try:
+        async with crisis_agent_lock:
+            return await crisis_agent.ask(
+                user_id=user_id,
+                question=question,
+                locale=payload.locale,
+                mode=payload.mode,
+                thread_id=payload.thread_id,
+            )
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail="Analyst thread not found") from exc
+    except (AgentUnavailableError, AgentProtocolError) as exc:
+        raise HTTPException(status_code=503, detail="Local analyst is temporarily unavailable") from exc
 
 
 @app.get("/")

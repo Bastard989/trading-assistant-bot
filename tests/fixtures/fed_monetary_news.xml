@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0">
+  <channel>
+    <title>FRB: Press Release - Monetary Policy</title>
+    <link>https://www.federalreserve.gov/feeds/feeds.htm</link>
+    <description>Federal Reserve monetary policy releases</description>
+    <language>en</language>
+    <item>
+      <title>Federal Reserve issues FOMC statement and economic projections</title>
+      <link>https://www.federalreserve.gov/newsevents/pressreleases/monetary20260714a.htm</link>
+      <guid>https://www.federalreserve.gov/newsevents/pressreleases/monetary20260714a.htm</guid>
+      <description><![CDATA[<b>Economic projections</b> and the monetary policy statement.]]></description>
+      <category>Monetary Policy</category>
+      <pubDate>Tue, 14 Jul 2026 18:00:00 GMT</pubDate>
+    </item>
+    <item>
+      <title>Federal Reserve announces monetary policy task force objectives</title>
+      <link>https://www.federalreserve.gov/newsevents/pressreleases/monetary20260709a.htm</link>
+      <guid>https://www.federalreserve.gov/newsevents/pressreleases/monetary20260709a.htm</guid>
+      <description>Operational announcement</description>
+      <category>Monetary Policy</category>
+      <pubDate>Thu, 09 Jul 2026 19:00:00 GMT</pubDate>
+    </item>
+  </channel>
+</rss>

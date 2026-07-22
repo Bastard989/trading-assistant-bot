@@ -6,6 +6,9 @@ import os
 from telegram.ext import ApplicationBuilder
 
 from trading_bot.config import load_settings
+from trading_bot.crisis_radar.jobs import CrisisRadarJobs
+from trading_bot.crisis_radar.repositories import CrisisRadarRepository
+from trading_bot.crisis_radar.service import CrisisRadarService
 from trading_bot.db import Database
 from trading_bot.market import MarketClient
 from trading_bot.repositories import (
@@ -79,6 +82,19 @@ def main() -> None:
         business_timezone=settings.business_timezone,
         photo_trade_extractor=photo_trade_extractor,
     ).register(application)
+
+    if os.getenv("CRISIS_RADAR_ENABLED", "false").strip().lower() == "true":
+        CrisisRadarJobs(
+            CrisisRadarService(CrisisRadarRepository(db)),
+            fred_api_key=os.getenv("FRED_API_KEY", ""),
+            bea_api_key=os.getenv("BEA_API_KEY", ""),
+            eia_api_key=os.getenv("EIA_API_KEY", ""),
+            alert_user_ids=tuple(settings.allowed_telegram_user_ids),
+            business_timezone=settings.business_timezone,
+        ).register(
+            application,
+            interval_seconds=max(300, int(os.getenv("CRISIS_RADAR_SYNC_MINUTES", "60")) * 60),
+        )
 
     application.run_polling(allowed_updates=None)
 

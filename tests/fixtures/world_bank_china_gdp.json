@@ -1,0 +1,33 @@
+[
+  {
+    "page": 1,
+    "pages": 1,
+    "per_page": 100,
+    "total": 3,
+    "sourceid": "2",
+    "lastupdated": "2026-07-13"
+  },
+  [
+    {
+      "indicator": {"id": "NY.GDP.MKTP.KD.ZG", "value": "GDP growth (annual %)"},
+      "country": {"id": "CN", "value": "China"},
+      "countryiso3code": "CHN",
+      "date": "2025",
+      "value": 4.95994886240992
+    },
+    {
+      "indicator": {"id": "NY.GDP.MKTP.KD.ZG", "value": "GDP growth (annual %)"},
+      "country": {"id": "CN", "value": "China"},
+      "countryiso3code": "CHN",
+      "date": "2024",
+      "value": 4.95830378788091
+    },
+    {
+      "indicator": {"id": "NY.GDP.MKTP.KD.ZG", "value": "GDP growth (annual %)"},
+      "country": {"id": "CN", "value": "China"},
+      "countryiso3code": "CHN",
+      "date": "2023",
+      "value": 5.41600334492955
+    }
+  ]
+]

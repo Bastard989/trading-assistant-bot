@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Trading Assistant</title>
-    <link rel="stylesheet" href="/static/styles.css?v=20260623-models-1" />
+    <link rel="stylesheet" href="/static/styles.css?v=20260722-crisis-radar-6" />
   </head>
   <body>
     <div class="space-backdrop" aria-hidden="true">
@@ -19,11 +19,18 @@
           <h1>Trading Assistant</h1>
           <p id="planText">План не загружен</p>
         </div>
-        <button id="refreshBtn" class="icon-btn" title="Обновить" aria-label="Обновить данные">↻</button>
+        <div class="topbar-actions">
+          <div class="app-locale-switch" aria-label="Язык интерфейса">
+            <button type="button" class="app-locale-btn active" data-app-locale="ru">RU</button>
+            <button type="button" class="app-locale-btn" data-app-locale="en">EN</button>
+          </div>
+          <button id="refreshBtn" class="icon-btn" title="Обновить" aria-label="Обновить данные">↻</button>
+        </div>
       </header>
 
       <nav class="tabs" aria-label="Разделы">
         <button class="tab active" data-view="dashboard">Пульт</button>
+        <button class="tab" data-view="crisis-radar">Кризис-радар</button>
         <button class="tab" data-view="trades">Сделки</button>
         <button class="tab" data-view="sessions">Сессии</button>
         <button class="tab" data-view="market">Монеты</button>
@@ -76,6 +83,115 @@
           </div>
           <div id="openTrades" class="table"></div>
         </section>
+      </section>
+
+      <section id="crisis-radar" class="view">
+        <section class="band crisis-hero">
+          <div class="section-head">
+            <div>
+              <span id="crisisStageBadge" class="crisis-stage stage-unknown">нет данных</span>
+              <h2 id="crisisTitle">Состояние мирового рынка</h2>
+              <p id="crisisExplanation" class="crisis-explanation">Загружаю состояние рынка…</p>
+            </div>
+            <div class="crisis-controls">
+              <button class="crisis-help-btn" type="button" data-action="crisis-help" data-help="stage" aria-label="Как читать состояние рынка?">?</button>
+              <button id="crisisModeBtn" class="mini-action" type="button">Все данные и методика</button>
+            </div>
+          </div>
+          <div class="crisis-summary-grid">
+            <div><small id="crisisAsOfLabel">Последний расчёт</small><strong id="crisisAsOf">—</strong></div>
+            <div><small id="crisisActiveLabel">Групп ухудшается</small><strong id="crisisActiveGroups">0</strong></div>
+            <div><small id="crisisDangerLabel">Опасных групп</small><strong id="crisisDangerGroups">0</strong></div>
+            <div><small id="crisisCriticalLabel">Критических групп</small><strong id="crisisCriticalGroups">0</strong></div>
+          </div>
+          <div id="crisisChanges" class="crisis-change-grid" aria-live="polite"></div>
+        </section>
+
+        <section class="crisis-today-grid" aria-label="Что важно сегодня">
+          <article class="band crisis-today-card crisis-top-signals-card">
+            <div class="section-head"><div><span class="crisis-today-eyebrow" id="crisisSignalsEyebrow">Главное сегодня</span><h2 id="crisisSignalsTitle">Три сигнала, за которыми следим</h2><p id="crisisSignalsCopy" class="section-copy">Сработавшие или ближайшие к опасному порогу показатели.</p></div><button class="crisis-help-btn" type="button" data-action="crisis-help" data-help="signals" aria-label="Что означают главные сигналы?">?</button></div>
+            <div id="crisisTopSignals" class="crisis-top-signals"></div>
+          </article>
+
+          <article class="band crisis-today-card">
+            <div class="section-head"><div><span class="crisis-today-eyebrow" id="crisisNextEyebrow">Дальше</span><h2 id="crisisNextTitle">Следующая важная публикация</h2></div><button class="crisis-help-btn" type="button" data-action="crisis-help" data-help="calendar" aria-label="Зачем следить за публикациями?">?</button></div>
+            <div id="crisisNextEvent" class="crisis-today-result"></div>
+          </article>
+
+          <article class="band crisis-today-card">
+            <div class="section-head"><div><span class="crisis-today-eyebrow" id="crisisScenarioEyebrow">Сценарий</span><h2 id="crisisLeadScenarioTitle">Что сейчас вероятнее всего развивается</h2></div><button class="crisis-help-btn" type="button" data-action="crisis-help" data-help="scenarios" aria-label="Как работают сценарии?">?</button></div>
+            <div id="crisisLeadScenario" class="crisis-today-result"></div>
+          </article>
+
+          <article class="band crisis-today-card">
+            <div class="section-head"><div><span class="crisis-today-eyebrow" id="crisisActionEyebrow">Действие</span><h2 id="crisisBestOpportunityTitle">Лучшая аналитическая возможность</h2></div><button class="crisis-help-btn" type="button" data-action="crisis-help" data-help="opportunities" aria-label="Как читать возможности?">?</button></div>
+            <div id="crisisBestOpportunity" class="crisis-today-result"></div>
+          </article>
+        </section>
+
+        <section class="band crisis-detail-section" data-crisis-detail hidden>
+          <div class="section-head"><div><h2 id="crisisCalendarTitle">Календарь публикаций</h2><p id="crisisCalendarCopy" class="section-copy">Подтверждённые даты важных макроэкономических данных.</p></div><button class="crisis-help-btn" type="button" data-action="crisis-help" data-help="calendar" aria-label="О календаре публикаций">?</button></div>
+          <div id="crisisCalendar" class="crisis-calendar-list"></div>
+        </section>
+
+        <section class="band crisis-detail-section" data-crisis-detail hidden>
+          <div class="section-head"><div><h2 id="crisisGroupsTitle">Каналы риска</h2><p id="crisisGroupsCopy" class="section-copy">Независимые группы сигналов.</p></div><button class="crisis-help-btn" type="button" data-action="crisis-help" data-help="groups" aria-label="О каналах риска">?</button></div>
+          <div id="crisisGroups" class="crisis-group-grid"></div>
+        </section>
+
+        <section class="band crisis-detail-section" data-crisis-detail hidden>
+          <div class="section-head"><div><h2 id="crisisScenariosTitle">Все сценарии</h2><p id="crisisScenariosCopy" class="section-copy">Совместное подтверждение независимыми каналами.</p></div><button class="crisis-help-btn" type="button" data-action="crisis-help" data-help="scenarios" aria-label="О кризисных сценариях">?</button></div>
+          <div id="crisisScenarios" class="crisis-scenario-grid"></div>
+        </section>
+
+        <section class="band crisis-detail-section" data-crisis-detail hidden>
+          <div class="section-head"><div><h2 id="crisisOpportunitiesTitle">Все возможности</h2><p id="crisisOpportunitiesCopy" class="section-copy">Условные long / short / hedge / wait идеи без открытия сделки.</p></div><div class="crisis-section-actions"><span id="crisisOpportunityCoverage" class="live-status">проверка</span><button class="crisis-help-btn" type="button" data-action="crisis-help" data-help="opportunities" aria-label="О возможностях">?</button></div></div>
+          <div id="crisisOpportunities" class="crisis-opportunity-grid"></div>
+          <small id="crisisOpportunityDisclaimer" class="crisis-agent-disclaimer">Диапазоны — сценарная оценка, а не обещание прибыли.</small>
+        </section>
+
+        <section class="band crisis-detail-section" data-crisis-detail hidden>
+          <div class="section-head"><div><h2 id="crisisWorldTitle">Мировой контур</h2><p id="crisisWorldCopy" class="section-copy">США, Европа, Китай и глобальные каналы с честными пропусками.</p></div><button class="crisis-help-btn" type="button" data-action="crisis-help" data-help="world" aria-label="О мировом контуре">?</button></div>
+          <div id="crisisWorld" class="crisis-world-grid"></div>
+        </section>
+
+        <section class="band crisis-agent-panel crisis-detail-section" data-crisis-detail hidden>
+          <div class="section-head">
+            <div><h2 id="crisisAgentTitle">Спросить аналитика</h2><p id="crisisAgentCopy" class="section-copy">Подключённая модель объясняет уже рассчитанные данные и не меняет сигналы или сделки.</p></div>
+            <div class="crisis-section-actions"><span id="crisisAgentStatus" class="live-status is-offline">проверка</span><button class="crisis-help-btn" type="button" data-action="crisis-help" data-help="agent" aria-label="О локальном аналитике">?</button></div>
+          </div>
+          <div id="crisisAgentMessages" class="crisis-agent-messages" aria-live="polite"></div>
+          <form id="crisisAgentForm" class="crisis-agent-form">
+            <label><span id="crisisAgentModeLabel">Режим</span><select id="crisisAgentMode"><option value="fast">Быстрый</option><option value="deep">Глубокий</option></select></label>
+            <label class="crisis-agent-question"><span id="crisisAgentQuestionLabel">Вопрос</span><textarea id="crisisAgentQuestion" maxlength="1000" rows="3" placeholder="Что сейчас ухудшается и почему это важно?" required></textarea></label>
+            <button id="crisisAgentSend" class="primary-action compact" type="submit">Спросить</button>
+          </form>
+          <small id="crisisAgentDisclaimer" class="crisis-agent-disclaimer">Это объяснение данных, а не финансовый совет и не команда на сделку.</small>
+        </section>
+
+        <section class="band crisis-detail-section" data-crisis-detail hidden>
+          <div class="section-head"><div><h2 id="crisisNewsTitle">Официальный контекст</h2><p id="crisisNewsCopy" class="section-copy">Публикации центральных банков, связанные со сценариями. Новость сама по себе не меняет стадию рынка.</p></div><button class="crisis-help-btn" type="button" data-action="crisis-help" data-help="news" aria-label="О новостном контексте">?</button></div>
+          <div id="crisisNews" class="crisis-news-list"></div>
+        </section>
+
+        <section class="band crisis-detail-section" data-crisis-detail hidden>
+          <div class="section-head"><div><h2 id="crisisIndicatorsTitle">Все индикаторы и точные пороги</h2><p id="crisisIndicatorsCopy" class="section-copy">Текущее значение, расстояние до следующего порога и свежесть.</p></div><button class="crisis-help-btn" type="button" data-action="crisis-help" data-help="indicators" aria-label="Об индикаторах и порогах">?</button></div>
+          <div id="crisisIndicators" class="crisis-indicator-list"></div>
+        </section>
+
+        <section id="crisisTechnical" class="band crisis-technical crisis-detail-section" data-crisis-detail hidden>
+          <div class="section-head"><div><h2 id="crisisTechnicalTitle">Данные и методика</h2><p id="crisisTechnicalCopy" class="section-copy">Версия методики, scores и здоровье источников.</p></div><button class="crisis-help-btn" type="button" data-action="crisis-help" data-help="methodology" aria-label="О данных и методике">?</button></div>
+          <div id="crisisMethodology" class="crisis-methodology"></div>
+          <div id="crisisSources" class="crisis-source-list"></div>
+        </section>
+
+        <dialog id="crisisHelpDialog" class="crisis-help-dialog">
+          <form method="dialog" class="crisis-help-sheet">
+            <div class="section-head"><div><span class="crisis-today-eyebrow" id="crisisHelpEyebrow">Подсказка</span><h2 id="crisisHelpTitle">Как читать раздел</h2></div><button class="crisis-help-close" value="close" aria-label="Закрыть">×</button></div>
+            <p id="crisisHelpBody"></p>
+            <div id="crisisHelpPoints" class="crisis-help-points"></div>
+          </form>
+        </dialog>
       </section>
 
       <section id="trades" class="view">
@@ -179,14 +295,15 @@
           <div class="section-head">
             <div>
               <h2>Модели и агенты</h2>
-              <p class="section-copy">Подключи OpenAI, локальную OpenAI-compatible модель или оставь ручной режим. Ключи будут храниться только на backend и не будут показываться обратно в Mini App.</p>
+              <p class="section-copy">Активный локальный или облачный провайдер объясняет Crisis Radar в read-only режиме.</p>
             </div>
-            <span id="modelSetupStatus" class="live-status is-offline">backend next</span>
+            <span id="modelSetupStatus" class="live-status is-offline">проверка провайдера</span>
           </div>
           <div class="model-status-grid">
             <span class="model-status-card"><small>Vision</small><b>не настроено</b></span>
-            <span class="model-status-card"><small>Journal AI</small><b>manual</b></span>
-            <span class="model-status-card"><small>Obsidian AI</small><b>manual</b></span>
+            <span class="model-status-card"><small>Провайдер</small><b id="crisisModelProvider">Ollama</b></span>
+            <span class="model-status-card"><small>Crisis Radar</small><b id="crisisModelName">qwen3.5:9b</b></span>
+            <span class="model-status-card"><small>Права агента</small><b>только чтение</b></span>
           </div>
         </section>
 
@@ -200,18 +317,17 @@
               </div>
               <span class="live-status">не подключено</span>
             </div>
-            <div class="form-grid model-form">
-              <label>API key<input type="password" autocomplete="off" placeholder="sk-..." /></label>
-              <label>Модель<select><option>gpt-5.5</option><option>gpt-5.5-mini</option><option>выбрать после проверки</option></select></label>
-              <button class="primary-action compact" type="button" data-action="model-placeholder">Проверить</button>
-              <button class="primary-action compact" type="button" data-action="model-placeholder">Сохранить</button>
+            <div class="model-offline-copy">
+              <b>Настройка на backend</b>
+              <span>Провайдер и модель выбираются приватными переменными окружения. Mini App не принимает API-ключ.</span>
+              <button class="primary-action compact" type="button" data-action="refresh-local-model">Проверить backend</button>
             </div>
             <details class="model-help">
               <summary>Как подключить</summary>
               <ol>
                 <li>Создай API key в кабинете провайдера.</li>
-                <li>Вставь ключ сюда и нажми “Проверить”.</li>
-                <li>После проверки backend покажет список моделей, а ключ будет виден только маской.</li>
+                <li>Сохрани его в приватной переменной окружения backend, не в Mini App.</li>
+                <li>Перезапусти backend и нажми “Проверить backend”. Ключ никогда не возвращается в браузер.</li>
               </ol>
             </details>
           </article>
@@ -220,23 +336,22 @@
             <div class="model-card-head">
               <div>
                 <span class="model-badge local">локально</span>
-                <h2>Local / OpenAI-compatible</h2>
+                <h2>Локальный / OpenAI-совместимый</h2>
                 <p class="section-copy">Для локальных runtimes с OpenAI-compatible API.</p>
               </div>
-              <span class="live-status">не проверено</span>
+              <span id="localModelStatus" class="live-status">проверка</span>
             </div>
             <div class="form-grid model-form">
-              <label>Base URL<input value="http://127.0.0.1:11434/v1" autocomplete="off" /></label>
-              <label>Модель<select><option>найти модели</option><option>llama vision</option><option>qwen</option></select></label>
-              <button class="primary-action compact" type="button" data-action="model-placeholder">Сканировать</button>
-              <button class="primary-action compact" type="button" data-action="model-placeholder">Сохранить</button>
+              <label>Base URL<input value="http://127.0.0.1:11434" autocomplete="off" readonly /></label>
+              <label>Модель<select disabled><option>qwen3.5:9b</option></select></label>
+              <button class="primary-action compact" type="button" data-action="refresh-local-model">Проверить сейчас</button>
             </div>
             <details class="model-help">
               <summary>Как подключить локальную модель</summary>
               <ol>
-                <li>Запусти локальный сервер, который отдаёт `/v1/models`.</li>
-                <li>Укажи base URL без секретов в строке.</li>
-                <li>Нажми “Сканировать”, чтобы backend получил список моделей.</li>
+                <li>Ollama должна быть запущена на этом компьютере.</li>
+                <li>Backend принимает только localhost и не отправляет данные наружу.</li>
+                <li>Модель получает ограниченный снимок рассчитанных данных без прав на запись.</li>
               </ol>
             </details>
           </article>
@@ -245,7 +360,7 @@
             <div class="model-card-head">
               <div>
                 <span class="model-badge offline">без ключей</span>
-                <h2>Offline / manual mode</h2>
+                <h2>Офлайн / ручной режим</h2>
                 <p class="section-copy">Без модели: бот не фантазирует, а просит ручной шаблон и уточнения.</p>
               </div>
               <span class="live-status is-live">активен</span>
@@ -261,14 +376,15 @@
           <div class="section-head">
             <div>
               <h2>Активные задачи</h2>
-              <p class="section-copy">Позже здесь можно будет назначить разные модели под разные задачи.</p>
+              <p class="section-copy">Текущие назначения читаются из приватной конфигурации backend.</p>
             </div>
           </div>
           <div class="model-task-list">
-            <label>Фото → сделка<select><option>manual/offline</option><option>gpt-5.5</option></select></label>
-            <label>Анализ дневника<select><option>manual/offline</option><option>gpt-5.5</option></select></label>
-            <label>Obsidian отчёт<select><option>manual/offline</option><option>gpt-5.5</option></select></label>
-            <label>Разбор сетапа<select><option>manual/offline</option><option>gpt-5.5</option></select></label>
+            <label>Фото → сделка<span id="bindingVision" class="model-binding">—</span></label>
+            <label>Анализ дневника<span id="bindingJournal" class="model-binding">—</span></label>
+            <label>Obsidian отчёт<span id="bindingObsidian" class="model-binding">—</span></label>
+            <label>Разбор сетапа<span id="bindingTradeReview" class="model-binding">—</span></label>
+            <label>Crisis Radar<span id="bindingCrisis" class="model-binding">—</span></label>
           </div>
         </section>
 
@@ -276,23 +392,20 @@
           <div class="section-head">
             <div>
               <h2>Подключённые модели</h2>
-              <p class="section-copy">Ключи будут отображаться только маской. Реальное сохранение появится после backend-миграции.</p>
+              <p class="section-copy">Активное подключение задаётся приватными переменными окружения backend; ключ никогда не возвращается в Mini App.</p>
             </div>
           </div>
           <div class="connected-models">
             <div class="connected-model-row">
-              <span><b>OpenAI</b><small>sk-...abcd · 3 модели</small></span>
-              <button class="mini-action" type="button" data-action="model-placeholder">Активировать</button>
-            </div>
-            <div class="connected-model-row">
-              <span><b>Localhost</b><small>127.0.0.1 · не проверено</small></span>
-              <button class="mini-action" type="button" data-action="model-placeholder">Проверить</button>
+              <span><b id="connectedModelProvider">Ollama</b><small id="connectedModelDetails">127.0.0.1 · qwen3.5:9b</small></span>
+              <button class="mini-action" type="button" data-action="refresh-local-model">Проверить</button>
             </div>
           </div>
         </section>
       </section>
     </main>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    <script src="/static/app.js?v=20260623-models-1"></script>
+    <script src="/static/i18n.js?v=20260721-global-i18n-3"></script>
+    <script src="/static/app.js?v=20260722-crisis-radar-6"></script>
   </body>
 </html>

@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0">
+  <channel>
+    <title>ECB - European Central Bank</title>
+    <link>https://www.ecb.europa.eu/</link>
+    <description>Latest releases on the ECB website</description>
+    <language>en</language>
+    <item>
+      <title>Survey on the Access to Finance of Enterprises: lending conditions tightened</title>
+      <link>https://www.ecb.europa.eu//press/pr/date/2026/html/ecb.pr260720~cafc3874a7.en.html</link>
+      <guid>https://www.ecb.europa.eu//press/pr/date/2026/html/ecb.pr260720~cafc3874a7.en.html</guid>
+      <pubDate>Mon, 20 Jul 2026 10:00:00 +0200</pubDate>
+    </item>
+    <item>
+      <title>ECB selects payment providers to join digital euro pilot</title>
+      <link>https://www.ecb.europa.eu//press/pr/date/2026/html/ecb.pr260714~8cd07d9d45.en.html</link>
+      <guid>https://www.ecb.europa.eu//press/pr/date/2026/html/ecb.pr260714~8cd07d9d45.en.html</guid>
+      <pubDate>Tue, 14 Jul 2026 11:00:00 +0200</pubDate>
+    </item>
+  </channel>
+</rss>

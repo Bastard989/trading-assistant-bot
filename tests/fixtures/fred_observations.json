@@ -1,0 +1,25 @@
+{
+  "realtime_start": "2026-07-01",
+  "realtime_end": "2026-07-01",
+  "count": 3,
+  "observations": [
+    {
+      "realtime_start": "2026-07-01",
+      "realtime_end": "2026-07-01",
+      "date": "2026-04-01",
+      "value": "2.65"
+    },
+    {
+      "realtime_start": "2026-07-01",
+      "realtime_end": "2026-07-01",
+      "date": "2026-05-01",
+      "value": "."
+    },
+    {
+      "realtime_start": "2026-07-01",
+      "realtime_end": "2026-07-01",
+      "date": "2026-06-01",
+      "value": "2.71"
+    }
+  ]
+}

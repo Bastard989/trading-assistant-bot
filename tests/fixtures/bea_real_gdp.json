@@ -1,0 +1,11 @@
+{
+  "BEAAPI": {
+    "Results": {
+      "Data": [
+        {"TableName": "T10101", "LineNumber": "1", "TimePeriod": "2025Q4", "DataValue": "0.5"},
+        {"TableName": "T10101", "LineNumber": "1", "TimePeriod": "2026Q1", "DataValue": "2.1"},
+        {"TableName": "T10101", "LineNumber": "2", "TimePeriod": "2026Q1", "DataValue": "3.0"}
+      ]
+    }
+  }
+}

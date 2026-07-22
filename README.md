@@ -6,7 +6,7 @@
 ![Telegram](https://img.shields.io/badge/Telegram-Bot%20%2B%20Mini%20App-26A5E4?logo=telegram&logoColor=white)
 ![SQLite](https://img.shields.io/badge/SQLite-local%20first-003B57?logo=sqlite&logoColor=white)
 
-Personal trading journal and Telegram Mini App for crypto trade tracking, risk control, session analytics, screenshots, market context, and portable Obsidian exports.
+Personal trading journal and Telegram Mini App for trade tracking, risk control, session analytics, screenshots, market context, crisis monitoring, and portable Obsidian exports.
 
 > This project is a portfolio-grade personal trading assistant. It does **not** provide financial advice, guaranteed signals, or automated exchange execution.
 
@@ -28,6 +28,9 @@ Personal trading journal and Telegram Mini App for crypto trade tracking, risk c
 
 - Telegram bot for trade capture, journal notes, screenshots, alerts, and session commands.
 - Telegram Mini App built as a trader dashboard with live prices, watchlist, open trades, charts, analytics, journal, sessions, and calculators.
+- Crisis Radar foundation with immutable methodologies, historical data vintages, configurable thresholds, cross-indicator market stages, and RU/EN explanations.
+- Read-only local Crisis Radar analyst through Ollama and `qwen3.5:9b`, with structured output and evidence constrained to saved radar data.
+- One persistent RU/EN locale for the entire Mini App, including navigation, trading tools, models, calculator output, Crisis Radar, dynamic cards, dates, and number formatting.
 - Risk engine for position sizing, leverage/margin estimation, fees, slippage, funding, and reward-to-risk.
 - Public-market level monitor that reports stop/take observations without falsely claiming order execution.
 - Trade/session/journal linking with owner isolation.
@@ -44,6 +47,8 @@ flowchart LR
     Mini[Telegram Mini App] --> API
     API --> DB[(SQLite)]
     API --> Binance[Binance Market Data]
+    API --> FRED[FRED Macro Data]
+    API --> Ollama[Local Qwen Analyst]
     API --> Export[Obsidian Vault Export]
     API --> Vision[Optional Vision Model]
 ```
@@ -87,6 +92,7 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements-dev.txt
 python scripts/migrate.py data/trading_bot.sqlite3
+python -m scripts.crisis_radar bootstrap
 ```
 
 Run the Telegram bot:
@@ -121,9 +127,101 @@ OPENAI_VISION_MODEL=gpt-5.5
 WEB_APP_URL=http://127.0.0.1:8080
 WEB_HOST=127.0.0.1
 WEB_PORT=8080
+CRISIS_RADAR_ENABLED=true
+FRED_API_KEY=
+BEA_API_KEY=
+EIA_API_KEY=
+CRISIS_RADAR_SYNC_MINUTES=360
+CRISIS_AGENT_ENABLED=true
+CRISIS_AGENT_PROVIDER=ollama
+OLLAMA_BASE_URL=http://127.0.0.1:11434
+CRISIS_AGENT_MODEL=qwen3.5:9b
+CRISIS_AGENT_API_KEY=
+CRISIS_AGENT_BASE_URL=
+ANTHROPIC_API_KEY=
+CRISIS_AGENT_TIMEOUT_SECONDS=90
+CRISIS_AGENT_RATE_LIMIT=6
+CRISIS_AGENT_KEEP_ALIVE_MINUTES=10
+CRISIS_AGENT_COOLDOWN_SECONDS=120
 ```
 
 `OPENAI_API_KEY` is optional. Without it, screenshot recognition falls back to the manual `/open` template.
+
+## Crisis Radar
+
+The current `starter-v8` methodology monitors twenty-three indicators across the US, euro area, China, the G20/global cycle, energy, credit, and crypto markets. In addition to Sahm Rule, high-yield spreads, VIX, GDP, WTI, ECB/Eurostat, and Bybit signals, it includes the US Treasury 10Y–2Y spread, Chicago Fed NFCI, a 30-day S&P 500 drawdown, a 90-day Federal Reserve balance-sheet change, World Bank growth data, BIS credit-to-GDP gaps, and OECD six-month Composite Leading Indicator momentum for the G20 and China. It stores raw observations and actual revisions before calculating deterministic indicator, group, and whole-market states. The overview compares saved analytical states over 24-hour and 7-day windows; each indicator also exposes a history chart with visible methodology thresholds.
+
+`starter-v8` preserves the temporal-stability rules added in v6 without hiding the raw threshold result. Daily, weekly, and intraday non-critical escalations require two distinct observations; monthly, quarterly, and annual releases remain immediate, and critical crossings are never delayed. A 10% recovery margin prevents threshold flicker. The detailed UI exposes raw/effective bands, distinct-point confirmation, and hysteresis holds. Scenario notifications use a six-hour cooldown, while a more severe critical escalation bypasses it.
+
+Five joint-confirmation scenarios are persisted independently from the market stage: global slowdown/recession, systemic financial stress, an oil-driven inflation shock, a crypto leverage unwind, and a China hard landing. Their statuses are `inactive`, `watch`, `elevated`, or `confirmed`; data coverage is reported separately as confidence. Transitions into `elevated`/`confirmed` and recoveries create deduplicated Telegram events. Deliveries are retried up to three times and the first saved market state never sends a false alert.
+
+The BIS credit-gap warning and danger levels use the Basel III guide points of 2 and 10 percentage points. The 20-point critical band is an intentionally conservative internal escalation threshold. These values inform a joint scenario; they never trigger a crisis conclusion by themselves. World Bank annual growth and OECD CLI momentum thresholds are transparent starter heuristics and should later be calibrated on historical vintages. The OECD adapter uses the six-month change because OECD guidance emphasizes the direction of the CLI rather than treating an index level below 100 as a mechanical crisis threshold.
+
+The radar also persists a 45-day FRED calendar for selected high- and medium-importance US macro releases. Only the official date is displayed when the source does not publish a time. Telegram sends deduplicated planned summaries on Wednesday at 22:30 and Saturday at 12:00 in `BUSINESS_TIMEZONE`; failed deliveries retry through the same outbox used by scheduled jobs.
+
+Schema v10 adds a deterministic official-news evidence layer. Federal Reserve monetary-policy and ECB press RSS feeds are polled every 15 minutes, sanitized, canonicalized, deduplicated, and linked to scenarios by versioned rules. News is contextual evidence only: it cannot change an indicator band, market stage, or scenario status without numerical confirmation. DTD/entity XML, non-official item domains, active HTML, oversized payloads, and malformed timestamps are rejected. Relevant releases appear in the RU/EN Mini App and in planned Telegram summaries.
+
+Schema v11 adds private, owner-isolated conversations with a local `qwen3.5:9b` analyst. The backend composes a bounded read-only context from the deterministic overview, scenario states, indicator thresholds, official news, and release calendar. Ollama is restricted to localhost, redirects are disabled, JSON responses are canonicalized server-side, and cited evidence codes are filtered through a server-built allowlist. News text is authoritative only as quoted evidence, never as instructions; instruction-like titles or summaries are redacted from the model context while the original stored news remains unchanged. The model has no write tools and cannot alter signals, thresholds, trades, or notifications. Its answer is an explanatory layer, not a financial recommendation or deterministic crisis signal.
+
+Schema v12 stores the grounding result for every assistant message. The verifier rejects unsupported numbers, missing evidence, scenario-count errors, and any conflation of scenario activation with data confidence across the answer, limitations, and suggestions. The Mini App labels each response as grounded in saved data or requiring manual verification. RU/EN golden cases cover missing data, prompt injection, group-versus-scenario semantics, evidence allowlisting, language, and latency; malformed model output gets one bounded retry and then an explicit non-analytical fallback. A generation timeout is not retried, because Ollama can continue the abandoned generation and block its local queue; instead the chat persists a transparent ungrounded timeout response while deterministic cards remain available. A runtime circuit breaker then pauses new generations for a configurable cooldown, while the status API distinguishes a model installed on disk from one currently loaded in memory. Successful generations keep the model warm for a bounded period.
+
+The same read-only grounded contract can be switched with `CRISIS_AGENT_PROVIDER` between local Ollama, official OpenAI, official Anthropic, and an OpenAI-compatible endpoint. Remote URLs are validated, redirects are disabled, payloads are bounded, and provider keys never appear in API responses or sanitized failures. Ollama remains the default and no cloud data transfer occurs unless the owner explicitly selects and configures a remote provider.
+
+Schema v13 adds the first leakage-safe historical calibration slice. Uncalibrated scenario scores and retrospective event labels enter as separate timelines. Every prediction can train only on samples whose forward horizon had fully ended before that prediction timestamp. Percentages remain `null` until the global sample, positive/negative class, and score-bin minimums are all satisfied. Successful runs persist their parameters, predictions, last eligible training horizon, Brier score, baseline Brier score, log loss, precision/recall, false-alert rate, lead time, and calibration curve. This is an audit and calibration layer; it does not retroactively change deterministic cards or alerts.
+
+Schema v14 adds immutable official event catalogs and deterministic historical replay from saved as-of observations. Replay signals keep exact observation IDs and checksums, exclude future revisions, active-event points, retrospectively revised rows, and right-censored horizons, and never touch live snapshots or notifications. A historical percentage is withheld unless it covers at least three independent positive episodes, has non-zero recall, and strictly beats the walk-forward base-rate Brier score. Historical results are always labeled retrospective and are not exposed as a live probability without a separately validated application to the current live score.
+
+RU/EN is an application-wide preference rather than a Crisis Radar-only setting. A single header control persists the locale in the browser, changes `lang`, rerenders live trading/market/calculator content, requests localized Crisis Radar data, and applies locale-aware dates, times, and numeric formatting. Stored journal entries, trade notes, and previous agent messages remain in the language in which the owner created them.
+
+```bash
+python -m scripts.crisis_radar migrate
+python -m scripts.crisis_radar bootstrap
+python -m scripts.crisis_radar sync
+python -m scripts.crisis_radar sync --source ecb
+python -m scripts.crisis_radar sync --source world_bank
+python -m scripts.crisis_radar sync --source bis
+python -m scripts.crisis_radar sync --source oecd
+python -m scripts.crisis_radar sync --source news
+python -m scripts.crisis_radar sync --source bybit
+python -m scripts.crisis_radar recompute
+python -m scripts.crisis_radar status --locale ru
+python -m scripts.crisis_radar calendar --locale ru --days 30
+python -m scripts.crisis_radar news --locale ru --days 14 --limit 20
+python -m scripts.evaluate_crisis_agent --mode fast --timeout 120 --runs 2 --pause 2
+python -m scripts.backtest_crisis_radar --input data/private/global-recession-backtest.json --dry-run
+python -m scripts.backtest_crisis_radar --input data/private/global-recession-backtest.json
+python -m scripts.crisis_radar backfill --source fred --from 1990-01-01 --through 2026-07-21
+python -m scripts.crisis_radar backfill --source bybit --from 2020-01-01 --through 2026-07-20
+python -m scripts.crisis_radar derive-labels --through 2026-07-20
+python -m scripts.replay_crisis_radar --scenario financial_stress --from 1998-08-26 --through 2016-09-01 --cadence-days 7 --horizon-days 30 --minimum-coverage 0.25 --dry-run
+python -m scripts.soak_check --base-url http://127.0.0.1:8080 --duration-seconds 300
+```
+
+FRED, BEA, and EIA keys enable their respective live synchronizations. ECB, Eurostat, World Bank, BIS, OECD, Bybit, and the official Fed/ECB RSS feeds use public endpoints without keys. World Bank, BIS, and OECD run in a separate daily job because their macro series update slowly and the BIS bulk archive is substantially larger than an ordinary API response. The methodology and UI can be tested entirely offline with fixtures. The dashboard deliberately does not show a single “magic crash probability”: the overview communicates the current market stage and breadth of deterioration, while technical scores and source health stay behind the detailed-mode toggle.
+
+FRED exposes only ten years of daily S&P 500 history and identifies that series as S&P Dow Jones copyrighted data. The application keeps fetched observations in the owner's private database; the repository and self-hosted package do not redistribute an S&P dataset.
+
+Read-only owner-authenticated endpoints:
+
+- `GET /api/crisis-radar/overview?locale=ru|en`
+- `GET /api/crisis-radar/calendar?locale=ru|en&days=30`
+- `GET /api/crisis-radar/news?locale=ru|en&days=14&limit=20`
+- `GET /api/crisis-radar/world?locale=ru|en`
+- `GET /api/crisis-radar/sources/health?locale=ru|en`
+- `GET /api/crisis-radar/opportunities?locale=ru|en&limit=10`
+- `GET /api/crisis-radar/indicators/{code}/history?limit=500`
+- `GET /api/crisis-radar/scenarios/{code}/calibration`
+- `GET /api/crisis-radar/scenarios/{code}/event-catalog`
+- `GET /api/crisis-radar/backtests/{id}`
+- `GET /api/crisis-radar/replays/{id}`
+- `GET /api/crisis-radar/agent/status`
+- `GET /api/crisis-radar/agent/threads`
+- `GET /api/crisis-radar/agent/threads/{id}`
+- `POST /api/crisis-radar/agent/chat`
+
+Opportunity research remains a separate module so it can be tested without contaminating the raw data pipeline. Local-agent synthesis is already separate from and subordinate to that deterministic pipeline.
+
+The official and separately marked derived catalogs, replay, walk-forward input contract, and interpretation rules are documented in [`docs/crisis-radar-backtest.md`](docs/crisis-radar-backtest.md). Scenarios without a defensible official label definition retain explicit empty official catalogs. Derived research labels never bypass the calibration gates, so no percentage is fabricated.
 
 ## Security and privacy
 
@@ -153,14 +251,16 @@ The project can generate a portable Obsidian vault:
 
 Design details: [docs/obsidian-export.md](docs/obsidian-export.md).
 
-## Model connections roadmap
+## Model connections
 
-The Mini App includes a `Модели` setup screen scaffold for future model connections:
+The Mini App reports the actual backend-selected provider and read-only task bindings. Secrets remain in backend environment variables and are never accepted by or returned to the browser. Supported analyst providers are:
 
 - OpenAI API
 - local OpenAI-compatible endpoints
 - offline/manual mode
-- task bindings for screenshot extraction, journal analysis, Obsidian reports, and trade review
+- truthful bindings for screenshot extraction, journal analysis, Obsidian reports, trade review, and Crisis Radar
+
+An optional encrypted connection manager for changing providers from the UI remains a future convenience feature; it is not required for the self-hosted release.
 
 Design details: [docs/model-connections.md](docs/model-connections.md).
 

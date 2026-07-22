@@ -1,0 +1,10 @@
+{
+  "response": {
+    "data": [
+      {"period": "2026-04-10", "series": "RWTC", "value": "50", "units": "$/BBL"},
+      {"period": "2026-04-20", "series": "RWTC", "value": "55", "units": "$/BBL"},
+      {"period": "2026-07-09", "series": "RWTC", "value": "60", "units": "$/BBL"},
+      {"period": "2026-07-19", "series": "RWTC", "value": "75", "units": "$/BBL"}
+    ]
+  }
+}

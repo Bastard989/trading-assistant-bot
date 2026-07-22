@@ -1,0 +1,1303 @@
+from __future__ import annotations
+
+from dataclasses import replace
+from datetime import date, datetime, timedelta, timezone
+from decimal import Decimal, InvalidOperation
+
+from trading_bot.crisis_radar.catalog import (
+    BYBIT_INDICATORS,
+    BYBIT_RESEARCH_INDICATORS,
+    FRED_INDICATORS,
+    METHODOLOGY_CODE,
+    METHODOLOGY_VERSION,
+    STARTER_INDICATORS,
+    bootstrap_starter_catalog,
+)
+from trading_bot.crisis_radar.news import NEWS_RULE_VERSION, RssAdapter, classify_news
+from trading_bot.crisis_radar.official_catalogs import bootstrap_official_event_catalogs
+from trading_bot.crisis_radar.domain import MarketOverview
+from trading_bot.crisis_radar.derived_labels import (
+    CryptoDailyRecord,
+    generate_crypto_leverage_unwind_labels,
+)
+from trading_bot.crisis_radar.event_catalog import EventCatalogVersion
+from trading_bot.crisis_radar.opportunities import (
+    MarketQuote,
+    MarketStage as OpportunityMarketStage,
+    OpportunityContext,
+    ScenarioSignal,
+    generate_opportunities,
+)
+from trading_bot.crisis_radar.repositories import CrisisRadarRepository
+from trading_bot.crisis_radar.scenarios import SCENARIOS, build_scenario_states
+from trading_bot.crisis_radar.sources.base import SeriesRequest
+from trading_bot.crisis_radar.sources.base import SourcePayloadError
+from trading_bot.crisis_radar.sources.bea import BeaAdapter
+from trading_bot.crisis_radar.sources.bybit import BybitAdapter, BybitClient, BybitSourceError
+from trading_bot.crisis_radar.sources.eia import EiaAdapter
+from trading_bot.crisis_radar.sources.ecb import EcbAdapter
+from trading_bot.crisis_radar.sources.eurostat import EurostatAdapter
+from trading_bot.crisis_radar.sources.europe_clients import EcbClient, EuropeSourceError, EurostatClient
+from trading_bot.crisis_radar.sources.fred import FredAdapter, FredTransformAdapter
+from trading_bot.crisis_radar.sources.fred_calendar import FredCalendarAdapter
+from trading_bot.crisis_radar.sources.fred_client import FredClient, FredClientError
+from trading_bot.crisis_radar.sources.global_clients import (
+    BisClient,
+    GlobalSourceError,
+    OecdClient,
+    WorldBankClient,
+)
+from trading_bot.crisis_radar.sources.global_data import BisAdapter, OecdAdapter, WorldBankAdapter
+from trading_bot.crisis_radar.sources.news_clients import NewsSourceError, RssClient
+from trading_bot.crisis_radar.sources.official_clients import BeaClient, EiaClient, OfficialSourceError
+from trading_bot.crisis_radar.stability import STABILITY_POLICY, stabilize_indicator_state
+from trading_bot.crisis_radar.states import build_indicator_state, build_market_overview
+
+
+class CrisisRadarService:
+    def __init__(self, repository: CrisisRadarRepository) -> None:
+        self.repository = repository
+
+    def bootstrap(self) -> dict[str, int | str]:
+        result = bootstrap_starter_catalog(self.repository)
+        result["event_catalog_count"] = len(bootstrap_official_event_catalogs(self.repository))
+        return result
+
+    def derive_crypto_event_catalog(
+        self, *, effective_at: datetime | None = None
+    ) -> dict[str, int | str | None]:
+        """Create a versioned, explicitly non-official catalog from stored Bybit history."""
+        self.bootstrap()
+        now = effective_at or datetime.now(timezone.utc)
+        if now.tzinfo is None or now.utcoffset() is None:
+            raise ValueError("effective_at must be timezone-aware")
+        codes = (
+            "btc_close_price",
+            "btc_return_7d",
+            "btc_open_interest",
+            "btc_oi_7d_change",
+            "btc_funding_rate",
+            "eth_return_7d",
+        )
+        series = self.repository.earliest_daily_observation_values(codes)
+        days = sorted(series["btc_close_price"])
+        records = [
+            CryptoDailyRecord(
+                observed_at=datetime(day.year, day.month, day.day, tzinfo=timezone.utc),
+                btc_price=series["btc_close_price"].get(day),
+                btc_return_7d=series["btc_return_7d"].get(day),
+                oi_level=series["btc_open_interest"].get(day),
+                oi_change_7d=series["btc_oi_7d_change"].get(day),
+                funding=series["btc_funding_rate"].get(day),
+                eth_breadth=series["eth_return_7d"].get(day),
+            )
+            for day in days
+        ]
+        result = generate_crypto_leverage_unwind_labels(records)
+        version = f"bybit-derived-v1-{now:%Y%m%d}-{result.input_checksum[:12]}"
+        catalog = EventCatalogVersion(
+            scenario_code="crypto_leverage_unwind",
+            version=version,
+            source_name="Bybit public market data (derived research rule)",
+            source_url=result.definition.get("source_url", "")
+            or "https://bybit-exchange.github.io/docs/v5/market/open-interest",
+            definition={
+                **result.definition,
+                "input_checksum": result.input_checksum,
+                "result_checksum": result.checksum,
+                "record_count": len(records),
+                "coverage_start": None if not days else days[0].isoformat(),
+                "coverage_end": None if not days else days[-1].isoformat(),
+            },
+            limitations=(
+                "Labels are derived from a frozen market-data rule and are not official crisis declarations.",
+                "Exchange history and endpoint retention bound the number of independent events.",
+                "The catalog is eligible for research replay only; probability gates still apply.",
+            ),
+            effective_from=now,
+            labels=result.labels,
+        )
+        catalog_id = self.repository.register_event_catalog(catalog)
+        sufficient = sum(item.sufficient for item in result.evaluations)
+        return {
+            "catalog_id": catalog_id,
+            "version": version,
+            "input_checksum": result.input_checksum,
+            "result_checksum": result.checksum,
+            "record_count": len(records),
+            "sufficient_count": sufficient,
+            "label_count": len(result.labels),
+            "coverage_start": None if not days else days[0].isoformat(),
+            "coverage_end": None if not days else days[-1].isoformat(),
+        }
+
+    async def sync_fred(
+        self,
+        client: FredClient,
+        *,
+        fetched_at: datetime | None = None,
+        recompute_after: bool = True,
+    ) -> dict[str, int | str | None]:
+        self.bootstrap()
+        now = fetched_at or datetime.now(timezone.utc)
+        if now.tzinfo is None or now.utcoffset() is None:
+            raise ValueError("fetched_at must be timezone-aware")
+        sync_run_id = self.repository.start_sync_run("fred", started_at=now)
+        adapter = FredAdapter()
+        transform_adapter = FredTransformAdapter()
+        rows_fetched = 0
+        rows_written = 0
+        errors: list[str] = []
+        for seed in FRED_INDICATORS:
+            request = SeriesRequest(seed.code, seed.provider_series_id, seed.unit)
+            try:
+                payload = (
+                    await client.fetch(request)
+                    if seed.transform == "identity"
+                    else await client.fetch(request, limit=140)
+                )
+                observations = (
+                    adapter.normalize(payload, request, fetched_at=now)
+                    if seed.transform == "identity"
+                    else transform_adapter.normalize(
+                        payload,
+                        request,
+                        transform=seed.transform,
+                        fetched_at=now,
+                    )
+                )
+                rows_fetched += len(observations)
+                for observation in observations:
+                    result = self.repository.save_observation(observation, sync_run_id=sync_run_id)
+                    rows_written += int(result.inserted)
+            except (FredClientError, SourcePayloadError) as exc:
+                errors.append(f"{seed.code}:{type(exc).__name__}")
+        status = "failed" if len(errors) == len(FRED_INDICATORS) else "partial" if errors else "succeeded"
+        self.repository.finish_sync_run(
+            sync_run_id,
+            finished_at=datetime.now(timezone.utc),
+            status=status,
+            rows_fetched=rows_fetched,
+            rows_written=rows_written,
+            error_code="source_errors" if errors else "",
+            error_detail=",".join(errors),
+        )
+        overview = self.recompute(snapshot_at=now) if rows_fetched and recompute_after else None
+        return {
+            "sync_run_id": sync_run_id,
+            "status": status,
+            "rows_fetched": rows_fetched,
+            "rows_written": rows_written,
+            "stage": None if overview is None else overview.stage.value,
+        }
+
+    async def backfill_fred(
+        self,
+        client: FredClient,
+        *,
+        started_on: date,
+        ended_on: date,
+        fetched_at: datetime | None = None,
+        recompute_after: bool = True,
+        indicator_codes: set[str] | None = None,
+    ) -> dict[str, int | str | None]:
+        self.bootstrap()
+        if ended_on < started_on:
+            raise ValueError("FRED backfill end date must not precede start date")
+        if (ended_on - started_on).days > 365 * 50 + 20:
+            raise ValueError("FRED backfill window must not exceed 50 years")
+        now = fetched_at or datetime.now(timezone.utc)
+        if now.tzinfo is None or now.utcoffset() is None:
+            raise ValueError("fetched_at must be timezone-aware")
+        if ended_on > now.date():
+            raise ValueError("FRED backfill cannot request future dates")
+        sync_run_id = self.repository.start_sync_run("fred", started_at=now)
+        adapter = FredAdapter()
+        transform_adapter = FredTransformAdapter()
+        rows_fetched = 0
+        rows_written = 0
+        errors: list[str] = []
+        known_codes = {item.code for item in FRED_INDICATORS}
+        if indicator_codes is not None and (not indicator_codes or not indicator_codes <= known_codes):
+            raise ValueError("indicator_codes must contain known FRED indicator codes")
+        selected_seeds = tuple(
+            item
+            for item in FRED_INDICATORS
+            if indicator_codes is None or item.code in indicator_codes
+        )
+        initial_release_series = {"us_nfci", "fed_assets_90d_change"}
+        for seed in selected_seeds:
+            request = SeriesRequest(seed.code, seed.provider_series_id, seed.unit)
+            try:
+                payload = await client.fetch_history(
+                    request,
+                    observation_start=started_on,
+                    observation_end=ended_on,
+                    initial_release=seed.code in initial_release_series,
+                )
+                observations = (
+                    adapter.normalize(
+                        payload,
+                        request,
+                        fetched_at=now,
+                        release_from_vintage=seed.code in initial_release_series,
+                    )
+                    if seed.transform == "identity"
+                    else transform_adapter.normalize(
+                        payload,
+                        request,
+                        transform=seed.transform,
+                        fetched_at=now,
+                        release_from_vintage=seed.code in initial_release_series,
+                    )
+                )
+                normalized = []
+                for observation in observations:
+                    flags = set(observation.quality_flags)
+                    released_at = observation.released_at
+                    if seed.code == "sahm_rule":
+                        released_at = min(observation.observed_at + timedelta(days=45), now)
+                    normalized.append(
+                        replace(
+                            observation,
+                            released_at=released_at,
+                            quality_flags=frozenset(flags),
+                        )
+                    )
+                rows_fetched += len(normalized)
+                for observation in normalized:
+                    rows_written += int(
+                        self.repository.save_observation(
+                            observation, sync_run_id=sync_run_id
+                        ).inserted
+                    )
+            except (FredClientError, SourcePayloadError) as exc:
+                errors.append(f"{seed.code}:{type(exc).__name__}")
+        status = (
+            "failed"
+            if len(errors) == len(selected_seeds)
+            else "partial"
+            if errors
+            else "succeeded"
+        )
+        self.repository.finish_sync_run(
+            sync_run_id,
+            finished_at=datetime.now(timezone.utc),
+            status=status,
+            rows_fetched=rows_fetched,
+            rows_written=rows_written,
+            error_code="source_errors" if errors else "",
+            error_detail=",".join(errors),
+        )
+        overview = self.recompute(snapshot_at=now) if rows_fetched and recompute_after else None
+        return {
+            "sync_run_id": sync_run_id,
+            "status": status,
+            "rows_fetched": rows_fetched,
+            "rows_written": rows_written,
+            "stage": None if overview is None else overview.stage.value,
+            "errors": errors,
+        }
+
+    async def sync_fred_calendar(
+        self,
+        client: FredClient,
+        *,
+        fetched_at: datetime | None = None,
+        days: int = 45,
+    ) -> dict[str, int | str]:
+        self.bootstrap()
+        now = fetched_at or datetime.now(timezone.utc)
+        if now.tzinfo is None or now.utcoffset() is None:
+            raise ValueError("fetched_at must be timezone-aware")
+        if days < 1 or days > 90:
+            raise ValueError("calendar days must be between 1 and 90")
+        end_date = now.date() + timedelta(days=days)
+        try:
+            payload = await client.fetch_release_dates(start_date=now.date(), end_date=end_date)
+            events = FredCalendarAdapter().normalize(
+                payload,
+                fetched_at=now,
+                start_date=now.date(),
+                end_date=end_date,
+            )
+            written = self.repository.save_release_events(
+                events, window_start=now.date(), window_end=end_date
+            )
+        except (FredClientError, SourcePayloadError) as exc:
+            return {
+                "status": "failed",
+                "rows_fetched": 0,
+                "rows_written": 0,
+                "error": type(exc).__name__,
+            }
+        return {
+            "status": "succeeded",
+            "rows_fetched": len(events),
+            "rows_written": written,
+            "error": "",
+        }
+
+    async def sync_bea(
+        self,
+        client: BeaClient,
+        *,
+        fetched_at: datetime | None = None,
+        recompute_after: bool = True,
+    ) -> dict[str, int | str | None]:
+        self.bootstrap()
+        now = fetched_at or datetime.now(timezone.utc)
+        if now.tzinfo is None or now.utcoffset() is None:
+            raise ValueError("fetched_at must be timezone-aware")
+        sync_run_id = self.repository.start_sync_run("bea", started_at=now)
+        rows_fetched = 0
+        rows_written = 0
+        error = ""
+        try:
+            payload = await client.fetch_real_gdp(as_of=now)
+            observations = BeaAdapter().normalize_real_gdp(payload, fetched_at=now)
+            rows_fetched = len(observations)
+            for observation in observations:
+                rows_written += int(
+                    self.repository.save_observation(observation, sync_run_id=sync_run_id).inserted
+                )
+        except (OfficialSourceError, SourcePayloadError) as exc:
+            error = type(exc).__name__
+        status = "failed" if error else "succeeded"
+        self.repository.finish_sync_run(
+            sync_run_id,
+            finished_at=datetime.now(timezone.utc),
+            status=status,
+            rows_fetched=rows_fetched,
+            rows_written=rows_written,
+            error_code="source_error" if error else "",
+            error_detail=error,
+        )
+        overview = self.recompute(snapshot_at=now) if rows_fetched and recompute_after else None
+        return {
+            "sync_run_id": sync_run_id,
+            "status": status,
+            "rows_fetched": rows_fetched,
+            "rows_written": rows_written,
+            "stage": None if overview is None else overview.stage.value,
+        }
+
+    async def sync_eia(
+        self,
+        client: EiaClient,
+        *,
+        fetched_at: datetime | None = None,
+        recompute_after: bool = True,
+    ) -> dict[str, int | str | None]:
+        self.bootstrap()
+        now = fetched_at or datetime.now(timezone.utc)
+        if now.tzinfo is None or now.utcoffset() is None:
+            raise ValueError("fetched_at must be timezone-aware")
+        sync_run_id = self.repository.start_sync_run("eia", started_at=now)
+        rows_fetched = 0
+        rows_written = 0
+        error = ""
+        try:
+            start_date = (now.date().replace(day=1) - timedelta(days=400)).isoformat()
+            payload = await client.fetch_wti(start_date=start_date)
+            observations = EiaAdapter().normalize_wti_90d_change(payload, fetched_at=now)
+            rows_fetched = len(observations)
+            for observation in observations:
+                rows_written += int(
+                    self.repository.save_observation(observation, sync_run_id=sync_run_id).inserted
+                )
+        except (OfficialSourceError, SourcePayloadError) as exc:
+            error = type(exc).__name__
+        status = "failed" if error else "succeeded"
+        self.repository.finish_sync_run(
+            sync_run_id,
+            finished_at=datetime.now(timezone.utc),
+            status=status,
+            rows_fetched=rows_fetched,
+            rows_written=rows_written,
+            error_code="source_error" if error else "",
+            error_detail=error,
+        )
+        overview = self.recompute(snapshot_at=now) if rows_fetched and recompute_after else None
+        return {
+            "sync_run_id": sync_run_id,
+            "status": status,
+            "rows_fetched": rows_fetched,
+            "rows_written": rows_written,
+            "stage": None if overview is None else overview.stage.value,
+        }
+
+    async def sync_ecb(
+        self,
+        client: EcbClient,
+        *,
+        fetched_at: datetime | None = None,
+        recompute_after: bool = True,
+    ) -> dict[str, int | str | None]:
+        self.bootstrap()
+        now = fetched_at or datetime.now(timezone.utc)
+        if now.tzinfo is None or now.utcoffset() is None:
+            raise ValueError("fetched_at must be timezone-aware")
+        sync_run_id = self.repository.start_sync_run("ecb", started_at=now)
+        rows_fetched = 0
+        rows_written = 0
+        error = ""
+        try:
+            payload = await client.fetch_ciss(as_of=now)
+            observations = EcbAdapter().normalize_ciss(payload, fetched_at=now)
+            rows_fetched = len(observations)
+            for observation in observations:
+                rows_written += int(
+                    self.repository.save_observation(observation, sync_run_id=sync_run_id).inserted
+                )
+        except (EuropeSourceError, SourcePayloadError) as exc:
+            error = type(exc).__name__
+        status = "failed" if error else "succeeded"
+        self.repository.finish_sync_run(
+            sync_run_id,
+            finished_at=datetime.now(timezone.utc),
+            status=status,
+            rows_fetched=rows_fetched,
+            rows_written=rows_written,
+            error_code="source_error" if error else "",
+            error_detail=error,
+        )
+        overview = self.recompute(snapshot_at=now) if rows_fetched and recompute_after else None
+        return {
+            "sync_run_id": sync_run_id,
+            "status": status,
+            "rows_fetched": rows_fetched,
+            "rows_written": rows_written,
+            "stage": None if overview is None else overview.stage.value,
+        }
+
+    async def sync_eurostat(
+        self,
+        client: EurostatClient,
+        *,
+        fetched_at: datetime | None = None,
+        recompute_after: bool = True,
+    ) -> dict[str, int | str | None]:
+        self.bootstrap()
+        now = fetched_at or datetime.now(timezone.utc)
+        if now.tzinfo is None or now.utcoffset() is None:
+            raise ValueError("fetched_at must be timezone-aware")
+        sync_run_id = self.repository.start_sync_run("eurostat", started_at=now)
+        rows_fetched = 0
+        rows_written = 0
+        error = ""
+        try:
+            payload = await client.fetch_real_gdp(as_of=now)
+            observations = EurostatAdapter().normalize_real_gdp(payload, fetched_at=now)
+            rows_fetched = len(observations)
+            for observation in observations:
+                rows_written += int(
+                    self.repository.save_observation(observation, sync_run_id=sync_run_id).inserted
+                )
+        except (EuropeSourceError, SourcePayloadError) as exc:
+            error = type(exc).__name__
+        status = "failed" if error else "succeeded"
+        self.repository.finish_sync_run(
+            sync_run_id,
+            finished_at=datetime.now(timezone.utc),
+            status=status,
+            rows_fetched=rows_fetched,
+            rows_written=rows_written,
+            error_code="source_error" if error else "",
+            error_detail=error,
+        )
+        overview = self.recompute(snapshot_at=now) if rows_fetched and recompute_after else None
+        return {
+            "sync_run_id": sync_run_id,
+            "status": status,
+            "rows_fetched": rows_fetched,
+            "rows_written": rows_written,
+            "stage": None if overview is None else overview.stage.value,
+        }
+
+    async def sync_world_bank(
+        self,
+        client: WorldBankClient,
+        *,
+        fetched_at: datetime | None = None,
+        recompute_after: bool = True,
+    ) -> dict[str, int | str | None]:
+        self.bootstrap()
+        now = fetched_at or datetime.now(timezone.utc)
+        if now.tzinfo is None or now.utcoffset() is None:
+            raise ValueError("fetched_at must be timezone-aware")
+        sync_run_id = self.repository.start_sync_run("world_bank", started_at=now)
+        adapter = WorldBankAdapter()
+        rows_fetched = 0
+        rows_written = 0
+        errors = []
+        for country in ("CHN", "WLD"):
+            try:
+                payload = await client.fetch_gdp_growth(country, as_of=now)
+                observations = adapter.normalize_gdp_growth(
+                    payload, country=country, fetched_at=now
+                )
+                rows_fetched += len(observations)
+                for observation in observations:
+                    rows_written += int(
+                        self.repository.save_observation(
+                            observation, sync_run_id=sync_run_id
+                        ).inserted
+                    )
+            except (GlobalSourceError, SourcePayloadError) as exc:
+                errors.append(f"{country}:{type(exc).__name__}")
+        status = "failed" if len(errors) == 2 else "partial" if errors else "succeeded"
+        self.repository.finish_sync_run(
+            sync_run_id,
+            finished_at=datetime.now(timezone.utc),
+            status=status,
+            rows_fetched=rows_fetched,
+            rows_written=rows_written,
+            error_code="source_errors" if errors else "",
+            error_detail=",".join(errors),
+        )
+        overview = self.recompute(snapshot_at=now) if rows_fetched and recompute_after else None
+        return {
+            "sync_run_id": sync_run_id,
+            "status": status,
+            "rows_fetched": rows_fetched,
+            "rows_written": rows_written,
+            "stage": None if overview is None else overview.stage.value,
+        }
+
+    async def sync_bis(
+        self,
+        client: BisClient,
+        *,
+        fetched_at: datetime | None = None,
+        recompute_after: bool = True,
+    ) -> dict[str, int | str | None]:
+        self.bootstrap()
+        now = fetched_at or datetime.now(timezone.utc)
+        if now.tzinfo is None or now.utcoffset() is None:
+            raise ValueError("fetched_at must be timezone-aware")
+        sync_run_id = self.repository.start_sync_run("bis", started_at=now)
+        rows_fetched = 0
+        rows_written = 0
+        error = ""
+        try:
+            payload = await client.fetch_credit_gaps()
+            observations = BisAdapter().normalize_credit_gaps(payload, fetched_at=now)
+            rows_fetched = len(observations)
+            for observation in observations:
+                rows_written += int(
+                    self.repository.save_observation(
+                        observation, sync_run_id=sync_run_id
+                    ).inserted
+                )
+        except (GlobalSourceError, SourcePayloadError) as exc:
+            error = type(exc).__name__
+        status = "failed" if error else "succeeded"
+        self.repository.finish_sync_run(
+            sync_run_id,
+            finished_at=datetime.now(timezone.utc),
+            status=status,
+            rows_fetched=rows_fetched,
+            rows_written=rows_written,
+            error_code="source_error" if error else "",
+            error_detail=error,
+        )
+        overview = self.recompute(snapshot_at=now) if rows_fetched and recompute_after else None
+        return {
+            "sync_run_id": sync_run_id,
+            "status": status,
+            "rows_fetched": rows_fetched,
+            "rows_written": rows_written,
+            "stage": None if overview is None else overview.stage.value,
+        }
+
+    async def sync_oecd(
+        self,
+        client: OecdClient,
+        *,
+        fetched_at: datetime | None = None,
+        recompute_after: bool = True,
+    ) -> dict[str, int | str | None]:
+        self.bootstrap()
+        now = fetched_at or datetime.now(timezone.utc)
+        if now.tzinfo is None or now.utcoffset() is None:
+            raise ValueError("fetched_at must be timezone-aware")
+        sync_run_id = self.repository.start_sync_run("oecd", started_at=now)
+        rows_fetched = 0
+        rows_written = 0
+        error = ""
+        try:
+            payload = await client.fetch_composite_leading_indicators(as_of=now)
+            observations = OecdAdapter().normalize_cli_momentum(payload, fetched_at=now)
+            rows_fetched = len(observations)
+            for observation in observations:
+                rows_written += int(
+                    self.repository.save_observation(
+                        observation, sync_run_id=sync_run_id
+                    ).inserted
+                )
+        except (GlobalSourceError, SourcePayloadError) as exc:
+            error = type(exc).__name__
+        status = "failed" if error else "succeeded"
+        self.repository.finish_sync_run(
+            sync_run_id,
+            finished_at=datetime.now(timezone.utc),
+            status=status,
+            rows_fetched=rows_fetched,
+            rows_written=rows_written,
+            error_code="source_error" if error else "",
+            error_detail=error,
+        )
+        overview = self.recompute(snapshot_at=now) if rows_fetched and recompute_after else None
+        return {
+            "sync_run_id": sync_run_id,
+            "status": status,
+            "rows_fetched": rows_fetched,
+            "rows_written": rows_written,
+            "stage": None if overview is None else overview.stage.value,
+        }
+
+    async def sync_news(
+        self,
+        client: RssClient,
+        *,
+        fetched_at: datetime | None = None,
+    ) -> dict[str, int | str]:
+        self.bootstrap()
+        now = fetched_at or datetime.now(timezone.utc)
+        if now.tzinfo is None or now.utcoffset() is None:
+            raise ValueError("fetched_at must be timezone-aware")
+        source_code = client.source_code
+        sync_run_id = self.repository.start_sync_run(source_code, started_at=now)
+        rows_fetched = 0
+        rows_written = 0
+        evidence_written = 0
+        error = ""
+        try:
+            payload = await client.fetch()
+            items = RssAdapter(source_code).normalize(payload, fetched_at=now)
+            rows_fetched = len(items)
+            for item in items:
+                saved = self.repository.save_news_item(item, sync_run_id=sync_run_id)
+                rows_written += int(saved.inserted)
+                for evidence in classify_news(item):
+                    evidence_written += int(
+                        self.repository.save_news_evidence(
+                            saved.news_item_id,
+                            evidence,
+                            methodology_code=METHODOLOGY_CODE,
+                            methodology_version=METHODOLOGY_VERSION,
+                            rule_version=NEWS_RULE_VERSION,
+                        )
+                    )
+        except (NewsSourceError, SourcePayloadError) as exc:
+            error = type(exc).__name__
+        status = "failed" if error else "succeeded"
+        self.repository.finish_sync_run(
+            sync_run_id,
+            finished_at=datetime.now(timezone.utc),
+            status=status,
+            rows_fetched=rows_fetched,
+            rows_written=rows_written,
+            error_code="source_error" if error else "",
+            error_detail=error,
+        )
+        return {
+            "sync_run_id": sync_run_id,
+            "status": status,
+            "rows_fetched": rows_fetched,
+            "rows_written": rows_written,
+            "evidence_written": evidence_written,
+        }
+
+    async def sync_bybit(
+        self,
+        client: BybitClient,
+        *,
+        fetched_at: datetime | None = None,
+        recompute_after: bool = True,
+    ) -> dict[str, int | str | None]:
+        self.bootstrap()
+        now = fetched_at or datetime.now(timezone.utc)
+        if now.tzinfo is None or now.utcoffset() is None:
+            raise ValueError("fetched_at must be timezone-aware")
+        sync_run_id = self.repository.start_sync_run("bybit", started_at=now)
+        adapter = BybitAdapter()
+        rows_fetched = 0
+        rows_written = 0
+        errors = []
+        for symbol in ("BTCUSDT", "ETHUSDT"):
+            try:
+                payloads = (
+                    (await client.fetch_funding(symbol), adapter.normalize_funding),
+                    (await client.fetch_open_interest(symbol), adapter.normalize_oi_change),
+                    (await client.fetch_daily_klines(symbol), adapter.normalize_drawdown),
+                )
+                for payload, normalize in payloads:
+                    observations = normalize(payload, symbol=symbol, fetched_at=now)
+                    rows_fetched += len(observations)
+                    for observation in observations:
+                        rows_written += int(
+                            self.repository.save_observation(
+                                observation, sync_run_id=sync_run_id
+                            ).inserted
+                        )
+            except (BybitSourceError, SourcePayloadError) as exc:
+                errors.append(f"{symbol}:{type(exc).__name__}")
+        status = "failed" if len(errors) == 2 else "partial" if errors else "succeeded"
+        self.repository.finish_sync_run(
+            sync_run_id,
+            finished_at=datetime.now(timezone.utc),
+            status=status,
+            rows_fetched=rows_fetched,
+            rows_written=rows_written,
+            error_code="source_errors" if errors else "",
+            error_detail=",".join(errors),
+        )
+        overview = self.recompute(snapshot_at=now) if rows_fetched and recompute_after else None
+        return {
+            "sync_run_id": sync_run_id,
+            "status": status,
+            "rows_fetched": rows_fetched,
+            "rows_written": rows_written,
+            "stage": None if overview is None else overview.stage.value,
+        }
+
+    async def backfill_bybit(
+        self,
+        client: BybitClient,
+        *,
+        started_on: date,
+        ended_on: date,
+        fetched_at: datetime | None = None,
+        recompute_after: bool = True,
+        indicator_codes: set[str] | None = None,
+    ) -> dict[str, int | str | None | list[str]]:
+        """Backfill bounded public Bybit history without creating retrospective labels."""
+        self.bootstrap()
+        if ended_on < started_on:
+            raise ValueError("Bybit backfill end date must not precede start date")
+        if (ended_on - started_on).days > 365 * 10 + 3:
+            raise ValueError("Bybit backfill window must not exceed 10 years")
+        now = fetched_at or datetime.now(timezone.utc)
+        if now.tzinfo is None or now.utcoffset() is None:
+            raise ValueError("fetched_at must be timezone-aware")
+        if ended_on > now.date():
+            raise ValueError("Bybit backfill cannot request future dates")
+        known_codes = {item.code for item in BYBIT_INDICATORS + BYBIT_RESEARCH_INDICATORS}
+        if indicator_codes is not None and (not indicator_codes or not indicator_codes <= known_codes):
+            raise ValueError("indicator_codes must contain known Bybit indicator codes")
+
+        started_at = datetime(
+            started_on.year, started_on.month, started_on.day, tzinfo=timezone.utc
+        )
+        requested_end = datetime(
+            ended_on.year,
+            ended_on.month,
+            ended_on.day,
+            23,
+            59,
+            59,
+            999000,
+            tzinfo=timezone.utc,
+        )
+        ended_at = min(requested_end, now)
+        sync_run_id = self.repository.start_sync_run("bybit", started_at=now)
+        adapter = BybitAdapter()
+        rows_fetched = 0
+        rows_written = 0
+        errors: list[str] = []
+        attempted = 0
+
+        for symbol in ("BTCUSDT", "ETHUSDT"):
+            prefix = symbol.removesuffix("USDT").lower()
+            jobs = (
+                (
+                    (f"{prefix}_funding_rate",),
+                    f"{prefix}_funding_rate",
+                    lambda: client.fetch_funding_history(
+                        symbol, started_at=started_at, ended_at=ended_at
+                    ),
+                    lambda payload: adapter.normalize_daily_funding_history(
+                        payload,
+                        symbol=symbol,
+                        fetched_at=now,
+                        started_at=started_at,
+                        ended_at=ended_at,
+                    ),
+                ),
+                (
+                    (
+                        f"{prefix}_oi_7d_abs_change",
+                        f"{prefix}_open_interest",
+                        f"{prefix}_oi_7d_change",
+                    ),
+                    f"{prefix}_open_interest_history",
+                    lambda: client.fetch_open_interest_history(
+                        symbol,
+                        started_at=started_at - timedelta(days=8),
+                        ended_at=ended_at,
+                    ),
+                    lambda payload: (
+                        adapter.normalize_oi_change_history(
+                            payload,
+                            symbol=symbol,
+                            fetched_at=now,
+                            started_at=started_at,
+                            ended_at=ended_at,
+                        )
+                        + adapter.normalize_oi_research_history(
+                            payload,
+                            symbol=symbol,
+                            fetched_at=now,
+                            started_at=started_at,
+                            ended_at=ended_at,
+                        )
+                    ),
+                ),
+                (
+                    (
+                        f"{prefix}_30d_drawdown",
+                        f"{prefix}_close_price",
+                        f"{prefix}_return_7d",
+                    ),
+                    f"{prefix}_kline_history",
+                    lambda: client.fetch_kline_history(
+                        symbol,
+                        started_at=started_at - timedelta(days=31),
+                        ended_at=ended_at,
+                    ),
+                    lambda payload: (
+                        adapter.normalize_drawdown_history(
+                            payload,
+                            symbol=symbol,
+                            fetched_at=now,
+                            started_at=started_at,
+                            ended_at=ended_at,
+                        )
+                        + adapter.normalize_price_research_history(
+                            payload,
+                            symbol=symbol,
+                            fetched_at=now,
+                            started_at=started_at,
+                            ended_at=ended_at,
+                        )
+                    ),
+                ),
+            )
+            for job_codes, error_code, fetch, normalize in jobs:
+                if indicator_codes is not None and not set(job_codes) & indicator_codes:
+                    continue
+                attempted += 1
+                try:
+                    observations = [
+                        item
+                        for item in normalize(await fetch())
+                        if indicator_codes is None or item.indicator_code in indicator_codes
+                    ]
+                    rows_fetched += len(observations)
+                    for observation in observations:
+                        rows_written += int(
+                            self.repository.save_observation(
+                                observation, sync_run_id=sync_run_id
+                            ).inserted
+                        )
+                except (BybitSourceError, SourcePayloadError) as exc:
+                    errors.append(f"{error_code}:{type(exc).__name__}")
+
+        status = "failed" if len(errors) == attempted else "partial" if errors else "succeeded"
+        self.repository.finish_sync_run(
+            sync_run_id,
+            finished_at=datetime.now(timezone.utc),
+            status=status,
+            rows_fetched=rows_fetched,
+            rows_written=rows_written,
+            error_code="source_errors" if errors else "",
+            error_detail=",".join(errors),
+        )
+        overview = self.recompute(snapshot_at=now) if rows_fetched and recompute_after else None
+        return {
+            "sync_run_id": sync_run_id,
+            "status": status,
+            "rows_fetched": rows_fetched,
+            "rows_written": rows_written,
+            "stage": None if overview is None else overview.stage.value,
+            "errors": errors,
+        }
+
+    def recompute(self, *, snapshot_at: datetime | None = None) -> MarketOverview | None:
+        now = snapshot_at or datetime.now(timezone.utc)
+        if now.tzinfo is None or now.utcoffset() is None:
+            raise ValueError("snapshot_at must be timezone-aware")
+        inputs = self.repository.latest_analysis_inputs(METHODOLOGY_CODE, METHODOLOGY_VERSION)
+        if not inputs:
+            return None
+        states = []
+        for item in inputs:
+            base_state = build_indicator_state(
+                item.observation,
+                group_code=item.group_code,
+                thresholds=item.thresholds,
+                max_staleness_seconds=item.max_staleness_seconds,
+                snapshot_at=now,
+            )
+            confirmation_points = (
+                1
+                if item.frequency in {"monthly", "quarterly", "annual"}
+                else STABILITY_POLICY.confirmation_points
+            )
+            states.append(
+                stabilize_indicator_state(
+                    base_state,
+                    previous_band=self.repository.latest_indicator_band(
+                        item.observation.indicator_code,
+                        methodology_id=item.methodology_id,
+                    ),
+                    recent_values=self.repository.recent_indicator_values(
+                        item.observation.indicator_code,
+                        limit=max(confirmation_points + 1, 3),
+                    ),
+                    thresholds=item.thresholds,
+                    confirmation_points=confirmation_points,
+                )
+            )
+        overview = build_market_overview(states, snapshot_at=now)
+        methodology_ids = {item.methodology_id for item in inputs}
+        if len(methodology_ids) != 1:
+            raise RuntimeError("analysis inputs contain mixed methodologies")
+        methodology_id = methodology_ids.pop()
+        self.repository.save_analysis_snapshot(states, overview, methodology_id=methodology_id)
+        scenario_states = build_scenario_states(overview.groups)
+        self.repository.save_scenario_snapshot(
+            scenario_states,
+            methodology_id=methodology_id,
+            snapshot_at=now,
+        )
+        return overview
+
+    def overview(self, *, locale: str = "ru") -> dict:
+        return self.repository.latest_overview_payload(locale=locale)
+
+    def world(
+        self, *, locale: str = "ru", as_of: datetime | None = None
+    ) -> dict:
+        payload = self.repository.regional_contour_payload(
+            methodology_code=METHODOLOGY_CODE,
+            methodology_version=METHODOLOGY_VERSION,
+            locale=locale,
+            as_of=as_of,
+        )
+        localized_names = {
+            item.code: item.name_ru if locale == "ru" else item.name
+            for item in STARTER_INDICATORS
+        }
+        for region in payload["regions"]:
+            for indicator in region["indicators"]:
+                indicator["name"] = localized_names.get(indicator["code"], indicator["name"])
+        payload["locale"] = locale
+        payload["explanation"] = (
+            "Контур показывает только фактически загруженные данные; пропуски отмечены как missing."
+            if locale == "ru"
+            else "The contour shows only persisted data; unavailable observations are marked missing."
+        )
+        return payload
+
+    def source_health(
+        self, *, locale: str = "ru", as_of: datetime | None = None
+    ) -> dict:
+        if locale not in {"ru", "en"}:
+            raise ValueError("locale must be ru or en")
+        payload = self.repository.source_health_payload(as_of=as_of)
+        labels = {
+            "healthy": {"ru": "работает", "en": "healthy"},
+            "degraded": {"ru": "работает с ошибками", "en": "degraded"},
+            "failed": {"ru": "ошибка", "en": "failed"},
+            "stale": {"ru": "данные устарели", "en": "stale"},
+            "running": {"ru": "синхронизация", "en": "running"},
+            "never_synced": {"ru": "ещё не синхронизирован", "en": "never synced"},
+            "disabled": {"ru": "отключён", "en": "disabled"},
+        }
+        for source in payload["sources"]:
+            source["status_label"] = labels[source["status"]][locale]
+        payload["locale"] = locale
+        return payload
+
+    def opportunities(
+        self,
+        *,
+        quotes: tuple[MarketQuote, ...] = (),
+        locale: str = "ru",
+        as_of: datetime | None = None,
+        max_ideas: int = 10,
+    ) -> dict:
+        if locale not in {"ru", "en"}:
+            raise ValueError("locale must be ru or en")
+        overview = self.overview(locale=locale)
+        snapshot_at = overview.get("as_of")
+        reference_time = as_of
+        if reference_time is None and snapshot_at:
+            try:
+                reference_time = datetime.fromisoformat(str(snapshot_at))
+            except ValueError:
+                reference_time = None
+        reference_time = reference_time or datetime.now(timezone.utc)
+        if reference_time.tzinfo is None or reference_time.utcoffset() is None:
+            raise ValueError("as_of must be timezone-aware")
+        reference_time = reference_time.astimezone(timezone.utc)
+
+        quality_values: list[Decimal] = []
+        for indicator in overview.get("indicators", []):
+            raw = indicator.get("quality_score")
+            if raw is None:
+                continue
+            try:
+                value = Decimal(str(raw))
+            except InvalidOperation:
+                continue
+            if value.is_finite() and Decimal("0") <= value <= Decimal("1"):
+                quality_values.append(value)
+        overall_quality = (
+            sum(quality_values, Decimal("0")) / Decimal(len(quality_values))
+            if quality_values
+            else Decimal("0")
+        )
+        scenarios = tuple(
+            ScenarioSignal(
+                code=str(item["code"]),
+                status=str(item["status"]),
+                confidence=str(item["confidence"]),
+                horizon=str(item.get("horizon") or "unspecified"),
+                evidence_codes=tuple(
+                    str(evidence.get("group_code") or evidence.get("code") or "")
+                    for evidence in item.get("evidence", [])
+                    if isinstance(evidence, dict)
+                    and (evidence.get("group_code") or evidence.get("code"))
+                ),
+            )
+            for item in overview.get("scenarios", [])
+        )
+        try:
+            stage = OpportunityMarketStage(str(overview.get("stage", "stable")))
+        except ValueError:
+            stage = OpportunityMarketStage.STABLE
+        ideas = generate_opportunities(
+            OpportunityContext(
+                as_of=reference_time,
+                stage=stage,
+                data_quality_score=overall_quality,
+                scenarios=scenarios,
+                quotes=quotes,
+            ),
+            max_ideas=max_ideas,
+        )
+        quotes_by_symbol = {item.symbol: item for item in quotes}
+
+        def localized(text) -> str:
+            return text.ru if locale == "ru" else text.en
+
+        return {
+            "ready": bool(overview.get("ready")),
+            "as_of": reference_time.isoformat(),
+            "locale": locale,
+            "methodology": overview.get("methodology"),
+            "stage": stage.value,
+            "data_quality_score": format(overall_quality.quantize(Decimal("0.0001")), "f"),
+            "quote_count": len(quotes),
+            "available_asset_classes": sorted({item.asset_class.value for item in quotes}),
+            "ideas": [
+                {
+                    "rank": item.rank,
+                    "idea_key": item.idea_key,
+                    "symbol": item.symbol,
+                    "asset_class": item.asset_class.value,
+                    "side": item.side.value,
+                    "strategy": item.strategy,
+                    "score": format(item.score, "f"),
+                    "reference_price": (
+                        None
+                        if item.symbol not in quotes_by_symbol
+                        else format(quotes_by_symbol[item.symbol].price, "f")
+                    ),
+                    "quote_as_of": (
+                        None
+                        if item.symbol not in quotes_by_symbol
+                        else quotes_by_symbol[item.symbol].as_of.isoformat()
+                    ),
+                    "trigger": localized(item.trigger),
+                    "invalidation": localized(item.invalidation),
+                    "horizon": item.horizon,
+                    "expected_range_pct": {
+                        "minimum": format(item.expected_range_pct.minimum, "f"),
+                        "maximum": format(item.expected_range_pct.maximum, "f"),
+                    },
+                    "loss_range_pct": {
+                        "minimum": format(item.loss_range_pct.minimum, "f"),
+                        "maximum": format(item.loss_range_pct.maximum, "f"),
+                    },
+                    "rationale": localized(item.rationale),
+                    "evidence": [localized(value) for value in item.evidence],
+                    "limitations": [localized(value) for value in item.limitations],
+                    "analysis_only": item.analysis_only,
+                    "execution_allowed": item.execution_allowed,
+                    "personalized_advice": item.personalized_advice,
+                }
+                for item in ideas
+            ],
+            "limitations": [
+                (
+                    "Сейчас автоматически подключены только проверяемые крипто-котировки; "
+                    "идеи по TradFi не создаются без настроенного источника цен."
+                    if locale == "ru"
+                    else "Only verifiable crypto quotes are connected automatically; "
+                    "TradFi ideas are not created without a configured price source."
+                ),
+                (
+                    "Диапазоны — условные сценарии, а не обещание доходности. Сделки не создаются."
+                    if locale == "ru"
+                    else "Ranges are conditional scenarios, not promised returns. No trade is created."
+                ),
+            ],
+        }
+
+    def calendar(self, *, locale: str = "ru", days: int = 30, as_of: date | None = None) -> dict:
+        start_date = as_of or datetime.now(timezone.utc).date()
+        return self.repository.upcoming_release_payload(
+            locale=locale, start_date=start_date, days=days
+        )
+
+    def indicator_history(self, code: str, *, limit: int = 180) -> dict | None:
+        payload = self.repository.indicator_history_payload(code, limit=limit)
+        if payload is None:
+            return None
+        points = payload.get("points") or []
+        if not points:
+            payload["event_windows"] = []
+            return payload
+        coverage_start = str(points[0].get("observed_at") or "")
+        coverage_end = str(points[-1].get("observed_at") or "")
+        group_code = payload.get("group_code")
+        windows: list[dict] = []
+        for scenario in SCENARIOS:
+            if group_code not in scenario.group_codes:
+                continue
+            catalog = self.repository.event_catalog_payload(scenario.code)
+            if catalog is None:
+                continue
+            for label in catalog.get("labels", []):
+                started_at = str(label.get("started_at") or "")
+                ended_at = str(label.get("ended_at") or started_at)
+                if not started_at or ended_at < coverage_start or started_at > coverage_end:
+                    continue
+                windows.append(
+                    {
+                        "scenario_code": scenario.code,
+                        "started_at": started_at,
+                        "ended_at": ended_at,
+                        "label_status": label.get("label_status"),
+                        "source_url": label.get("source_url"),
+                    }
+                )
+        payload["event_windows"] = sorted(
+            windows,
+            key=lambda item: (item["started_at"], item["scenario_code"]),
+        )
+        return payload
+
+    def backtest_run(self, run_id: int) -> dict | None:
+        if run_id < 1:
+            return None
+        return self.repository.backtest_run_payload(run_id)
+
+    def replay_run(self, run_id: int) -> dict | None:
+        if run_id < 1:
+            return None
+        return self.repository.replay_run_payload(run_id)
+
+    def event_catalog(self, code: str, *, version: str | None = None) -> dict | None:
+        if code not in {item.code for item in SCENARIOS}:
+            return None
+        return self.repository.event_catalog_payload(code, version=version)
+
+    def scenario_calibration(self, code: str) -> dict | None:
+        if code not in {item.code for item in SCENARIOS}:
+            return None
+        payload = self.repository.latest_backtest_payload(
+            code,
+            methodology_code=METHODOLOGY_CODE,
+            methodology_version=METHODOLOGY_VERSION,
+            require_provenance=True,
+        )
+        if payload is None:
+            return {
+                "ready": False,
+                "scenario_code": code,
+                "probability": None,
+                "confidence": "insufficient",
+                "reason": "no_completed_backtest",
+                "historical_backtest": None,
+            }
+        latest = payload["predictions"][-1] if payload["predictions"] else None
+        historical_probability = (
+            None if latest is None else latest["calibrated_probability_text"]
+        )
+        historical_confidence = "insufficient" if latest is None else latest["confidence"]
+        metrics = payload["metrics"]
+        brier = metrics.get("brier_score")
+        baseline = metrics.get("baseline_brier_score")
+        precision = metrics.get("precision")
+        recall = metrics.get("recall")
+        positive_events = int(metrics.get("positive_event_count", 0))
+        acceptable = bool(
+            historical_probability is not None
+            and brier is not None
+            and baseline is not None
+            and float(brier) < float(baseline)
+            and precision is not None
+            and recall is not None
+            and float(recall) > 0
+            and positive_events >= 3
+        )
+        if not acceptable:
+            historical_probability = None
+            historical_confidence = "insufficient"
+        if latest is None or latest["calibrated_probability_text"] is None:
+            reason = "insufficient_resolved_history"
+        elif not acceptable:
+            reason = "calibration_does_not_beat_baseline"
+        else:
+            reason = "historical_backtest_not_applied_to_live_score"
+        return {
+            "ready": False,
+            "scenario_code": code,
+            "probability": None,
+            "confidence": "insufficient",
+            "reason": reason,
+            "historical_backtest": {
+                "ready": acceptable,
+                "probability": historical_probability,
+                "confidence": historical_confidence,
+                "run_id": payload["run_id"],
+                "completed_at": payload["completed_at"],
+                "horizon_seconds": payload["horizon_seconds"],
+                "metrics": payload["metrics"],
+                "calibration_bins": payload["calibration_bins"],
+                "scope": "historical_only",
+            },
+        }
+
+    def news(
+        self,
+        *,
+        locale: str = "ru",
+        days: int = 14,
+        limit: int = 20,
+        as_of: datetime | None = None,
+    ) -> dict:
+        return self.repository.news_payload(
+            methodology_code=METHODOLOGY_CODE,
+            methodology_version=METHODOLOGY_VERSION,
+            locale=locale,
+            days=days,
+            limit=limit,
+            as_of=as_of,
+        )

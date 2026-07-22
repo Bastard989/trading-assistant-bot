@@ -38,3 +38,20 @@ Stop both services, point `/opt/trading-assistant/current` back to the previous 
 
 After launch, verify health, Telegram `/menu`, Mini App auth failure/success, owner isolation, one temporary journal operation, market outage messaging, logs, and backup timer. Do not send test messages to real users.
 
+## Observation window
+
+Keep the new release under observation before calling the server migration complete:
+
+```bash
+.venv/bin/python -m scripts.soak_check \
+  --base-url http://127.0.0.1:8080 \
+  --duration-seconds 604800 \
+  --interval-seconds 30 \
+  --max-consecutive-failures 2 | tee /var/lib/trading-assistant/soak-7d.jsonl
+journalctl -u trading-assistant-api -u trading-assistant-bot --since today --priority warning
+systemctl list-timers trading-assistant-backup.timer
+```
+
+Run the soak command under systemd/tmux so logout does not stop it. It probes both liveness and schema/database readiness, emits bounded JSONL samples, aborts after the configured consecutive-failure budget, and returns non-zero if any sample failed. A separate daily review still checks authenticated source health, notification delivery/retry counts, backups, disk and restart counters because those are not safe to expose on a public unauthenticated endpoint.
+
+For the first 24 hours, inspect authenticated Crisis Radar source health after each scheduled macro/global sync and confirm that the snapshot timestamp advances without duplicate alert deliveries. For seven days, review backup sidecars, source failures, restart counts, Telegram delivery retries, and disk growth daily. A future observation period cannot be claimed as passed in advance; record its actual start/end and incidents in the private operations log.

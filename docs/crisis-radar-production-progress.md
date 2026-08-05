@@ -27,7 +27,7 @@
 | 8. Backtest и calibration | completed (engine/gates; probabilities not promoted) | Causal replay, right-censoring, checksums, sensitivity/ablation/holdout gates и model card реализованы. Реальные Bybit 15/30d replay (`2 309` записей, `1 804` sufficient, `5` episodes) не победили baseline и дали recall `0`; поэтому вероятность остаётся `null`. Для v10 ещё нет ≥30 независимых разрешённых событий — прогностическая сила экспериментальная. |
 | 9. Интерфейс | completed | Три уровня `Главное / Разобрать / Методика`, человеческое объяснение, 24h/7d/15d, события, тренды, сценарии, возможности, источники и раскрываемые `?`. Полная RU/EN локализация, включая глобальную навигацию и accessibility labels; браузерный smoke выполнен на `candidate-v10`. |
 | 10. Уведомления | completed | Отдельные market/data-health сообщения, multi-channel confirmation, causal delta, cooldown, dedup, recovery и retry queues; первая загрузка создаёт baseline без ложного market alert. Две недельные сводки используют существующий scheduler. |
-| 11. Production hardening | in progress (time-gated canary) | На 2026-08-05: `301 passed`, Ruff/JS/diff-check passed, `pip-audit` — no known vulnerabilities; локальный browser/API E2E passed. Predeploy SQLite backup SHA-256 совпал с baseline, отдельный restore дал integrity `ok`, `45` таблиц, `55 084` наблюдения, `0` сделок. Runbook/model card/пользовательская и техническая методика `.md/.docx` готовы. Серверный deploy/smoke и старт 14-дневного canary фиксируются ниже. |
+| 11. Production hardening | in progress (time-gated canary) | На 2026-08-05: `301 passed`, coverage `71.06%`, Ruff/JS/diff-check passed, `pip-audit` — no known vulnerabilities, GitHub CI и gitleaks green. Server release `433acdb`, schema v20, API/bot active, internal/public HTTPS health 200, Telegram `getMe` passed. Предрелизный backup восстановлен и dry-migrated без изменения `55 306` наблюдений/`0` сделок. 14-дневный systemd canary запущен `2026-08-05T02:45Z`; календарный gate завершится не ранее `2026-08-19T02:45Z`. |
 
 ## Последняя контрольная точка
 
@@ -37,6 +37,18 @@
 - Local browser smoke: overview/analysis/methodology, RU/EN, help dialogs, thresholds, trends и opportunities; все Crisis Radar endpoints returned `200`.
 - Live official feeds: required numeric and RSS contracts passed; optional GDELT discovery degraded without влияния на required gate.
 - Документация: `docs/crisis-radar-guide.md`, `.docx`, model card и runbook.
+
+## Production deployment 2026-08-05
+
+- GitHub CI: commits `fe0135c` и `433acdb` — test и secret jobs completed successfully.
+- Активный immutable release: `/opt/trading-assistant/releases/433acdb`; предыдущие `55f56c0` и `e3c5a59` сохранены для rollback.
+- Рабочая SQLite: migration v14 → v20; integrity `ok`, FK check без строк, `55 306` наблюдений, `0` сделок.
+- Backup: `pre-crisis-v10-20260805T0128Z.sqlite3`, SHA-256 `e23b8c71574ef3d2ae8771ac9735eebe2fdb79e05dff95cbf959c172aa74cfb7`; restore drill и dry migration v20 прошли.
+- Первый полный production sync: FRED/BEA/EIA/ECB/Eurostat/Bybit, World Bank `70`, BIS `1 745`, OECD `360`, семь official RSS — succeeded. GDELT остаётся optional discovery.
+- Текущее состояние после sync: methodology `candidate-v10`, stage `warning`, coverage `degraded 0.9945`, fresh `54`, delayed `1`, stale/missing `0`, обязательных групп/регионов не пропущено; `8` групп warning+, `1` danger, `0` critical. `regional_recession=watch`, остальные сценарии inactive.
+- Сохранено: `160` news items, `94` news evidence, `174` indicator feature rows, `4` contagion rows, `44` fusion rows, `4` v10 snapshots; duplicate delivery keys `0`.
+- API и bot systemd units active; internal и public HTTPS readiness `200`; Telegram bot identity проверена без отправки тестового сообщения; warning journal пуст.
+- Canary unit: `trading-assistant-crisis-canary-v10.service`, период `1 209 600` секунд, interval `30` секунд, закрытый журнал `/var/lib/trading-assistant/canary/health-v10-20260805T0245Z.jsonl`. Первый sample: live/ready `200`, consecutive failures `0`.
 
 ## Решения
 

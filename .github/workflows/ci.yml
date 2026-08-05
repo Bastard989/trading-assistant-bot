@@ -32,9 +32,8 @@ jobs:
       - run: pip install -r requirements-dev.txt
       - run: ruff check .
       - run: node --check mini_app/app.js
-      - run: pytest -q --cov=trading_bot --cov-report=term --cov-fail-under=30
-      - run: pip-audit -r requirements.txt
+      - run: python -m pytest -q --cov=trading_bot --cov-report=term --cov-fail-under=30
+      - run: pip-audit -r requirements.txt -r requirements-dev.txt
       - run: |
-          python scripts/migrate.py /tmp/empty.sqlite3
-          python scripts/migrate.py /tmp/empty.sqlite3
-
+          python -m scripts.migrate /tmp/empty.sqlite3
+          python -m scripts.migrate /tmp/empty.sqlite3

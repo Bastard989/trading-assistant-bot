@@ -8,12 +8,27 @@ from trading_bot.crisis_radar.catalog import (
     BYBIT_INDICATORS,
     BYBIT_RESEARCH_INDICATORS,
     FRED_INDICATORS,
+    FRED_GLOBAL_V2_INDICATORS,
     METHODOLOGY_CODE,
+    METHODOLOGY_GLOBAL_V2_VERSION,
     METHODOLOGY_VERSION,
+    METHODOLOGY_V2_VERSION,
     STARTER_INDICATORS,
+    GLOBAL_V2_INDICATORS,
+    V2_INDICATORS,
+    bootstrap_global_v2_catalog,
     bootstrap_starter_catalog,
+    bootstrap_v2_catalog,
 )
+from trading_bot.crisis_radar.coverage import (
+    DEFAULT_REQUIRED_REGIONS,
+    GLOBAL_V2_REQUIRED_REGIONS,
+    ExpectedIndicator,
+    assess_coverage,
+)
+from trading_bot.crisis_radar.feature_flags import CrisisRadarFeatureFlags
 from trading_bot.crisis_radar.news import NEWS_RULE_VERSION, RssAdapter, classify_news
+from trading_bot.crisis_radar.event_pipeline import extract_event_candidate
 from trading_bot.crisis_radar.official_catalogs import bootstrap_official_event_catalogs
 from trading_bot.crisis_radar.domain import MarketOverview
 from trading_bot.crisis_radar.derived_labels import (
@@ -29,7 +44,8 @@ from trading_bot.crisis_radar.opportunities import (
     generate_opportunities,
 )
 from trading_bot.crisis_radar.repositories import CrisisRadarRepository
-from trading_bot.crisis_radar.scenarios import SCENARIOS, build_scenario_states
+from trading_bot.crisis_radar.scenarios import SCENARIOS, V2_SCENARIOS, build_scenario_states
+from trading_bot.crisis_radar.scenario_fusion import fuse_scenarios
 from trading_bot.crisis_radar.sources.base import SeriesRequest
 from trading_bot.crisis_radar.sources.base import SourcePayloadError
 from trading_bot.crisis_radar.sources.bea import BeaAdapter
@@ -48,18 +64,47 @@ from trading_bot.crisis_radar.sources.global_clients import (
     WorldBankClient,
 )
 from trading_bot.crisis_radar.sources.global_data import BisAdapter, OecdAdapter, WorldBankAdapter
-from trading_bot.crisis_radar.sources.news_clients import NewsSourceError, RssClient
+from trading_bot.crisis_radar.sources.gdelt import GdeltDiscoveryAdapter
+from trading_bot.crisis_radar.sources.news_clients import (
+    GdeltDiscoveryClient,
+    NewsSourceError,
+    RssClient,
+)
 from trading_bot.crisis_radar.sources.official_clients import BeaClient, EiaClient, OfficialSourceError
 from trading_bot.crisis_radar.stability import STABILITY_POLICY, stabilize_indicator_state
 from trading_bot.crisis_radar.states import build_indicator_state, build_market_overview
+from trading_bot.crisis_radar.trends import calculate_contagion, calculate_indicator_features
+from trading_bot.crisis_radar.validation import evaluate_stored_calibration_gate
 
 
 class CrisisRadarService:
-    def __init__(self, repository: CrisisRadarRepository) -> None:
+    def __init__(
+        self,
+        repository: CrisisRadarRepository,
+        *,
+        feature_flags: CrisisRadarFeatureFlags | None = None,
+    ) -> None:
         self.repository = repository
+        self.feature_flags = feature_flags or CrisisRadarFeatureFlags.from_environment()
+        if self.feature_flags.global_sources_v2:
+            self.methodology_version = METHODOLOGY_GLOBAL_V2_VERSION
+            self.indicators = GLOBAL_V2_INDICATORS
+            self.scenarios = V2_SCENARIOS
+        elif self.feature_flags.thresholds_v2:
+            self.methodology_version = METHODOLOGY_V2_VERSION
+            self.indicators = V2_INDICATORS
+            self.scenarios = SCENARIOS
+        else:
+            self.methodology_version = METHODOLOGY_VERSION
+            self.indicators = STARTER_INDICATORS
+            self.scenarios = SCENARIOS
 
     def bootstrap(self) -> dict[str, int | str]:
         result = bootstrap_starter_catalog(self.repository)
+        if self.feature_flags.global_sources_v2:
+            result = bootstrap_global_v2_catalog(self.repository)
+        elif self.feature_flags.thresholds_v2:
+            result = bootstrap_v2_catalog(self.repository)
         result["event_catalog_count"] = len(bootstrap_official_event_catalogs(self.repository))
         return result
 
@@ -148,7 +193,12 @@ class CrisisRadarService:
         rows_fetched = 0
         rows_written = 0
         errors: list[str] = []
-        for seed in FRED_INDICATORS:
+        fred_seeds = (
+            FRED_INDICATORS + FRED_GLOBAL_V2_INDICATORS
+            if self.feature_flags.global_sources_v2
+            else FRED_INDICATORS
+        )
+        for seed in fred_seeds:
             request = SeriesRequest(seed.code, seed.provider_series_id, seed.unit)
             try:
                 payload = (
@@ -172,7 +222,7 @@ class CrisisRadarService:
                     rows_written += int(result.inserted)
             except (FredClientError, SourcePayloadError) as exc:
                 errors.append(f"{seed.code}:{type(exc).__name__}")
-        status = "failed" if len(errors) == len(FRED_INDICATORS) else "partial" if errors else "succeeded"
+        status = "failed" if len(errors) == len(fred_seeds) else "partial" if errors else "succeeded"
         self.repository.finish_sync_run(
             sync_run_id,
             finished_at=datetime.now(timezone.utc),
@@ -217,12 +267,17 @@ class CrisisRadarService:
         rows_fetched = 0
         rows_written = 0
         errors: list[str] = []
-        known_codes = {item.code for item in FRED_INDICATORS}
+        fred_seeds = (
+            FRED_INDICATORS + FRED_GLOBAL_V2_INDICATORS
+            if self.feature_flags.global_sources_v2
+            else FRED_INDICATORS
+        )
+        known_codes = {item.code for item in fred_seeds}
         if indicator_codes is not None and (not indicator_codes or not indicator_codes <= known_codes):
             raise ValueError("indicator_codes must contain known FRED indicator codes")
         selected_seeds = tuple(
             item
-            for item in FRED_INDICATORS
+            for item in fred_seeds
             if indicator_codes is None or item.code in indicator_codes
         )
         initial_release_series = {"us_nfci", "fed_assets_90d_change"}
@@ -531,7 +586,12 @@ class CrisisRadarService:
         rows_fetched = 0
         rows_written = 0
         errors = []
-        for country in ("CHN", "WLD"):
+        countries = (
+            tuple(sorted(WorldBankClient.SUPPORTED_COUNTRIES))
+            if self.feature_flags.global_sources_v2
+            else ("CHN", "WLD")
+        )
+        for country in countries:
             try:
                 payload = await client.fetch_gdp_growth(country, as_of=now)
                 observations = adapter.normalize_gdp_growth(
@@ -546,7 +606,7 @@ class CrisisRadarService:
                     )
             except (GlobalSourceError, SourcePayloadError) as exc:
                 errors.append(f"{country}:{type(exc).__name__}")
-        status = "failed" if len(errors) == 2 else "partial" if errors else "succeeded"
+        status = "failed" if len(errors) == len(countries) else "partial" if errors else "succeeded"
         self.repository.finish_sync_run(
             sync_run_id,
             finished_at=datetime.now(timezone.utc),
@@ -582,7 +642,11 @@ class CrisisRadarService:
         error = ""
         try:
             payload = await client.fetch_credit_gaps()
-            observations = BisAdapter().normalize_credit_gaps(payload, fetched_at=now)
+            observations = BisAdapter().normalize_credit_gaps(
+                payload,
+                fetched_at=now,
+                include_global=self.feature_flags.global_sources_v2,
+            )
             rows_fetched = len(observations)
             for observation in observations:
                 rows_written += int(
@@ -628,7 +692,11 @@ class CrisisRadarService:
         error = ""
         try:
             payload = await client.fetch_composite_leading_indicators(as_of=now)
-            observations = OecdAdapter().normalize_cli_momentum(payload, fetched_at=now)
+            observations = OecdAdapter().normalize_cli_momentum(
+                payload,
+                fetched_at=now,
+                include_global=self.feature_flags.global_sources_v2,
+            )
             rows_fetched = len(observations)
             for observation in observations:
                 rows_written += int(
@@ -672,6 +740,7 @@ class CrisisRadarService:
         rows_fetched = 0
         rows_written = 0
         evidence_written = 0
+        events_written = 0
         error = ""
         try:
             payload = await client.fetch()
@@ -686,10 +755,15 @@ class CrisisRadarService:
                             saved.news_item_id,
                             evidence,
                             methodology_code=METHODOLOGY_CODE,
-                            methodology_version=METHODOLOGY_VERSION,
+                            methodology_version=self.methodology_version,
                             rule_version=NEWS_RULE_VERSION,
                         )
                     )
+                if self.feature_flags.news_events_v2:
+                    candidate = extract_event_candidate(item)
+                    if candidate is not None:
+                        self.repository.save_event_candidate(saved.news_item_id, candidate)
+                        events_written += 1
         except (NewsSourceError, SourcePayloadError) as exc:
             error = type(exc).__name__
         status = "failed" if error else "succeeded"
@@ -708,6 +782,52 @@ class CrisisRadarService:
             "rows_fetched": rows_fetched,
             "rows_written": rows_written,
             "evidence_written": evidence_written,
+            "events_written": events_written,
+        }
+
+    async def sync_gdelt_discovery(
+        self,
+        client: GdeltDiscoveryClient,
+        *,
+        fetched_at: datetime | None = None,
+        timespan: str = "1h",
+    ) -> dict[str, int | str]:
+        self.bootstrap()
+        now = fetched_at or datetime.now(timezone.utc)
+        if now.tzinfo is None or now.utcoffset() is None:
+            raise ValueError("fetched_at must be timezone-aware")
+        sync_run_id = self.repository.start_sync_run("gdelt_discovery", started_at=now)
+        rows_fetched = rows_written = events_written = 0
+        error = ""
+        try:
+            payload = await client.fetch(timespan=timespan)
+            items = GdeltDiscoveryAdapter().normalize(payload, fetched_at=now)
+            rows_fetched = len(items)
+            for item in items:
+                saved = self.repository.save_news_item(item, sync_run_id=sync_run_id)
+                rows_written += int(saved.inserted)
+                candidate = extract_event_candidate(item)
+                if candidate is not None:
+                    self.repository.save_event_candidate(saved.news_item_id, candidate)
+                    events_written += 1
+        except (NewsSourceError, SourcePayloadError) as exc:
+            error = type(exc).__name__
+        status = "failed" if error else "succeeded"
+        self.repository.finish_sync_run(
+            sync_run_id,
+            finished_at=datetime.now(timezone.utc),
+            status=status,
+            rows_fetched=rows_fetched,
+            rows_written=rows_written,
+            error_code="source_error" if error else "",
+            error_detail=error,
+        )
+        return {
+            "sync_run_id": sync_run_id,
+            "status": status,
+            "rows_fetched": rows_fetched,
+            "rows_written": rows_written,
+            "events_written": events_written,
         }
 
     async def sync_bybit(
@@ -929,7 +1049,9 @@ class CrisisRadarService:
         now = snapshot_at or datetime.now(timezone.utc)
         if now.tzinfo is None or now.utcoffset() is None:
             raise ValueError("snapshot_at must be timezone-aware")
-        inputs = self.repository.latest_analysis_inputs(METHODOLOGY_CODE, METHODOLOGY_VERSION)
+        inputs = self.repository.latest_analysis_inputs(
+            METHODOLOGY_CODE, self.methodology_version
+        )
         if not inputs:
             return None
         states = []
@@ -961,13 +1083,102 @@ class CrisisRadarService:
                     confirmation_points=confirmation_points,
                 )
             )
-        overview = build_market_overview(states, snapshot_at=now)
+        coverage = None
+        if self.feature_flags.coverage_gate:
+            coverage = assess_coverage(
+                states,
+                expected=tuple(
+                    ExpectedIndicator(
+                        code=item.code,
+                        group_code=item.group_code,
+                        region_code=item.region_code,
+                    )
+                    for item in self.indicators
+                ),
+                required_regions=(
+                    GLOBAL_V2_REQUIRED_REGIONS
+                    if self.feature_flags.global_sources_v2
+                    else DEFAULT_REQUIRED_REGIONS
+                ),
+            )
+        overview = build_market_overview(states, snapshot_at=now, coverage=coverage)
         methodology_ids = {item.methodology_id for item in inputs}
         if len(methodology_ids) != 1:
             raise RuntimeError("analysis inputs contain mixed methodologies")
         methodology_id = methodology_ids.pop()
         self.repository.save_analysis_snapshot(states, overview, methodology_id=methodology_id)
-        scenario_states = build_scenario_states(overview.groups)
+        if coverage is not None:
+            self.repository.record_data_health_transition(
+                methodology_id=methodology_id,
+                snapshot_at=now,
+                status=coverage.status.value,
+                ratio=coverage.ratio,
+                missing_groups=coverage.missing_required_groups,
+                missing_regions=coverage.missing_required_regions,
+                reason_codes=coverage.reason_codes,
+            )
+        trend_features = []
+        contagion = None
+        if self.feature_flags.trend_engine_v2:
+            trend_series = {}
+            for item in inputs:
+                code = item.observation.indicator_code
+                points = self.repository.indicator_points_as_of(code, as_of=now)
+                if not points:
+                    continue
+                trend_series[code] = points
+                trend_features.append(
+                    calculate_indicator_features(
+                        code,
+                        points,
+                        snapshot_at=now,
+                        direction=item.thresholds.direction,
+                    )
+                )
+            contagion = calculate_contagion(
+                tuple(trend_features),
+                trend_series,
+                snapshot_at=now,
+            )
+            self.repository.save_trend_features(
+                tuple(trend_features),
+                contagion,
+                methodology_id=methodology_id,
+            )
+        if self.feature_flags.scenario_fusion_v2:
+            event_payload = self.repository.events_payload(days=30, limit=100, as_of=now)
+            fusion_states = fuse_scenarios(
+                self.scenarios,
+                groups=overview.groups,
+                features=tuple(trend_features),
+                indicator_groups={
+                    item.observation.indicator_code: item.group_code for item in inputs
+                },
+                contagion=contagion,
+                events=tuple(event_payload.get("items") or ()),
+                snapshot_at=now,
+                coverage_status=None if coverage is None else coverage.status,
+                coverage_ratio=None if coverage is None else coverage.ratio,
+                available_group_codes=(
+                    None if coverage is None else coverage.available_group_codes
+                ),
+            )
+            self.repository.save_scenario_fusion_states(
+                fusion_states,
+                methodology_id=methodology_id,
+            )
+            scenario_states = tuple(
+                state.as_scenario_state(definition.horizon)
+                for state, definition in zip(fusion_states, self.scenarios, strict=True)
+            )
+        else:
+            scenario_states = build_scenario_states(
+                overview.groups,
+                available_group_codes=(
+                    None if coverage is None else coverage.available_group_codes
+                ),
+                definitions=self.scenarios,
+            )
         self.repository.save_scenario_snapshot(
             scenario_states,
             methodology_id=methodology_id,
@@ -975,21 +1186,50 @@ class CrisisRadarService:
         )
         return overview
 
-    def overview(self, *, locale: str = "ru") -> dict:
-        return self.repository.latest_overview_payload(locale=locale)
+    def overview(self, *, locale: str = "ru", owner_user_id: int = 0) -> dict:
+        return self.repository.latest_overview_payload(
+            methodology_code=METHODOLOGY_CODE,
+            methodology_version=self.methodology_version,
+            locale=locale,
+            owner_user_id=owner_user_id,
+        )
+
+    def save_personal_thresholds(
+        self,
+        indicator_code: str,
+        *,
+        owner_user_id: int,
+        thresholds,
+    ) -> dict:
+        threshold_id = self.repository.upsert_personal_thresholds(
+            indicator_code,
+            methodology_code=METHODOLOGY_CODE,
+            methodology_version=self.methodology_version,
+            owner_user_id=owner_user_id,
+            thresholds=thresholds,
+        )
+        return {
+            "id": threshold_id,
+            "indicator_code": indicator_code,
+            "methodology": {
+                "code": METHODOLOGY_CODE,
+                "version": self.methodology_version,
+            },
+            "scope": "personal",
+        }
 
     def world(
         self, *, locale: str = "ru", as_of: datetime | None = None
     ) -> dict:
         payload = self.repository.regional_contour_payload(
             methodology_code=METHODOLOGY_CODE,
-            methodology_version=METHODOLOGY_VERSION,
+            methodology_version=self.methodology_version,
             locale=locale,
             as_of=as_of,
         )
         localized_names = {
             item.code: item.name_ru if locale == "ru" else item.name
-            for item in STARTER_INDICATORS
+            for item in self.indicators
         }
         for region in payload["regions"]:
             for indicator in region["indicators"]:
@@ -1087,6 +1327,7 @@ class CrisisRadarService:
                 data_quality_score=overall_quality,
                 scenarios=scenarios,
                 quotes=quotes,
+                require_historical_distribution=self.feature_flags.scenario_fusion_v2,
             ),
             max_ideas=max_ideas,
         )
@@ -1134,6 +1375,14 @@ class CrisisRadarService:
                         "minimum": format(item.loss_range_pct.minimum, "f"),
                         "maximum": format(item.loss_range_pct.maximum, "f"),
                     },
+                    "historical_distribution": {
+                        "sample_size": item.historical_sample_size,
+                        "median_pct": (
+                            None
+                            if item.historical_median_pct is None
+                            else format(item.historical_median_pct, "f")
+                        ),
+                    },
                     "rationale": localized(item.rationale),
                     "evidence": [localized(value) for value in item.evidence],
                     "limitations": [localized(value) for value in item.limitations],
@@ -1177,7 +1426,7 @@ class CrisisRadarService:
         coverage_end = str(points[-1].get("observed_at") or "")
         group_code = payload.get("group_code")
         windows: list[dict] = []
-        for scenario in SCENARIOS:
+        for scenario in self.scenarios:
             if group_code not in scenario.group_codes:
                 continue
             catalog = self.repository.event_catalog_payload(scenario.code)
@@ -1214,17 +1463,17 @@ class CrisisRadarService:
         return self.repository.replay_run_payload(run_id)
 
     def event_catalog(self, code: str, *, version: str | None = None) -> dict | None:
-        if code not in {item.code for item in SCENARIOS}:
+        if code not in {item.code for item in self.scenarios}:
             return None
         return self.repository.event_catalog_payload(code, version=version)
 
     def scenario_calibration(self, code: str) -> dict | None:
-        if code not in {item.code for item in SCENARIOS}:
+        if code not in {item.code for item in self.scenarios}:
             return None
         payload = self.repository.latest_backtest_payload(
             code,
             methodology_code=METHODOLOGY_CODE,
-            methodology_version=METHODOLOGY_VERSION,
+            methodology_version=self.methodology_version,
             require_provenance=True,
         )
         if payload is None:
@@ -1242,21 +1491,11 @@ class CrisisRadarService:
         )
         historical_confidence = "insufficient" if latest is None else latest["confidence"]
         metrics = payload["metrics"]
-        brier = metrics.get("brier_score")
-        baseline = metrics.get("baseline_brier_score")
-        precision = metrics.get("precision")
-        recall = metrics.get("recall")
-        positive_events = int(metrics.get("positive_event_count", 0))
-        acceptable = bool(
-            historical_probability is not None
-            and brier is not None
-            and baseline is not None
-            and float(brier) < float(baseline)
-            and precision is not None
-            and recall is not None
-            and float(recall) > 0
-            and positive_events >= 3
+        gate = evaluate_stored_calibration_gate(
+            metrics,
+            payload.get("parameters", {}).get("promotion_validation"),
         )
+        acceptable = historical_probability is not None and gate.passed
         if not acceptable:
             historical_probability = None
             historical_confidence = "insufficient"
@@ -1281,6 +1520,11 @@ class CrisisRadarService:
                 "horizon_seconds": payload["horizon_seconds"],
                 "metrics": payload["metrics"],
                 "calibration_bins": payload["calibration_bins"],
+                "promotion_gate": {
+                    "passed": gate.passed,
+                    "reasons": gate.reasons,
+                    "criteria": gate.criteria,
+                },
                 "scope": "historical_only",
             },
         }
@@ -1295,9 +1539,45 @@ class CrisisRadarService:
     ) -> dict:
         return self.repository.news_payload(
             methodology_code=METHODOLOGY_CODE,
-            methodology_version=METHODOLOGY_VERSION,
+            methodology_version=self.methodology_version,
             locale=locale,
             days=days,
             limit=limit,
             as_of=as_of,
         )
+
+    def events(
+        self,
+        *,
+        days: int = 14,
+        limit: int = 50,
+        as_of: datetime | None = None,
+    ) -> dict:
+        return self.repository.events_payload(days=days, limit=limit, as_of=as_of)
+
+    def trends(self) -> dict:
+        inputs = self.repository.latest_analysis_inputs(
+            METHODOLOGY_CODE, self.methodology_version
+        )
+        if not inputs:
+            return {"ready": False, "indicators": []}
+        methodology_ids = {item.methodology_id for item in inputs}
+        if len(methodology_ids) != 1:
+            raise RuntimeError("analysis inputs contain mixed methodologies")
+        return self.repository.latest_trend_payload(methodology_id=methodology_ids.pop())
+
+    def scenario_fusion(self, *, locale: str = "ru") -> dict:
+        inputs = self.repository.latest_analysis_inputs(
+            METHODOLOGY_CODE, self.methodology_version
+        )
+        if not inputs:
+            return {"ready": False, "items": []}
+        methodology_ids = {item.methodology_id for item in inputs}
+        if len(methodology_ids) != 1:
+            raise RuntimeError("analysis inputs contain mixed methodologies")
+        return self.repository.latest_scenario_fusion_payload(
+            methodology_id=methodology_ids.pop(), locale=locale
+        )
+
+    def operational_metrics(self) -> dict:
+        return self.repository.operational_metrics_payload()

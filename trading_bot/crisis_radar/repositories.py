@@ -20,8 +20,26 @@ from trading_bot.crisis_radar.domain import (
     ScenarioState,
 )
 from trading_bot.crisis_radar.news import NewsEvidence, NewsItem
+from trading_bot.crisis_radar.event_pipeline import (
+    EVENT_RULE_VERSION,
+    EventCandidate,
+    event_score,
+    near_duplicate_score,
+)
 from trading_bot.crisis_radar.event_catalog import EventCatalogVersion
 from trading_bot.crisis_radar.stability import STABILITY_POLICY
+from trading_bot.crisis_radar.scenario_fusion import (
+    FUSION_VERSION,
+    ScenarioFusionState,
+    fusion_payload,
+)
+from trading_bot.crisis_radar.trends import (
+    FEATURE_VERSION,
+    ContagionFeatures,
+    IndicatorFeatures,
+    TimePoint,
+    feature_payload,
+)
 from trading_bot.db import Database
 
 
@@ -68,6 +86,15 @@ class ReportDelivery:
     user_id: int
     report_type: str
     report_date: str
+    payload: dict
+
+
+@dataclass(frozen=True)
+class DataHealthDelivery:
+    delivery_id: int
+    user_id: int
+    from_status: str
+    to_status: str
     payload: dict
 
 
@@ -393,7 +420,17 @@ class CrisisRadarRepository:
         *,
         scope: str = "system",
         owner_user_id: int = 0,
+        basis: str = "legacy",
+        promotion_status: str = "active",
+        rationale: dict | None = None,
     ) -> int:
+        if basis not in {"legacy", "official", "empirical", "heuristic", "hybrid"}:
+            raise ValueError("unknown threshold basis")
+        if promotion_status not in {"candidate", "active", "rejected", "retired"}:
+            raise ValueError("unknown threshold promotion status")
+        rationale_payload = json.dumps(
+            rationale or {}, ensure_ascii=False, separators=(",", ":"), sort_keys=True
+        )
         values = (
             format(thresholds.warning, "f"),
             format(thresholds.danger, "f"),
@@ -403,26 +440,109 @@ class CrisisRadarRepository:
         with self.db.connect() as connection:
             existing = connection.execute(
                 """
-                SELECT id, warning_value, danger_value, critical_value, reference_value
+                SELECT id, warning_value, danger_value, critical_value, reference_value,
+                       basis, promotion_status, rationale_payload
                 FROM cr_threshold_sets
                 WHERE indicator_id = ? AND methodology_id = ? AND scope = ? AND owner_user_id = ?
                 """,
                 (indicator_id, methodology_id, scope, owner_user_id),
             ).fetchone()
             if existing is not None:
-                if tuple(existing[1:]) != values:
+                existing_values = tuple(existing[index] for index in range(1, 5))
+                existing_metadata = tuple(existing[index] for index in range(5, 8))
+                if existing_values != values or existing_metadata != (
+                    basis,
+                    promotion_status,
+                    rationale_payload,
+                ):
                     raise RuntimeError("threshold values changed inside an immutable methodology")
                 return int(existing[0])
             cursor = connection.execute(
                 """
                 INSERT INTO cr_threshold_sets(
                     indicator_id, methodology_id, scope, owner_user_id,
-                    warning_value, danger_value, critical_value, reference_value
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    warning_value, danger_value, critical_value, reference_value,
+                    basis, promotion_status, rationale_payload
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (indicator_id, methodology_id, scope, owner_user_id, *values),
+                (
+                    indicator_id,
+                    methodology_id,
+                    scope,
+                    owner_user_id,
+                    *values,
+                    basis,
+                    promotion_status,
+                    rationale_payload,
+                ),
             )
             return int(cursor.lastrowid)
+
+    def upsert_personal_thresholds(
+        self,
+        indicator_code: str,
+        *,
+        methodology_code: str,
+        methodology_version: str,
+        owner_user_id: int,
+        thresholds: IndicatorThresholds,
+    ) -> int:
+        if owner_user_id <= 0:
+            raise ValueError("personal threshold owner must be positive")
+        with self.db.connect() as connection:
+            resolved = connection.execute(
+                """
+                SELECT indicator.id AS indicator_id, methodology.id AS methodology_id
+                FROM cr_indicator_definitions AS indicator
+                JOIN cr_methodology_versions AS methodology
+                  ON methodology.code = ? AND methodology.version = ?
+                WHERE indicator.code = ? AND indicator.enabled = 1
+                """,
+                (methodology_code, methodology_version, indicator_code),
+            ).fetchone()
+            if resolved is None:
+                raise ValueError("unknown indicator or methodology")
+            values = (
+                format(thresholds.warning, "f"),
+                format(thresholds.danger, "f"),
+                format(thresholds.critical, "f"),
+                format(thresholds.reference, "f"),
+            )
+            connection.execute(
+                """
+                INSERT INTO cr_threshold_sets(
+                    indicator_id, methodology_id, scope, owner_user_id,
+                    warning_value, danger_value, critical_value, reference_value,
+                    basis, promotion_status, rationale_payload
+                ) VALUES (?, ?, 'personal', ?, ?, ?, ?, ?, 'heuristic', 'active', '{}')
+                ON CONFLICT(indicator_id, methodology_id, scope, owner_user_id) DO UPDATE SET
+                    warning_value=excluded.warning_value,
+                    danger_value=excluded.danger_value,
+                    critical_value=excluded.critical_value,
+                    reference_value=excluded.reference_value,
+                    created_at=CURRENT_TIMESTAMP
+                """,
+                (
+                    resolved["indicator_id"],
+                    resolved["methodology_id"],
+                    owner_user_id,
+                    *values,
+                ),
+            )
+            return int(
+                connection.execute(
+                    """
+                    SELECT id FROM cr_threshold_sets
+                    WHERE indicator_id = ? AND methodology_id = ?
+                      AND scope = 'personal' AND owner_user_id = ?
+                    """,
+                    (
+                        resolved["indicator_id"],
+                        resolved["methodology_id"],
+                        owner_user_id,
+                    ),
+                ).fetchone()[0]
+            )
 
     def register_scenario(
         self,
@@ -569,6 +689,13 @@ class CrisisRadarRepository:
                 item.language,
                 item.importance,
                 item.content_hash,
+                item.publisher,
+                item.original_language,
+                item.normalized_title,
+                item.dedup_hash,
+                item.source_tier,
+                item.evidence_excerpt,
+                item.raw_payload_hash,
                 sync_run_id,
             )
             if existing is not None:
@@ -577,7 +704,9 @@ class CrisisRadarRepository:
                     """
                     UPDATE cr_news_items
                     SET published_at=?, fetched_at=?, title=?, summary=?, url=?, category=?,
-                        language=?, importance=?, content_hash=?, sync_run_id=?,
+                        language=?, importance=?, content_hash=?, publisher=?,
+                        original_language=?, normalized_title=?, dedup_hash=?, source_tier=?,
+                        evidence_excerpt=?, raw_payload_hash=?, sync_run_id=?,
                         updated_at=CURRENT_TIMESTAMP
                     WHERE id=?
                     """,
@@ -588,12 +717,153 @@ class CrisisRadarRepository:
                 """
                 INSERT INTO cr_news_items(
                     source_id, provider_item_id, published_at, fetched_at, title,
-                    summary, url, category, language, importance, content_hash, sync_run_id
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    summary, url, category, language, importance, content_hash,
+                    publisher, original_language, normalized_title, dedup_hash, source_tier,
+                    evidence_excerpt, raw_payload_hash, sync_run_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (source[0], item.provider_item_id, *values),
             )
             return SavedNewsItem(int(cursor.lastrowid), True, False)
+
+    def save_event_candidate(self, news_item_id: int, candidate: EventCandidate) -> dict:
+        if news_item_id < 1:
+            raise ValueError("news item id must be positive")
+        cutoff = datetime.now(timezone.utc) - timedelta(days=7)
+        with self.db.connect() as connection:
+            news = connection.execute(
+                """
+                SELECT item.published_at, item.source_tier, item.source_id
+                FROM cr_news_items AS item WHERE item.id = ?
+                """,
+                (news_item_id,),
+            ).fetchone()
+            if news is None:
+                raise ValueError("unknown news item for event evidence")
+            published_at = datetime.fromisoformat(news["published_at"])
+            recent = connection.execute(
+                """
+                SELECT id, event_key, title, regions_payload, assets_payload
+                FROM cr_event_clusters
+                WHERE taxonomy = ? AND last_seen_at >= ?
+                ORDER BY last_seen_at DESC LIMIT 100
+                """,
+                (candidate.taxonomy, _utc_text(min(cutoff, published_at - timedelta(days=3)))),
+            ).fetchall()
+            selected = None
+            for row in recent:
+                same_context = bool(
+                    set(json.loads(row["regions_payload"] or "[]")) & set(candidate.regions)
+                    or set(json.loads(row["assets_payload"] or "[]")) & set(candidate.assets)
+                )
+                if row["event_key"] == candidate.event_key or (
+                    same_context and near_duplicate_score(row["title"], candidate.title) >= Decimal("0.65")
+                ):
+                    selected = row
+                    break
+            if selected is None:
+                cursor = connection.execute(
+                    """
+                    INSERT INTO cr_event_clusters(
+                        event_key, taxonomy, status, title, first_seen_at, last_seen_at,
+                        regions_payload, entities_payload, assets_payload, impact_direction,
+                        horizon, severity_score_text, confidence_score_text, event_score_text,
+                        source_count, official_source_count, rule_version
+                    ) VALUES (?, ?, 'discovery', ?, ?, ?, ?, ?, ?, ?, ?, ?, '0', '0', 0, 0, ?)
+                    """,
+                    (
+                        candidate.event_key,
+                        candidate.taxonomy,
+                        candidate.title,
+                        news["published_at"],
+                        news["published_at"],
+                        json.dumps(candidate.regions, separators=(",", ":")),
+                        json.dumps(candidate.entities, separators=(",", ":")),
+                        json.dumps(candidate.assets, separators=(",", ":")),
+                        candidate.impact_direction,
+                        candidate.horizon,
+                        format(candidate.severity_score, "f"),
+                        EVENT_RULE_VERSION,
+                    ),
+                )
+                event_id = int(cursor.lastrowid)
+            else:
+                event_id = int(selected["id"])
+                connection.execute(
+                    """
+                    UPDATE cr_event_clusters
+                    SET last_seen_at = CASE WHEN last_seen_at < ? THEN ? ELSE last_seen_at END,
+                        severity_score_text = CASE
+                            WHEN CAST(severity_score_text AS REAL) < ? THEN ? ELSE severity_score_text END,
+                        updated_at=CURRENT_TIMESTAMP
+                    WHERE id = ?
+                    """,
+                    (
+                        news["published_at"],
+                        news["published_at"],
+                        float(candidate.severity_score),
+                        format(candidate.severity_score, "f"),
+                        event_id,
+                    ),
+                )
+            connection.execute(
+                """
+                INSERT OR IGNORE INTO cr_event_evidence(
+                    event_id, news_item_id, source_tier, evidence_excerpt, injection_detected
+                ) VALUES (?, ?, ?, ?, ?)
+                """,
+                (
+                    event_id,
+                    news_item_id,
+                    candidate.source_tier,
+                    candidate.evidence_excerpt,
+                    int(candidate.injection_detected),
+                ),
+            )
+            counts = connection.execute(
+                """
+                SELECT count(DISTINCT item.source_id) AS source_count,
+                       count(DISTINCT CASE WHEN evidence.source_tier='A' THEN item.source_id END)
+                           AS official_count,
+                       max(CAST(cluster.severity_score_text AS REAL)) AS severity
+                FROM cr_event_evidence AS evidence
+                JOIN cr_news_items AS item ON item.id=evidence.news_item_id
+                JOIN cr_event_clusters AS cluster ON cluster.id=evidence.event_id
+                WHERE evidence.event_id=?
+                """,
+                (event_id,),
+            ).fetchone()
+            source_count = int(counts["source_count"])
+            official_count = int(counts["official_count"])
+            status = (
+                "official"
+                if official_count >= 1
+                else "corroborated"
+                if source_count >= 2
+                else "discovery"
+                if candidate.source_tier == "C"
+                else "watch"
+            )
+            confidence = min(
+                Decimal("1"),
+                Decimal("0.25") + Decimal("0.25") * source_count + Decimal("0.25") * official_count,
+            )
+            score = event_score(
+                severity=Decimal(str(counts["severity"])),
+                source_tier="A" if official_count else candidate.source_tier,
+                source_count=source_count,
+                official_source_count=official_count,
+            )
+            connection.execute(
+                """
+                UPDATE cr_event_clusters
+                SET status=?, source_count=?, official_source_count=?,
+                    confidence_score_text=?, event_score_text=?, updated_at=CURRENT_TIMESTAMP
+                WHERE id=?
+                """,
+                (status, source_count, official_count, format(confidence, "f"), format(score, "f"), event_id),
+            )
+            return {"event_id": event_id, "status": status, "source_count": source_count}
 
     def save_news_evidence(
         self,
@@ -728,6 +998,77 @@ class CrisisRadarRepository:
             "window_days": days,
             "items": items,
         }
+
+    def events_payload(
+        self,
+        *,
+        days: int = 14,
+        limit: int = 50,
+        as_of: datetime | None = None,
+    ) -> dict:
+        if days < 1 or days > 90 or limit < 1 or limit > 100:
+            raise ValueError("invalid event query bounds")
+        now = as_of or datetime.now(timezone.utc)
+        cutoff = now - timedelta(days=days)
+        with self.db.connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT cluster.*, evidence.id AS evidence_id, evidence.source_tier,
+                       evidence.evidence_excerpt, evidence.injection_detected,
+                       item.id AS news_item_id, item.published_at, item.title AS evidence_title,
+                       item.url, item.publisher, item.original_language,
+                       source.code AS source_code
+                FROM cr_event_clusters AS cluster
+                JOIN cr_event_evidence AS evidence ON evidence.event_id=cluster.id
+                JOIN cr_news_items AS item ON item.id=evidence.news_item_id
+                JOIN cr_sources AS source ON source.id=item.source_id
+                WHERE cluster.last_seen_at >= ? AND cluster.last_seen_at <= ?
+                ORDER BY CAST(cluster.event_score_text AS REAL) DESC,
+                         cluster.last_seen_at DESC, cluster.id DESC, evidence.id
+                """,
+                (_utc_text(cutoff), _utc_text(now)),
+            ).fetchall()
+        grouped: dict[int, dict] = {}
+        for row in rows:
+            event = grouped.setdefault(
+                int(row["id"]),
+                {
+                    "id": int(row["id"]),
+                    "taxonomy": row["taxonomy"],
+                    "status": row["status"],
+                    "title": row["title"],
+                    "first_seen_at": row["first_seen_at"],
+                    "last_seen_at": row["last_seen_at"],
+                    "regions": json.loads(row["regions_payload"] or "[]"),
+                    "entities": json.loads(row["entities_payload"] or "[]"),
+                    "assets": json.loads(row["assets_payload"] or "[]"),
+                    "impact_direction": row["impact_direction"],
+                    "horizon": row["horizon"],
+                    "severity": row["severity_score_text"],
+                    "confidence": row["confidence_score_text"],
+                    "event_score": row["event_score_text"],
+                    "source_count": int(row["source_count"]),
+                    "official_source_count": int(row["official_source_count"]),
+                    "rule_version": row["rule_version"],
+                    "evidence": [],
+                },
+            )
+            event["evidence"].append(
+                {
+                    "id": int(row["evidence_id"]),
+                    "news_item_id": int(row["news_item_id"]),
+                    "source_code": row["source_code"],
+                    "source_tier": row["source_tier"],
+                    "publisher": row["publisher"],
+                    "published_at": row["published_at"],
+                    "title": row["evidence_title"],
+                    "excerpt": row["evidence_excerpt"],
+                    "url": row["url"],
+                    "original_language": row["original_language"],
+                    "injection_detected": bool(row["injection_detected"]),
+                }
+            )
+        return {"ready": bool(grouped), "as_of": _utc_text(now), "items": list(grouped.values())[:limit]}
 
     def latest_analysis_inputs(self, methodology_code: str, methodology_version: str) -> list[AnalysisInput]:
         with self.db.connect() as connection:
@@ -895,6 +1236,348 @@ class CrisisRadarRepository:
                 (code, as_of_text, as_of_text, as_of_text, limit),
             ).fetchall()
         return [Decimal(row["value_text"]) for row in rows]
+
+    def indicator_points_as_of(
+        self,
+        code: str,
+        *,
+        as_of: datetime,
+        limit: int = 5000,
+    ) -> tuple[TimePoint, ...]:
+        if limit < 2 or limit > 20000:
+            raise ValueError("trend point limit must be between 2 and 20000")
+        if as_of.tzinfo is None or as_of.utcoffset() is None:
+            raise ValueError("as_of must be timezone-aware")
+        as_of_text = _utc_text(as_of)
+        with self.db.connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT observation.observed_at, observation.released_at, observation.value_text
+                FROM cr_observations AS observation
+                JOIN cr_indicator_definitions AS indicator ON indicator.id=observation.indicator_id
+                WHERE indicator.code=? AND observation.observed_at <= ? AND observation.released_at <= ?
+                  AND observation.id=(
+                    SELECT latest.id FROM cr_observations AS latest
+                    WHERE latest.indicator_id=observation.indicator_id
+                      AND latest.observed_at=observation.observed_at
+                      AND latest.released_at <= ?
+                    ORDER BY latest.released_at DESC, latest.fetched_at DESC, latest.id DESC LIMIT 1
+                  )
+                ORDER BY observation.observed_at DESC, observation.id DESC LIMIT ?
+                """,
+                (code, as_of_text, as_of_text, as_of_text, limit),
+            ).fetchall()
+        return tuple(
+            reversed(
+                tuple(
+                    TimePoint(
+                        observed_at=datetime.fromisoformat(row["observed_at"]),
+                        released_at=datetime.fromisoformat(row["released_at"]),
+                        value=Decimal(row["value_text"]),
+                    )
+                    for row in rows
+                )
+            )
+        )
+
+    def save_trend_features(
+        self,
+        features: tuple[IndicatorFeatures, ...],
+        contagion: ContagionFeatures,
+        *,
+        methodology_id: int,
+    ) -> None:
+        snapshot_text = _utc_text(contagion.snapshot_at)
+        with self.db.connect() as connection:
+            for item in features:
+                indicator = connection.execute(
+                    "SELECT id FROM cr_indicator_definitions WHERE code=?", (item.indicator_code,)
+                ).fetchone()
+                if indicator is None:
+                    raise ValueError(f"unknown trend indicator: {item.indicator_code}")
+                payload = json.dumps(
+                    feature_payload(item),
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                    default=str,
+                )
+                lineage = json.dumps(
+                    {
+                        "feature_version": FEATURE_VERSION,
+                        "input_checksum": item.input_checksum,
+                        "causal_cutoff": snapshot_text,
+                        "future_observations_allowed": False,
+                    },
+                    sort_keys=True,
+                    separators=(",", ":"),
+                )
+                connection.execute(
+                    """
+                    INSERT INTO cr_indicator_features(
+                        indicator_id, methodology_id, snapshot_at, feature_version,
+                        features_payload, lineage_payload, input_checksum
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(indicator_id, methodology_id, snapshot_at, feature_version)
+                    DO UPDATE SET features_payload=excluded.features_payload,
+                                  lineage_payload=excluded.lineage_payload,
+                                  input_checksum=excluded.input_checksum
+                    """,
+                    (
+                        indicator["id"], methodology_id, snapshot_text, FEATURE_VERSION,
+                        payload, lineage, item.input_checksum,
+                    ),
+                )
+            contagion_payload = json.dumps(
+                {
+                    "snapshot_at": snapshot_text,
+                    "breadth": str(contagion.breadth),
+                    "stressed_count": contagion.stressed_count,
+                    "indicator_count": contagion.indicator_count,
+                    "mean_absolute_correlation": (
+                        None
+                        if contagion.mean_absolute_correlation is None
+                        else str(contagion.mean_absolute_correlation)
+                    ),
+                    "stress_correlation_regime": contagion.stress_correlation_regime,
+                    "lead_lag_edges": contagion.lead_lag_edges,
+                },
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+            connection.execute(
+                """
+                INSERT INTO cr_contagion_features(
+                    methodology_id, snapshot_at, feature_version, breadth_score_text,
+                    stress_correlation_text, payload, input_checksum
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(methodology_id, snapshot_at, feature_version)
+                DO UPDATE SET breadth_score_text=excluded.breadth_score_text,
+                              stress_correlation_text=excluded.stress_correlation_text,
+                              payload=excluded.payload, input_checksum=excluded.input_checksum
+                """,
+                (
+                    methodology_id, snapshot_text, FEATURE_VERSION, str(contagion.breadth),
+                    None
+                    if contagion.mean_absolute_correlation is None
+                    else str(contagion.mean_absolute_correlation),
+                    contagion_payload, contagion.input_checksum,
+                ),
+            )
+
+    def latest_trend_payload(self, *, methodology_id: int) -> dict:
+        with self.db.connect() as connection:
+            contagion = connection.execute(
+                """
+                SELECT snapshot_at, payload, input_checksum FROM cr_contagion_features
+                WHERE methodology_id=? AND feature_version=?
+                ORDER BY snapshot_at DESC, id DESC LIMIT 1
+                """,
+                (methodology_id, FEATURE_VERSION),
+            ).fetchone()
+            if contagion is None:
+                return {"ready": False, "feature_version": FEATURE_VERSION, "indicators": []}
+            rows = connection.execute(
+                """
+                SELECT indicator.code, feature.features_payload, feature.lineage_payload
+                FROM cr_indicator_features AS feature
+                JOIN cr_indicator_definitions AS indicator ON indicator.id=feature.indicator_id
+                WHERE feature.methodology_id=? AND feature.feature_version=?
+                  AND feature.snapshot_at=? ORDER BY indicator.code
+                """,
+                (methodology_id, FEATURE_VERSION, contagion["snapshot_at"]),
+            ).fetchall()
+        return {
+            "ready": True,
+            "feature_version": FEATURE_VERSION,
+            "snapshot_at": contagion["snapshot_at"],
+            "input_checksum": contagion["input_checksum"],
+            "contagion": json.loads(contagion["payload"]),
+            "indicators": [
+                {
+                    "code": row["code"],
+                    "features": json.loads(row["features_payload"]),
+                    "lineage": json.loads(row["lineage_payload"]),
+                }
+                for row in rows
+            ],
+        }
+
+    def save_scenario_fusion_states(
+        self,
+        states: tuple[ScenarioFusionState, ...],
+        *,
+        methodology_id: int,
+    ) -> None:
+        with self.db.connect() as connection:
+            for state in states:
+                scenario = connection.execute(
+                    """
+                    SELECT id FROM cr_scenario_definitions
+                    WHERE code=? AND methodology_id=? AND enabled=1
+                    """,
+                    (state.code, methodology_id),
+                ).fetchone()
+                if scenario is None:
+                    raise LookupError(f"fusion scenario not registered: {state.code}")
+                payload = fusion_payload(state)
+                components = json.dumps(
+                    payload["components"],
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                    default=str,
+                )
+                explanation = json.dumps(
+                    payload["explanation"],
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                )
+                connection.execute(
+                    """
+                    INSERT INTO cr_scenario_fusion_states(
+                        scenario_id, methodology_id, snapshot_at, fusion_version, status,
+                        strength_score_text, reliability_score_text,
+                        independent_cluster_count, anchor_active, components_payload,
+                        explanation_payload, input_checksum
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(scenario_id, methodology_id, snapshot_at, fusion_version)
+                    DO UPDATE SET status=excluded.status,
+                                  strength_score_text=excluded.strength_score_text,
+                                  reliability_score_text=excluded.reliability_score_text,
+                                  independent_cluster_count=excluded.independent_cluster_count,
+                                  anchor_active=excluded.anchor_active,
+                                  components_payload=excluded.components_payload,
+                                  explanation_payload=excluded.explanation_payload,
+                                  input_checksum=excluded.input_checksum
+                    """,
+                    (
+                        scenario["id"],
+                        methodology_id,
+                        _utc_text(state.snapshot_at),
+                        FUSION_VERSION,
+                        state.status.value,
+                        str(state.strength),
+                        str(state.reliability),
+                        state.independent_numeric_clusters,
+                        int(state.anchor_active),
+                        components,
+                        explanation,
+                        state.input_checksum,
+                    ),
+                )
+
+    def latest_scenario_fusion_payload(self, *, methodology_id: int, locale: str = "ru") -> dict:
+        if locale not in {"ru", "en"}:
+            raise ValueError("locale must be ru or en")
+        with self.db.connect() as connection:
+            latest = connection.execute(
+                """
+                SELECT MAX(snapshot_at) AS snapshot_at FROM cr_scenario_fusion_states
+                WHERE methodology_id=? AND fusion_version=?
+                """,
+                (methodology_id, FUSION_VERSION),
+            ).fetchone()
+            if latest is None or latest["snapshot_at"] is None:
+                return {"ready": False, "fusion_version": FUSION_VERSION, "items": []}
+            rows = connection.execute(
+                """
+                SELECT definition.code, definition.name_payload, definition.horizon,
+                       fusion.status, fusion.strength_score_text,
+                       fusion.reliability_score_text, fusion.independent_cluster_count,
+                       fusion.anchor_active, fusion.components_payload,
+                       fusion.explanation_payload, fusion.input_checksum
+                FROM cr_scenario_fusion_states AS fusion
+                JOIN cr_scenario_definitions AS definition ON definition.id=fusion.scenario_id
+                WHERE fusion.methodology_id=? AND fusion.fusion_version=?
+                  AND fusion.snapshot_at=?
+                ORDER BY CAST(fusion.strength_score_text AS REAL) DESC, definition.code
+                """,
+                (methodology_id, FUSION_VERSION, latest["snapshot_at"]),
+            ).fetchall()
+        return {
+            "ready": True,
+            "fusion_version": FUSION_VERSION,
+            "snapshot_at": latest["snapshot_at"],
+            "items": [
+                {
+                    "code": row["code"],
+                    "name": json.loads(row["name_payload"] or "{}").get(locale, row["code"]),
+                    "horizon": row["horizon"],
+                    "status": row["status"],
+                    "strength": row["strength_score_text"],
+                    "reliability": row["reliability_score_text"],
+                    "independent_numeric_clusters": int(row["independent_cluster_count"]),
+                    "anchor_active": bool(row["anchor_active"]),
+                    "components": json.loads(row["components_payload"] or "{}"),
+                    "explanation": json.loads(row["explanation_payload"] or "{}").get(locale, ""),
+                    "input_checksum": row["input_checksum"],
+                    "historical_probability": None,
+                }
+                for row in rows
+            ],
+        }
+
+    def operational_metrics_payload(self, *, as_of: datetime | None = None) -> dict:
+        now = as_of or datetime.now(timezone.utc)
+        cutoff = _utc_text(now - timedelta(hours=24))
+        cutoff_sql = (now - timedelta(hours=24)).strftime("%Y-%m-%d %H:%M:%S")
+        with self.db.connect() as connection:
+            snapshot = connection.execute(
+                """
+                SELECT snapshot_at, stage, coverage_status, coverage_ratio_text
+                FROM cr_market_snapshots ORDER BY snapshot_at DESC, id DESC LIMIT 1
+                """
+            ).fetchone()
+            sync_rows = connection.execute(
+                """
+                SELECT status, count(*) AS count FROM cr_sync_runs
+                WHERE started_at >= ? GROUP BY status
+                """,
+                (cutoff,),
+            ).fetchall()
+            queues = {
+                "scenario_alerts": connection.execute(
+                    "SELECT count(*) FROM cr_alert_deliveries WHERE status IN ('pending','failed')"
+                ).fetchone()[0],
+                "data_health_alerts": connection.execute(
+                    "SELECT count(*) FROM cr_data_health_deliveries WHERE status IN ('pending','failed')"
+                ).fetchone()[0],
+                "reports": connection.execute(
+                    "SELECT count(*) FROM cr_report_deliveries WHERE status IN ('pending','failed')"
+                ).fetchone()[0],
+            }
+            events = connection.execute(
+                "SELECT count(*) FROM cr_event_clusters WHERE last_seen_at >= ?", (cutoff,)
+            ).fetchone()[0]
+            agent = connection.execute(
+                """
+                SELECT count(*) AS total, sum(CASE WHEN grounded=0 THEN 1 ELSE 0 END) AS rejected
+                FROM cr_agent_messages WHERE role='assistant' AND created_at >= ?
+                """,
+                (cutoff_sql,),
+            ).fetchone()
+        snapshot_at = None if snapshot is None else datetime.fromisoformat(snapshot["snapshot_at"])
+        return {
+            "as_of": _utc_text(now),
+            "snapshot": None
+            if snapshot is None
+            else {
+                "as_of": snapshot["snapshot_at"],
+                "lag_seconds": max(0, int((now - snapshot_at).total_seconds())),
+                "stage": snapshot["stage"],
+                "coverage_status": snapshot["coverage_status"],
+                "coverage_ratio": snapshot["coverage_ratio_text"],
+            },
+            "sync_runs_24h": {row["status"]: int(row["count"]) for row in sync_rows},
+            "queue_depth": {key: int(value) for key, value in queues.items()},
+            "events_24h": int(events),
+            "agent_24h": {
+                "responses": int(agent["total"] or 0),
+                "grounding_rejections": int(agent["rejected"] or 0),
+            },
+        }
 
     def save_backtest_result(
         self,
@@ -1550,15 +2233,41 @@ class CrisisRadarRepository:
                 separators=(",", ":"),
                 sort_keys=True,
             )
+            coverage = overview.coverage
+            coverage_status = "not_evaluated" if coverage is None else coverage.status.value
+            coverage_ratio = None if coverage is None else format(coverage.ratio, "f")
+            coverage_payload = json.dumps(
+                {}
+                if coverage is None
+                else {
+                    "expected_count": coverage.expected_count,
+                    "available_count": coverage.available_count,
+                    "fresh_count": coverage.fresh_count,
+                    "delayed_count": coverage.delayed_count,
+                    "stale_count": coverage.stale_count,
+                    "missing_count": coverage.missing_count,
+                    "available_group_codes": sorted(coverage.available_group_codes),
+                    "missing_required_groups": coverage.missing_required_groups,
+                    "missing_required_regions": coverage.missing_required_regions,
+                    "reason_codes": coverage.reason_codes,
+                },
+                separators=(",", ":"),
+                sort_keys=True,
+            )
             connection.execute(
                 """
                 INSERT INTO cr_market_snapshots(
-                    methodology_id, snapshot_at, stage, active_group_count,
+                    methodology_id, snapshot_at, stage, calculated_stage,
+                    coverage_status, coverage_ratio_text, coverage_payload, active_group_count,
                     warning_group_count, danger_group_count, critical_group_count,
                     explanation_payload
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(methodology_id, snapshot_at) DO UPDATE SET
                     stage=excluded.stage,
+                    calculated_stage=excluded.calculated_stage,
+                    coverage_status=excluded.coverage_status,
+                    coverage_ratio_text=excluded.coverage_ratio_text,
+                    coverage_payload=excluded.coverage_payload,
                     active_group_count=excluded.active_group_count,
                     warning_group_count=excluded.warning_group_count,
                     danger_group_count=excluded.danger_group_count,
@@ -1569,6 +2278,10 @@ class CrisisRadarRepository:
                     methodology_id,
                     snapshot_at,
                     overview.stage.value,
+                    overview.calculated_stage.value,
+                    coverage_status,
+                    coverage_ratio,
+                    coverage_payload,
                     overview.active_group_count,
                     overview.warning_group_count,
                     overview.danger_group_count,
@@ -1585,7 +2298,7 @@ class CrisisRadarRepository:
         snapshot_at: datetime,
     ) -> None:
         snapshot_text = _utc_text(snapshot_at)
-        status_rank = {"inactive": 0, "watch": 1, "elevated": 2, "confirmed": 3}
+        status_rank = {"unknown": 0, "inactive": 0, "watch": 1, "elevated": 2, "confirmed": 3}
         with self.db.connect() as connection:
             for state in states:
                 scenario = connection.execute(
@@ -1722,6 +2435,124 @@ class CrisisRadarRepository:
                     )
                     inserted += cursor.rowcount
         return inserted
+
+    def record_data_health_transition(
+        self,
+        *,
+        methodology_id: int,
+        snapshot_at: datetime,
+        status: str,
+        ratio: Decimal,
+        missing_groups: tuple[str, ...],
+        missing_regions: tuple[str, ...],
+        reason_codes: tuple[str, ...],
+    ) -> bool:
+        if status not in {"healthy", "degraded", "insufficient_data"}:
+            raise ValueError("unknown data health status")
+        snapshot_text = _utc_text(snapshot_at)
+        with self.db.connect() as connection:
+            previous = connection.execute(
+                """
+                SELECT coverage_status, coverage_ratio_text FROM cr_market_snapshots
+                WHERE methodology_id=? AND snapshot_at < ?
+                  AND coverage_status != 'not_evaluated'
+                ORDER BY snapshot_at DESC, id DESC LIMIT 1
+                """,
+                (methodology_id, snapshot_text),
+            ).fetchone()
+            # The first stored state establishes a baseline and never creates an alert.
+            if previous is None or previous["coverage_status"] == status:
+                return False
+            payload = json.dumps(
+                {
+                    "ratio": str(ratio),
+                    "previous_ratio": previous["coverage_ratio_text"],
+                    "missing_groups": missing_groups,
+                    "missing_regions": missing_regions,
+                    "reason_codes": reason_codes,
+                },
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+            event_key = f"data-health:{methodology_id}:{snapshot_text}:{previous['coverage_status']}:{status}"
+            cursor = connection.execute(
+                """
+                INSERT OR IGNORE INTO cr_data_health_events(
+                    event_key, methodology_id, snapshot_at, from_status, to_status, payload
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    event_key,
+                    methodology_id,
+                    snapshot_text,
+                    previous["coverage_status"],
+                    status,
+                    payload,
+                ),
+            )
+            return cursor.rowcount == 1
+
+    def enqueue_data_health_deliveries(self, user_ids: tuple[int, ...]) -> int:
+        clean_ids = tuple(sorted({int(user_id) for user_id in user_ids if int(user_id) > 0}))
+        inserted = 0
+        with self.db.connect() as connection:
+            events = connection.execute("SELECT id FROM cr_data_health_events ORDER BY id").fetchall()
+            for event in events:
+                for user_id in clean_ids:
+                    inserted += connection.execute(
+                        "INSERT OR IGNORE INTO cr_data_health_deliveries(event_id, user_id) VALUES (?, ?)",
+                        (event["id"], user_id),
+                    ).rowcount
+        return inserted
+
+    def pending_data_health_deliveries(self, *, limit: int = 20) -> list[DataHealthDelivery]:
+        now = _utc_text(datetime.now(timezone.utc))
+        with self.db.connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT delivery.id AS delivery_id, delivery.user_id,
+                       event.from_status, event.to_status, event.payload
+                FROM cr_data_health_deliveries AS delivery
+                JOIN cr_data_health_events AS event ON event.id=delivery.event_id
+                WHERE delivery.attempts < 3 AND delivery.status IN ('pending', 'failed')
+                  AND (delivery.next_attempt_at IS NULL OR delivery.next_attempt_at <= ?)
+                ORDER BY event.snapshot_at, delivery.id LIMIT ?
+                """,
+                (now, limit),
+            ).fetchall()
+        return [
+            DataHealthDelivery(
+                delivery_id=int(row["delivery_id"]),
+                user_id=int(row["user_id"]),
+                from_status=row["from_status"],
+                to_status=row["to_status"],
+                payload=json.loads(row["payload"] or "{}"),
+            )
+            for row in rows
+        ]
+
+    def mark_data_health_sent(self, delivery_id: int, *, sent_at: datetime) -> None:
+        with self.db.connect() as connection:
+            connection.execute(
+                """
+                UPDATE cr_data_health_deliveries SET status='sent', attempts=attempts+1,
+                    sent_at=?, next_attempt_at=NULL, last_error='' WHERE id=?
+                """,
+                (_utc_text(sent_at), delivery_id),
+            )
+
+    def mark_data_health_failed(
+        self, delivery_id: int, *, error: str, retry_at: datetime
+    ) -> None:
+        with self.db.connect() as connection:
+            connection.execute(
+                """
+                UPDATE cr_data_health_deliveries SET status='failed', attempts=attempts+1,
+                    next_attempt_at=?, last_error=? WHERE id=?
+                """,
+                (_utc_text(retry_at), _sanitized_error(error), delivery_id),
+            )
 
     def pending_alert_deliveries(self, *, limit: int = 20) -> list[AlertDelivery]:
         now = _utc_text(datetime.now(timezone.utc))
@@ -2056,6 +2887,8 @@ class CrisisRadarRepository:
                        source.base_url AS source_url,
                        thresholds.warning_value, thresholds.danger_value,
                        thresholds.critical_value, thresholds.reference_value,
+                       thresholds.basis, thresholds.promotion_status,
+                       thresholds.rationale_payload,
                        methodology.code AS methodology_code,
                        methodology.version AS methodology_version
                 FROM cr_indicator_definitions AS indicator
@@ -2127,6 +2960,11 @@ class CrisisRadarRepository:
                 "danger": indicator["danger_value"],
                 "critical": indicator["critical_value"],
                 "reference": indicator["reference_value"],
+            },
+            "threshold_methodology": {
+                "basis": indicator["basis"],
+                "promotion_status": indicator["promotion_status"],
+                "rationale": json.loads(indicator["rationale_payload"] or "{}"),
             },
             "points": points,
         }
@@ -2575,7 +3413,14 @@ class CrisisRadarRepository:
             "sources": payloads,
         }
 
-    def latest_overview_payload(self, *, locale: str = "ru") -> dict:
+    def latest_overview_payload(
+        self,
+        *,
+        methodology_code: str,
+        methodology_version: str,
+        locale: str = "ru",
+        owner_user_id: int = 0,
+    ) -> dict:
         if locale not in {"ru", "en"}:
             raise ValueError("locale must be ru or en")
         with self.db.connect() as connection:
@@ -2585,9 +3430,11 @@ class CrisisRadarRepository:
                        methodology.version AS methodology_version
                 FROM cr_market_snapshots AS market
                 JOIN cr_methodology_versions AS methodology ON methodology.id = market.methodology_id
+                WHERE methodology.code = ? AND methodology.version = ?
                 ORDER BY market.snapshot_at DESC, market.id DESC
                 LIMIT 1
-                """
+                """,
+                (methodology_code, methodology_version),
             ).fetchone()
             if snapshot is None:
                 source_rows = connection.execute(
@@ -2615,8 +3462,13 @@ class CrisisRadarRepository:
                     "changes": {
                         "24h": {"available": False, "window_seconds": 86400},
                         "7d": {"available": False, "window_seconds": 604800},
+                        "15d": {"available": False, "window_seconds": 1296000},
                     },
                     "sources": [dict(row) for row in source_rows],
+                    "methodology": {
+                        "code": methodology_code,
+                        "version": methodology_version,
+                    },
                 }
             group_rows = connection.execute(
                 """
@@ -2652,7 +3504,9 @@ class CrisisRadarRepository:
                        observation.observed_at, observation.released_at, observation.fetched_at,
                        source.code AS source_code, source.name AS source_name,
                        source.base_url AS source_url, source.terms_url,
-                       thresholds.warning_value, thresholds.danger_value, thresholds.critical_value
+                       thresholds.warning_value, thresholds.danger_value, thresholds.critical_value,
+                       thresholds.reference_value, thresholds.basis,
+                       thresholds.promotion_status, thresholds.rationale_payload
                 FROM cr_indicator_states AS state
                 JOIN cr_indicator_definitions AS indicator ON indicator.id = state.indicator_id
                 JOIN cr_observations AS observation ON observation.id = state.observation_id
@@ -2682,25 +3536,66 @@ class CrisisRadarRepository:
             changes = {
                 "24h": self._snapshot_change(connection, snapshot, window=timedelta(hours=24)),
                 "7d": self._snapshot_change(connection, snapshot, window=timedelta(days=7)),
+                "15d": self._snapshot_change(connection, snapshot, window=timedelta(days=15)),
             }
+            personal_rows = (
+                []
+                if owner_user_id <= 0
+                else connection.execute(
+                    """
+                    SELECT indicator.code, thresholds.warning_value,
+                           thresholds.danger_value, thresholds.critical_value,
+                           thresholds.reference_value
+                    FROM cr_threshold_sets AS thresholds
+                    JOIN cr_indicator_definitions AS indicator
+                      ON indicator.id = thresholds.indicator_id
+                    WHERE thresholds.methodology_id = ?
+                      AND thresholds.scope = 'personal'
+                      AND thresholds.owner_user_id = ?
+                    """,
+                    (snapshot["methodology_id"], owner_user_id),
+                ).fetchall()
+            )
         explanation = json.loads(snapshot["explanation_payload"] or "{}")
         indicators = []
+        personal_by_code = {row["code"]: row for row in personal_rows}
         for row in indicator_rows:
             payload = dict(row)
             warning = payload.pop("warning_value")
             danger = payload.pop("danger_value")
             critical = payload.pop("critical_value")
+            reference = payload.pop("reference_value")
+            basis = payload.pop("basis")
+            promotion_status = payload.pop("promotion_status")
+            rationale = json.loads(payload.pop("rationale_payload") or "{}")
             payload["thresholds"] = {
                 "warning": warning,
                 "danger": danger,
                 "critical": critical,
+                "reference": reference,
+                "basis": basis,
+                "promotion_status": promotion_status,
+                "rationale": rationale,
             }
+            personal = personal_by_code.get(payload["code"])
+            payload["personal_thresholds"] = (
+                None
+                if personal is None
+                else {
+                    "warning": personal["warning_value"],
+                    "danger": personal["danger_value"],
+                    "critical": personal["critical_value"],
+                    "reference": personal["reference_value"],
+                }
+            )
             payload["held_by_hysteresis"] = bool(payload["held_by_hysteresis"])
             indicators.append(payload)
 
+        coverage_details = json.loads(snapshot["coverage_payload"] or "{}")
         return {
             "ready": True,
             "stage": snapshot["stage"],
+            "calculated_stage": snapshot["calculated_stage"],
             "as_of": snapshot["snapshot_at"],
             "dominant_window": snapshot["dominant_window"],
             "explanation": explanation.get(locale, ""),
@@ -2713,6 +3608,12 @@ class CrisisRadarRepository:
             "methodology": {
                 "code": snapshot["methodology_code"],
                 "version": snapshot["methodology_version"],
+            },
+            "coverage": {
+                "enabled": snapshot["coverage_status"] != "not_evaluated",
+                "status": snapshot["coverage_status"],
+                "ratio": snapshot["coverage_ratio_text"],
+                **coverage_details,
             },
             "changes": changes,
             "groups": [

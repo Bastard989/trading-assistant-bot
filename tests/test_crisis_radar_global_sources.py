@@ -125,7 +125,9 @@ def test_global_client_sanitizes_http_failure() -> None:
 
 def test_oecd_client_uses_bounded_public_sdmx_query() -> None:
     async def handler(request: httpx.Request) -> httpx.Response:
-        assert "G20+CHN.M.LI...AA...H" in str(request.url)
+        assert "G20+CHN+CAN+GBR+JPN+KOR+IND+BRA+MEX+USA.M.LI...AA...H" in str(
+            request.url
+        )
         assert request.url.params["startPeriod"] == "2023-01"
         assert request.url.params["endPeriod"] == "2026-07"
         assert request.headers["Accept"] == "text/csv"
@@ -136,6 +138,23 @@ def test_oecd_client_uses_bounded_public_sdmx_query() -> None:
             return await OecdClient(client=client).fetch_composite_leading_indicators(as_of=NOW)
 
     assert asyncio.run(scenario()) == b"csv"
+
+
+def test_oecd_global_v2_adapter_adds_regions_only_when_enabled() -> None:
+    base = (FIXTURES / "oecd_cli.csv").read_text()
+    header, *rows = base.splitlines()
+    china_rows = [row.replace("CHN,", "JPN,", 1) for row in rows if "CHN," in row]
+    payload = ("\n".join([header, *rows, *china_rows]) + "\n").encode()
+
+    legacy = OecdAdapter().normalize_cli_momentum(payload, fetched_at=NOW)
+    global_v2 = OecdAdapter().normalize_cli_momentum(
+        payload,
+        fetched_at=NOW,
+        include_global=True,
+    )
+
+    assert "japan_cli_6m_change" not in {item.indicator_code for item in legacy}
+    assert "japan_cli_6m_change" in {item.indicator_code for item in global_v2}
 
 
 class StubWorldBankClient:

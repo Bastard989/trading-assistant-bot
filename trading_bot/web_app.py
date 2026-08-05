@@ -35,6 +35,8 @@ from trading_bot.crisis_radar.repositories import CrisisRadarRepository
 from trading_bot.crisis_radar.opportunities import AssetClass, MarketQuote
 from trading_bot.crisis_radar.bybit_options import build_defined_risk_put_spread
 from trading_bot.crisis_radar.service import CrisisRadarService
+from trading_bot.crisis_radar.source_registry import source_registry_payload
+from trading_bot.crisis_radar.domain import IndicatorThresholds, RiskDirection
 from trading_bot.crisis_radar.sources.base import SourcePayloadError
 from trading_bot.crisis_radar.sources.bybit import BybitClient, BybitSourceError
 from trading_bot.db import CURRENT_SCHEMA_VERSION, Database
@@ -181,6 +183,14 @@ class CrisisAgentChatRequest(BaseModel):
     locale: str = Field(default="ru", pattern="^(ru|en)$")
     mode: str = Field(default="fast", pattern="^(fast|deep)$")
     thread_id: int | None = Field(default=None, gt=0)
+
+
+class PersonalThresholdRequest(BaseModel):
+    warning: Decimal
+    danger: Decimal
+    critical: Decimal
+    reference: Decimal = Decimal("0")
+    direction: str = Field(pattern="^(higher_is_worse|lower_is_worse|two_sided)$")
 
 
 @asynccontextmanager
@@ -357,7 +367,32 @@ def crisis_radar_overview(
 ) -> dict:
     if not crisis_radar_enabled:
         raise HTTPException(status_code=503, detail="Crisis Radar is disabled")
-    return crisis_radar.overview(locale=locale)
+    return crisis_radar.overview(locale=locale, owner_user_id=user_id)
+
+
+@app.put("/api/crisis-radar/thresholds/{code}/personal")
+def crisis_radar_personal_thresholds(
+    code: str,
+    payload: PersonalThresholdRequest,
+    user_id: AuthenticatedUser,
+) -> dict:
+    if not crisis_radar_enabled:
+        raise HTTPException(status_code=503, detail="Crisis Radar is disabled")
+    try:
+        thresholds = IndicatorThresholds(
+            warning=payload.warning,
+            danger=payload.danger,
+            critical=payload.critical,
+            reference=payload.reference,
+            direction=RiskDirection(payload.direction),
+        )
+        return crisis_radar.save_personal_thresholds(
+            code,
+            owner_user_id=user_id,
+            thresholds=thresholds,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @app.get("/api/crisis-radar/world")
@@ -378,6 +413,13 @@ def crisis_radar_sources_health(
     if not crisis_radar_enabled:
         raise HTTPException(status_code=503, detail="Crisis Radar is disabled")
     return crisis_radar.source_health(locale=locale)
+
+
+@app.get("/api/crisis-radar/sources/registry")
+def crisis_radar_sources_registry(user_id: AuthenticatedUser) -> dict:
+    if not crisis_radar_enabled:
+        raise HTTPException(status_code=503, detail="Crisis Radar is disabled")
+    return source_registry_payload()
 
 
 def _decimal_indicator(indicators: dict[str, dict], code: str, field: str) -> Decimal | None:
@@ -516,6 +558,41 @@ def crisis_radar_news(
     if not crisis_radar_enabled:
         raise HTTPException(status_code=503, detail="Crisis Radar is disabled")
     return crisis_radar.news(locale=locale, days=days, limit=limit)
+
+
+@app.get("/api/crisis-radar/events")
+def crisis_radar_events(
+    user_id: AuthenticatedUser,
+    days: int = Query(default=14, ge=1, le=90),
+    limit: int = Query(default=50, ge=1, le=100),
+) -> dict:
+    if not crisis_radar_enabled:
+        raise HTTPException(status_code=503, detail="Crisis Radar is disabled")
+    return crisis_radar.events(days=days, limit=limit)
+
+
+@app.get("/api/crisis-radar/trends")
+def crisis_radar_trends(user_id: AuthenticatedUser) -> dict:
+    if not crisis_radar_enabled:
+        raise HTTPException(status_code=503, detail="Crisis Radar is disabled")
+    return crisis_radar.trends()
+
+
+@app.get("/api/crisis-radar/scenarios/fusion")
+def crisis_radar_scenario_fusion(
+    user_id: AuthenticatedUser,
+    locale: str = Query(default="ru", pattern="^(ru|en)$"),
+) -> dict:
+    if not crisis_radar_enabled:
+        raise HTTPException(status_code=503, detail="Crisis Radar is disabled")
+    return crisis_radar.scenario_fusion(locale=locale)
+
+
+@app.get("/api/crisis-radar/operations")
+def crisis_radar_operations(user_id: AuthenticatedUser) -> dict:
+    if not crisis_radar_enabled:
+        raise HTTPException(status_code=503, detail="Crisis Radar is disabled")
+    return crisis_radar.operational_metrics()
 
 
 @app.get("/api/crisis-radar/indicators/{code}/history")

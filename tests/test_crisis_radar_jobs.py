@@ -1,7 +1,7 @@
 import asyncio
 
 from trading_bot.crisis_radar.jobs import CrisisRadarJobs
-from trading_bot.crisis_radar.repositories import AlertDelivery, ReportDelivery
+from trading_bot.crisis_radar.repositories import AlertDelivery, DataHealthDelivery, ReportDelivery
 
 
 class FakeService:
@@ -209,6 +209,29 @@ class FakeReportRepository:
         self.sent.append(delivery_id)
 
 
+class FakeDataHealthRepository:
+    def __init__(self) -> None:
+        self.sent = []
+
+    def pending_data_health_deliveries(self):
+        return [
+            DataHealthDelivery(
+                delivery_id=11,
+                user_id=42,
+                from_status="healthy",
+                to_status="insufficient_data",
+                payload={
+                    "ratio": "0.62",
+                    "missing_regions": ["CHINA"],
+                    "missing_groups": ["credit"],
+                },
+            )
+        ]
+
+    def mark_data_health_sent(self, delivery_id, *, sent_at):
+        self.sent.append(delivery_id)
+
+
 class FakeBot:
     def __init__(self) -> None:
         self.messages = []
@@ -245,3 +268,17 @@ def test_planned_summary_is_delivered_as_plain_telegram_message() -> None:
     assert "ПРЕДУПРЕЖДЕНИЕ" in bot.messages[0]["text"]
     assert "Решение FOMC" in bot.messages[0]["text"]
     assert "Lending conditions tightened" in bot.messages[0]["text"]
+
+
+def test_data_outage_is_delivered_separately_from_market_alert() -> None:
+    service = FakeService()
+    service.repository = FakeDataHealthRepository()
+    bot = FakeBot()
+    context = type("Context", (), {"bot": bot})()
+    jobs = CrisisRadarJobs(service, fred_api_key="", alert_user_ids=(42,))
+
+    asyncio.run(jobs._deliver_data_health_alerts(context))
+
+    assert service.repository.sent == [11]
+    assert "СОСТОЯНИЕ ДАННЫХ" in bot.messages[0]["text"]
+    assert "не рыночный сигнал" in bot.messages[0]["text"]

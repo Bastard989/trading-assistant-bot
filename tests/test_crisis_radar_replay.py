@@ -246,7 +246,7 @@ def test_calibration_must_beat_baseline_and_detect_multiple_events() -> None:
         **common,
     )
     acceptable = BacktestMetrics(
-        positive_event_count=3,
+        positive_event_count=30,
         brier_score=Decimal("0.12"),
         baseline_brier_score=Decimal("0.16"),
         **common,
@@ -254,4 +254,11 @@ def test_calibration_must_beat_baseline_and_detect_multiple_events() -> None:
 
     assert _calibration_acceptable(baseline_equal) is False
     assert _calibration_acceptable(too_few_events) is False
-    assert _calibration_acceptable(acceptable) is True
+    validation = {
+        "holdout_event_count": 5,
+        "sensitivity_stable": True,
+        "region_holdout_passed": True,
+        "crisis_holdout_passed": True,
+    }
+    assert _calibration_acceptable(acceptable) is False
+    assert _calibration_acceptable(acceptable, validation) is True

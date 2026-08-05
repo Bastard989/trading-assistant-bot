@@ -105,6 +105,8 @@ class FredTransformAdapter:
             return self._drawdown(raw, request, window=timedelta(days=30))
         if transform == "change_90d":
             return self._change(raw, request, window=timedelta(days=90))
+        if transform == "change_30d":
+            return self._change(raw, request, window=timedelta(days=30))
         raise SourcePayloadError(f"unsupported FRED transform: {transform}")
 
     @staticmethod

@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Iterator
 
 
-CURRENT_SCHEMA_VERSION = 14
+CURRENT_SCHEMA_VERSION = 20
 
 
 SCHEMA = """
@@ -170,7 +170,11 @@ CREATE TABLE IF NOT EXISTS cr_market_snapshots (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     methodology_id INTEGER NOT NULL,
     snapshot_at TEXT NOT NULL,
-    stage TEXT NOT NULL CHECK(stage IN ('stable', 'tension', 'warning', 'confirmation', 'crisis')),
+    stage TEXT NOT NULL CHECK(stage IN ('insufficient_data', 'stable', 'tension', 'warning', 'confirmation', 'crisis')),
+    calculated_stage TEXT NOT NULL DEFAULT 'stable' CHECK(calculated_stage IN ('stable', 'tension', 'warning', 'confirmation', 'crisis')),
+    coverage_status TEXT NOT NULL DEFAULT 'not_evaluated' CHECK(coverage_status IN ('not_evaluated', 'healthy', 'degraded', 'insufficient_data')),
+    coverage_ratio_text TEXT,
+    coverage_payload TEXT NOT NULL DEFAULT '{}',
     dominant_window TEXT NOT NULL DEFAULT '30d',
     active_group_count INTEGER NOT NULL DEFAULT 0 CHECK(active_group_count >= 0),
     warning_group_count INTEGER NOT NULL DEFAULT 0 CHECK(warning_group_count >= 0),
@@ -201,7 +205,7 @@ CREATE TABLE IF NOT EXISTS cr_scenario_states (
     scenario_id INTEGER NOT NULL,
     methodology_id INTEGER NOT NULL,
     snapshot_at TEXT NOT NULL,
-    status TEXT NOT NULL CHECK(status IN ('inactive', 'watch', 'elevated', 'confirmed')),
+    status TEXT NOT NULL CHECK(status IN ('unknown', 'inactive', 'watch', 'elevated', 'confirmed')),
     confidence TEXT NOT NULL CHECK(confidence IN ('low', 'medium', 'high')),
     active_group_count INTEGER NOT NULL DEFAULT 0 CHECK(active_group_count >= 0),
     evidence_payload TEXT NOT NULL DEFAULT '[]',
@@ -240,6 +244,32 @@ CREATE TABLE IF NOT EXISTS cr_alert_deliveries (
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(event_id, user_id),
     FOREIGN KEY(event_id) REFERENCES cr_alert_events(id)
+);
+
+CREATE TABLE IF NOT EXISTS cr_data_health_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_key TEXT NOT NULL UNIQUE,
+    methodology_id INTEGER NOT NULL,
+    snapshot_at TEXT NOT NULL,
+    from_status TEXT NOT NULL,
+    to_status TEXT NOT NULL CHECK(to_status IN ('healthy', 'degraded', 'insufficient_data')),
+    payload TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(methodology_id) REFERENCES cr_methodology_versions(id)
+);
+
+CREATE TABLE IF NOT EXISTS cr_data_health_deliveries (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'sent', 'failed')),
+    attempts INTEGER NOT NULL DEFAULT 0 CHECK(attempts >= 0),
+    next_attempt_at TEXT,
+    sent_at TEXT,
+    last_error TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(event_id, user_id),
+    FOREIGN KEY(event_id) REFERENCES cr_data_health_events(id)
 );
 
 CREATE TABLE IF NOT EXISTS cr_release_events (
@@ -312,6 +342,92 @@ CREATE TABLE IF NOT EXISTS cr_news_evidence (
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(news_item_id, scenario_id, methodology_id, rule_version),
     FOREIGN KEY(news_item_id) REFERENCES cr_news_items(id),
+    FOREIGN KEY(scenario_id) REFERENCES cr_scenario_definitions(id),
+    FOREIGN KEY(methodology_id) REFERENCES cr_methodology_versions(id)
+);
+
+CREATE TABLE IF NOT EXISTS cr_event_clusters (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_key TEXT NOT NULL UNIQUE,
+    taxonomy TEXT NOT NULL,
+    status TEXT NOT NULL CHECK(status IN ('discovery', 'watch', 'corroborated', 'official')),
+    title TEXT NOT NULL CHECK(length(title) BETWEEN 1 AND 300),
+    first_seen_at TEXT NOT NULL,
+    last_seen_at TEXT NOT NULL,
+    regions_payload TEXT NOT NULL DEFAULT '[]',
+    entities_payload TEXT NOT NULL DEFAULT '[]',
+    assets_payload TEXT NOT NULL DEFAULT '[]',
+    impact_direction TEXT NOT NULL DEFAULT 'mixed' CHECK(impact_direction IN ('negative', 'positive', 'mixed')),
+    horizon TEXT NOT NULL DEFAULT 'unknown',
+    severity_score_text TEXT NOT NULL,
+    confidence_score_text TEXT NOT NULL,
+    event_score_text TEXT NOT NULL,
+    source_count INTEGER NOT NULL DEFAULT 0 CHECK(source_count >= 0),
+    official_source_count INTEGER NOT NULL DEFAULT 0 CHECK(official_source_count >= 0),
+    rule_version TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS cr_event_evidence (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_id INTEGER NOT NULL,
+    news_item_id INTEGER NOT NULL,
+    source_tier TEXT NOT NULL CHECK(source_tier IN ('A', 'B', 'C')),
+    evidence_excerpt TEXT NOT NULL CHECK(length(evidence_excerpt) <= 600),
+    injection_detected INTEGER NOT NULL DEFAULT 0 CHECK(injection_detected IN (0, 1)),
+    relation TEXT NOT NULL DEFAULT 'supports' CHECK(relation IN ('supports', 'contradicts', 'mentions')),
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(event_id, news_item_id),
+    FOREIGN KEY(event_id) REFERENCES cr_event_clusters(id),
+    FOREIGN KEY(news_item_id) REFERENCES cr_news_items(id)
+);
+
+CREATE TABLE IF NOT EXISTS cr_indicator_features (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    indicator_id INTEGER NOT NULL,
+    methodology_id INTEGER NOT NULL,
+    snapshot_at TEXT NOT NULL,
+    feature_version TEXT NOT NULL,
+    features_payload TEXT NOT NULL,
+    lineage_payload TEXT NOT NULL,
+    input_checksum TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(indicator_id, methodology_id, snapshot_at, feature_version),
+    FOREIGN KEY(indicator_id) REFERENCES cr_indicator_definitions(id),
+    FOREIGN KEY(methodology_id) REFERENCES cr_methodology_versions(id)
+);
+
+CREATE TABLE IF NOT EXISTS cr_contagion_features (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    methodology_id INTEGER NOT NULL,
+    snapshot_at TEXT NOT NULL,
+    feature_version TEXT NOT NULL,
+    breadth_score_text TEXT NOT NULL,
+    stress_correlation_text TEXT,
+    payload TEXT NOT NULL,
+    input_checksum TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(methodology_id, snapshot_at, feature_version),
+    FOREIGN KEY(methodology_id) REFERENCES cr_methodology_versions(id)
+);
+
+CREATE TABLE IF NOT EXISTS cr_scenario_fusion_states (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    scenario_id INTEGER NOT NULL,
+    methodology_id INTEGER NOT NULL,
+    snapshot_at TEXT NOT NULL,
+    fusion_version TEXT NOT NULL,
+    status TEXT NOT NULL CHECK(status IN ('unknown', 'inactive', 'watch', 'elevated', 'confirmed')),
+    strength_score_text TEXT NOT NULL,
+    reliability_score_text TEXT NOT NULL,
+    independent_cluster_count INTEGER NOT NULL DEFAULT 0 CHECK(independent_cluster_count >= 0),
+    anchor_active INTEGER NOT NULL DEFAULT 0 CHECK(anchor_active IN (0, 1)),
+    components_payload TEXT NOT NULL,
+    explanation_payload TEXT NOT NULL,
+    input_checksum TEXT NOT NULL CHECK(length(input_checksum) = 64),
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(scenario_id, methodology_id, snapshot_at, fusion_version),
     FOREIGN KEY(scenario_id) REFERENCES cr_scenario_definitions(id),
     FOREIGN KEY(methodology_id) REFERENCES cr_methodology_versions(id)
 );
@@ -488,6 +604,8 @@ CREATE INDEX IF NOT EXISTS idx_cr_scenario_states_snapshot
     ON cr_scenario_states(snapshot_at DESC, scenario_id);
 CREATE INDEX IF NOT EXISTS idx_cr_alert_deliveries_retry
     ON cr_alert_deliveries(status, next_attempt_at, attempts);
+CREATE INDEX IF NOT EXISTS idx_cr_data_health_deliveries_retry
+    ON cr_data_health_deliveries(status, next_attempt_at, attempts);
 CREATE INDEX IF NOT EXISTS idx_cr_release_events_upcoming
     ON cr_release_events(status, release_date, importance);
 CREATE INDEX IF NOT EXISTS idx_cr_report_deliveries_retry
@@ -496,6 +614,16 @@ CREATE INDEX IF NOT EXISTS idx_cr_news_items_published
     ON cr_news_items(published_at DESC, source_id);
 CREATE INDEX IF NOT EXISTS idx_cr_news_evidence_scenario
     ON cr_news_evidence(methodology_id, scenario_id, severity, news_item_id);
+CREATE INDEX IF NOT EXISTS idx_cr_event_clusters_last_seen
+    ON cr_event_clusters(last_seen_at DESC, taxonomy, status);
+CREATE INDEX IF NOT EXISTS idx_cr_event_evidence_event
+    ON cr_event_evidence(event_id, source_tier, news_item_id);
+CREATE INDEX IF NOT EXISTS idx_cr_indicator_features_snapshot
+    ON cr_indicator_features(snapshot_at DESC, indicator_id, feature_version);
+CREATE INDEX IF NOT EXISTS idx_cr_contagion_features_snapshot
+    ON cr_contagion_features(snapshot_at DESC, feature_version);
+CREATE INDEX IF NOT EXISTS idx_cr_scenario_fusion_snapshot
+    ON cr_scenario_fusion_states(snapshot_at DESC, scenario_id, fusion_version);
 CREATE INDEX IF NOT EXISTS idx_cr_agent_threads_user_updated
     ON cr_agent_threads(user_id, updated_at DESC, id DESC);
 CREATE INDEX IF NOT EXISTS idx_cr_agent_messages_thread_created
@@ -831,6 +959,35 @@ class Database:
                 "grounding_payload",
                 "TEXT NOT NULL DEFAULT '[]'",
             )
+            self._migrate_crisis_coverage_v15(connection)
+            self._add_column(
+                connection,
+                "cr_threshold_sets",
+                "basis",
+                "TEXT NOT NULL DEFAULT 'legacy'",
+            )
+            self._add_column(
+                connection,
+                "cr_threshold_sets",
+                "promotion_status",
+                "TEXT NOT NULL DEFAULT 'active'",
+            )
+            self._add_column(
+                connection,
+                "cr_threshold_sets",
+                "rationale_payload",
+                "TEXT NOT NULL DEFAULT '{}'",
+            )
+            for column, definition in (
+                ("publisher", "TEXT NOT NULL DEFAULT ''"),
+                ("original_language", "TEXT NOT NULL DEFAULT 'en'"),
+                ("normalized_title", "TEXT NOT NULL DEFAULT ''"),
+                ("dedup_hash", "TEXT NOT NULL DEFAULT ''"),
+                ("source_tier", "TEXT NOT NULL DEFAULT 'A'"),
+                ("evidence_excerpt", "TEXT NOT NULL DEFAULT ''"),
+                ("raw_payload_hash", "TEXT NOT NULL DEFAULT ''"),
+            ):
+                self._add_column(connection, "cr_news_items", column, definition)
             connection.execute(
                 "CREATE INDEX IF NOT EXISTS idx_trades_user_session_status "
                 "ON trades(user_id, session_id, status)"
@@ -849,6 +1006,12 @@ class Database:
             self._record_migration(connection, 12, "crisis-radar-agent-grounding-v12")
             self._record_migration(connection, 13, "crisis-radar-walk-forward-backtest-v13")
             self._record_migration(connection, 14, "crisis-radar-event-catalog-replay-v14")
+            self._record_migration(connection, 15, "crisis-radar-coverage-gate-v15")
+            self._record_migration(connection, 16, "crisis-radar-threshold-metadata-v16")
+            self._record_migration(connection, 17, "crisis-radar-global-events-v17")
+            self._record_migration(connection, 18, "crisis-radar-trend-regime-v18")
+            self._record_migration(connection, 19, "crisis-radar-scenario-fusion-v19")
+            self._record_migration(connection, 20, "crisis-radar-data-health-alerts-v20")
             connection.commit()
         except Exception:
             connection.rollback()
@@ -860,6 +1023,108 @@ class Database:
         columns = {row[1] for row in connection.execute(f"PRAGMA table_info({table})")}
         if column not in columns:
             connection.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+
+    def _migrate_crisis_coverage_v15(self, connection: sqlite3.Connection) -> None:
+        market_sql_row = connection.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='cr_market_snapshots'"
+        ).fetchone()
+        market_sql = "" if market_sql_row is None else str(market_sql_row[0] or "")
+        if "coverage_status" not in market_sql or "insufficient_data" not in market_sql:
+            connection.execute("ALTER TABLE cr_market_snapshots RENAME TO cr_market_snapshots_v14")
+            connection.execute(
+                """
+                CREATE TABLE cr_market_snapshots (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    methodology_id INTEGER NOT NULL,
+                    snapshot_at TEXT NOT NULL,
+                    stage TEXT NOT NULL CHECK(stage IN (
+                        'insufficient_data', 'stable', 'tension', 'warning',
+                        'confirmation', 'crisis'
+                    )),
+                    calculated_stage TEXT NOT NULL DEFAULT 'stable' CHECK(calculated_stage IN (
+                        'stable', 'tension', 'warning', 'confirmation', 'crisis'
+                    )),
+                    coverage_status TEXT NOT NULL DEFAULT 'not_evaluated' CHECK(coverage_status IN (
+                        'not_evaluated', 'healthy', 'degraded', 'insufficient_data'
+                    )),
+                    coverage_ratio_text TEXT,
+                    coverage_payload TEXT NOT NULL DEFAULT '{}',
+                    dominant_window TEXT NOT NULL DEFAULT '30d',
+                    active_group_count INTEGER NOT NULL DEFAULT 0 CHECK(active_group_count >= 0),
+                    warning_group_count INTEGER NOT NULL DEFAULT 0 CHECK(warning_group_count >= 0),
+                    danger_group_count INTEGER NOT NULL DEFAULT 0 CHECK(danger_group_count >= 0),
+                    critical_group_count INTEGER NOT NULL DEFAULT 0 CHECK(critical_group_count >= 0),
+                    explanation_payload TEXT NOT NULL DEFAULT '{}',
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(methodology_id, snapshot_at),
+                    FOREIGN KEY(methodology_id) REFERENCES cr_methodology_versions(id)
+                )
+                """
+            )
+            connection.execute(
+                """
+                INSERT INTO cr_market_snapshots(
+                    id, methodology_id, snapshot_at, stage, calculated_stage,
+                    coverage_status, coverage_ratio_text, coverage_payload,
+                    dominant_window, active_group_count, warning_group_count,
+                    danger_group_count, critical_group_count, explanation_payload, created_at
+                )
+                SELECT id, methodology_id, snapshot_at, stage, stage,
+                       'not_evaluated', NULL, '{}', dominant_window,
+                       active_group_count, warning_group_count, danger_group_count,
+                       critical_group_count, explanation_payload, created_at
+                FROM cr_market_snapshots_v14
+                """
+            )
+            connection.execute("DROP TABLE cr_market_snapshots_v14")
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS idx_cr_market_snapshots_snapshot "
+                "ON cr_market_snapshots(snapshot_at DESC)"
+            )
+
+        scenario_sql_row = connection.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='cr_scenario_states'"
+        ).fetchone()
+        scenario_sql = "" if scenario_sql_row is None else str(scenario_sql_row[0] or "")
+        if "'unknown'" not in scenario_sql:
+            connection.execute("ALTER TABLE cr_scenario_states RENAME TO cr_scenario_states_v14")
+            connection.execute(
+                """
+                CREATE TABLE cr_scenario_states (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    scenario_id INTEGER NOT NULL,
+                    methodology_id INTEGER NOT NULL,
+                    snapshot_at TEXT NOT NULL,
+                    status TEXT NOT NULL CHECK(status IN (
+                        'unknown', 'inactive', 'watch', 'elevated', 'confirmed'
+                    )),
+                    confidence TEXT NOT NULL CHECK(confidence IN ('low', 'medium', 'high')),
+                    active_group_count INTEGER NOT NULL DEFAULT 0 CHECK(active_group_count >= 0),
+                    evidence_payload TEXT NOT NULL DEFAULT '[]',
+                    explanation_payload TEXT NOT NULL DEFAULT '{}',
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(scenario_id, methodology_id, snapshot_at),
+                    FOREIGN KEY(scenario_id) REFERENCES cr_scenario_definitions(id),
+                    FOREIGN KEY(methodology_id) REFERENCES cr_methodology_versions(id)
+                )
+                """
+            )
+            connection.execute(
+                """
+                INSERT INTO cr_scenario_states(
+                    id, scenario_id, methodology_id, snapshot_at, status, confidence,
+                    active_group_count, evidence_payload, explanation_payload, created_at
+                )
+                SELECT id, scenario_id, methodology_id, snapshot_at, status, confidence,
+                       active_group_count, evidence_payload, explanation_payload, created_at
+                FROM cr_scenario_states_v14
+                """
+            )
+            connection.execute("DROP TABLE cr_scenario_states_v14")
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS idx_cr_scenario_states_snapshot "
+                "ON cr_scenario_states(snapshot_at DESC, scenario_id)"
+            )
 
     def _record_migration(self, connection: sqlite3.Connection, version: int, checksum: str) -> None:
         existing = connection.execute(

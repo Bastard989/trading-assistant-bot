@@ -78,9 +78,13 @@ class _PublicClient:
 
 
 class WorldBankClient(_PublicClient):
+    SUPPORTED_COUNTRIES = frozenset(
+        {"BRA", "CAN", "CHN", "GBR", "HKG", "IND", "JPN", "KOR", "MEX", "WLD"}
+    )
+
     async def fetch_gdp_growth(self, country: str, *, as_of: datetime) -> bytes:
         country_code = country.strip().upper()
-        if country_code not in {"CHN", "WLD"}:
+        if country_code not in self.SUPPORTED_COUNTRIES:
             raise ValueError("unsupported World Bank country code")
         return await self._get(
             f"https://api.worldbank.org/v2/country/{country_code}/indicator/NY.GDP.MKTP.KD.ZG",
@@ -103,13 +107,15 @@ class BisClient(_PublicClient):
 
 
 class OecdClient(_PublicClient):
+    REFERENCE_AREAS = ("G20", "CHN", "CAN", "GBR", "JPN", "KOR", "IND", "BRA", "MEX", "USA")
+
     async def fetch_composite_leading_indicators(self, *, as_of: datetime) -> bytes:
         start_year = as_of.year - 3
         return await self._get(
             (
                 "https://sdmx.oecd.org/public/rest/v1/data/"
                 "OECD.SDD.STES,DSD_STES@DF_CLI,4.1/"
-                "G20+CHN.M.LI...AA...H"
+                f"{'+'.join(self.REFERENCE_AREAS)}.M.LI...AA...H"
             ),
             params={
                 "startPeriod": f"{start_year}-01",

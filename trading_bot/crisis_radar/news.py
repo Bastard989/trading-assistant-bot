@@ -30,6 +30,13 @@ class NewsItem:
     language: str
     importance: str
     content_hash: str
+    publisher: str = ""
+    original_language: str = "en"
+    normalized_title: str = ""
+    dedup_hash: str = ""
+    source_tier: str = "A"
+    evidence_excerpt: str = ""
+    raw_payload_hash: str = ""
 
     def __post_init__(self) -> None:
         if not self.source_code or not self.provider_item_id or not self.title:
@@ -42,6 +49,8 @@ class NewsItem:
             raise ValueError("unsupported news language")
         if self.importance not in {"medium", "high"}:
             raise ValueError("unsupported news importance")
+        if self.source_tier not in {"A", "B", "C"}:
+            raise ValueError("unsupported news source tier")
 
 
 @dataclass(frozen=True)
@@ -74,24 +83,39 @@ def _plain_text(value: str, *, limit: int) -> str:
     return normalized[:limit]
 
 
-def _canonical_url(value: str, *, allowed_host: str) -> str:
+def _canonical_url(value: str, *, allowed_hosts: tuple[str, ...]) -> str:
     parts = urlsplit(value.strip())
     if (
-        parts.scheme.lower() != "https"
-        or parts.hostname != allowed_host
+        parts.scheme.lower() not in {"http", "https"}
+        or parts.hostname not in allowed_hosts
         or parts.username
         or parts.password
         or parts.port is not None
     ):
         raise SourcePayloadError("official RSS item has an untrusted URL")
     path = re.sub(r"/{2,}", "/", parts.path or "/")
-    return urlunsplit(("https", allowed_host, path, "", ""))
+    return urlunsplit(("https", parts.hostname, path, "", ""))
 
 
 class RssAdapter:
     _HOSTS = {
-        "fed_news": "www.federalreserve.gov",
-        "ecb_news": "www.ecb.europa.eu",
+        "fed_news": ("www.federalreserve.gov",),
+        "ecb_news": ("www.ecb.europa.eu",),
+        "sec_news": ("www.sec.gov",),
+        "cftc_news": ("www.cftc.gov",),
+        "bis_news": ("www.bis.org",),
+        "boj_news": ("www.boj.or.jp",),
+        "rbi_news": ("rbi.org.in", "www.rbi.org.in"),
+    }
+
+    _PUBLISHERS = {
+        "fed_news": "Federal Reserve Board",
+        "ecb_news": "European Central Bank",
+        "sec_news": "US Securities and Exchange Commission",
+        "cftc_news": "US Commodity Futures Trading Commission",
+        "bis_news": "Bank for International Settlements",
+        "boj_news": "Bank of Japan",
+        "rbi_news": "Reserve Bank of India",
     }
 
     def __init__(self, source_code: str) -> None:
@@ -109,12 +133,19 @@ class RssAdapter:
             root = ElementTree.fromstring(payload)
         except ElementTree.ParseError as exc:
             raise SourcePayloadError("invalid official RSS XML") from exc
-        channel = root.find("channel") if root.tag == "rss" else None
+        is_rss2 = root.tag == "rss"
+        is_rss1 = root.tag == "{http://www.w3.org/1999/02/22-rdf-syntax-ns#}RDF"
+        channel = root.find("channel") if is_rss2 else root if is_rss1 else None
         if channel is None:
-            raise SourcePayloadError("official feed is not RSS 2.0")
+            raise SourcePayloadError("official feed is not supported RSS")
+        nodes = (
+            channel.findall("item")
+            if is_rss2
+            else root.findall("{http://purl.org/rss/1.0/}item")
+        )
         items = []
-        for node in channel.findall("item")[:100]:
-            item = self._normalize_item(node, fetched_at=fetched_at)
+        for node in nodes[:100]:
+            item = self._normalize_item(node, fetched_at=fetched_at, rss1=is_rss1)
             if item is not None:
                 items.append(item)
         if not items:
@@ -122,26 +153,35 @@ class RssAdapter:
         return sorted(items, key=lambda item: item.published_at)
 
     def _normalize_item(
-        self, node: ElementTree.Element, *, fetched_at: datetime
+        self, node: ElementTree.Element, *, fetched_at: datetime, rss1: bool = False
     ) -> NewsItem | None:
-        title_raw = node.findtext("title") or ""
-        link_raw = node.findtext("link") or ""
-        guid_raw = node.findtext("guid") or link_raw
-        published_raw = node.findtext("pubDate") or ""
+        prefix = "{http://purl.org/rss/1.0/}" if rss1 else ""
+        title_raw = node.findtext(f"{prefix}title") or ""
+        link_raw = node.findtext(f"{prefix}link") or ""
+        guid_raw = (node.get("{http://www.w3.org/1999/02/22-rdf-syntax-ns#}about") if rss1 else node.findtext("guid")) or link_raw
+        published_raw = (
+            node.findtext("{http://purl.org/dc/elements/1.1/}date")
+            if rss1
+            else node.findtext("pubDate")
+        ) or ""
         if not title_raw or not link_raw or not guid_raw or not published_raw:
             raise SourcePayloadError("official RSS item is missing required fields")
         try:
-            published_at = parsedate_to_datetime(published_raw).astimezone(timezone.utc)
+            published_at = (
+                datetime.fromisoformat(published_raw.replace("Z", "+00:00")).astimezone(timezone.utc)
+                if rss1
+                else parsedate_to_datetime(published_raw).astimezone(timezone.utc)
+            )
         except (TypeError, ValueError) as exc:
             raise SourcePayloadError("invalid official RSS publication date") from exc
         if published_at > fetched_at + timedelta(minutes=5):
             return None
         title = _plain_text(title_raw, limit=300)
-        summary = _plain_text(node.findtext("description") or "", limit=1200)
+        summary = _plain_text(node.findtext(f"{prefix}description") or "", limit=1200)
         if summary.casefold() == title.casefold():
             summary = ""
-        category = _plain_text(node.findtext("category") or "", limit=120)
-        url = _canonical_url(link_raw, allowed_host=self._HOSTS[self.source_code])
+        category = _plain_text(node.findtext(f"{prefix}category") or "", limit=120)
+        url = _canonical_url(link_raw, allowed_hosts=self._HOSTS[self.source_code])
         provider_item_id = hashlib.sha256(guid_raw.strip().encode()).hexdigest()
         source_text = " ".join((title, summary, category)).casefold()
         importance = "high" if any(
@@ -159,6 +199,7 @@ class RssAdapter:
         content_hash = hashlib.sha256(
             "\n".join((title, summary, url, published_at.isoformat())).encode()
         ).hexdigest()
+        normalized_title = " ".join(re.findall(r"[a-z0-9]{2,}", title.casefold()))
         return NewsItem(
             source_code=self.source_code,
             provider_item_id=provider_item_id,
@@ -171,6 +212,13 @@ class RssAdapter:
             language="en",
             importance=importance,
             content_hash=content_hash,
+            publisher=self._PUBLISHERS[self.source_code],
+            original_language="en",
+            normalized_title=normalized_title,
+            dedup_hash=hashlib.sha256(normalized_title.encode()).hexdigest(),
+            source_tier="A",
+            evidence_excerpt=(summary or title)[:600],
+            raw_payload_hash=content_hash,
         )
 
 

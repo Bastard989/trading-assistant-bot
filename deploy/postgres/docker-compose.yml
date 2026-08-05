@@ -1,0 +1,20 @@
+services:
+  crisis-postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_DB: crisis_radar
+      POSTGRES_USER: crisis_radar
+      POSTGRES_PASSWORD: ${CRISIS_POSTGRES_PASSWORD:?set CRISIS_POSTGRES_PASSWORD}
+    ports:
+      - "127.0.0.1:55433:5432"
+    volumes:
+      - crisis-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U crisis_radar -d crisis_radar"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+
+volumes:
+  crisis-postgres-data:

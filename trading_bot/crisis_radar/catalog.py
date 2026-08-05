@@ -2,17 +2,19 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from decimal import Decimal
 
 from trading_bot.crisis_radar.domain import IndicatorThresholds, RiskDirection
 from trading_bot.crisis_radar.repositories import CrisisRadarRepository
-from trading_bot.crisis_radar.scenarios import SCENARIOS
+from trading_bot.crisis_radar.scenarios import SCENARIOS, V2_SCENARIOS, ScenarioDefinition
 from trading_bot.crisis_radar.stability import STABILITY_POLICY
 
 
 METHODOLOGY_CODE = "crisis-radar"
 METHODOLOGY_VERSION = "starter-v8"
+METHODOLOGY_V2_VERSION = "candidate-v9"
+METHODOLOGY_GLOBAL_V2_VERSION = "candidate-v10"
 
 
 @dataclass(frozen=True)
@@ -157,6 +159,42 @@ NEWS_SOURCES = (
         base_url="https://www.ecb.europa.eu/rss/press.html",
         terms_url="https://www.ecb.europa.eu/home/html/rss.en.html",
     ),
+    NewsSourceSeed(
+        code="sec_news",
+        name="US Securities and Exchange Commission Press Releases",
+        base_url="https://www.sec.gov/news/pressreleases.rss",
+        terms_url="https://www.sec.gov/about/rss-feeds",
+    ),
+    NewsSourceSeed(
+        code="cftc_news",
+        name="US Commodity Futures Trading Commission Press Releases",
+        base_url="https://www.cftc.gov/RSS/RSSGP/rssgp.xml",
+        terms_url="https://www.cftc.gov/RSS/index.htm",
+    ),
+    NewsSourceSeed(
+        code="bis_news",
+        name="Bank for International Settlements Press Releases",
+        base_url="https://www.bis.org/doclist/all_pressrels.rss",
+        terms_url="https://www.bis.org/rss/index.htm",
+    ),
+    NewsSourceSeed(
+        code="boj_news",
+        name="Bank of Japan What's New RSS",
+        base_url="https://www.boj.or.jp/en/rss/whatsnew.xml",
+        terms_url="https://www.boj.or.jp/en/tips.htm",
+    ),
+    NewsSourceSeed(
+        code="rbi_news",
+        name="Reserve Bank of India Press Releases RSS",
+        base_url="https://rbi.org.in/pressreleases_rss.xml",
+        terms_url="https://www.rbi.org.in/Scripts/rss.aspx",
+    ),
+    NewsSourceSeed(
+        code="gdelt_discovery",
+        name="GDELT DOC 2.0 Discovery",
+        base_url="https://api.gdeltproject.org/api/v2/doc/doc",
+        terms_url="https://www.gdeltproject.org/about.html",
+    ),
 )
 
 FRED_INDICATORS = (
@@ -286,6 +324,38 @@ FRED_INDICATORS = (
     ),
 )
 
+FRED_GLOBAL_V2_INDICATORS = tuple(
+    IndicatorSeed(
+        code=f"{slug}_fx_30d_change",
+        provider_series_id=series,
+        name=f"{label} FX 30-Day Change",
+        name_ru=f"Изменение валютного курса — {label_ru}, 30 дней",
+        group_code=f"{slug}_market_conditions",
+        region_code=region,
+        unit="percent",
+        frequency="daily",
+        max_staleness_seconds=7 * 86400,
+        thresholds=IndicatorThresholds(
+            warning=Decimal("5"),
+            danger=Decimal("10"),
+            critical=Decimal("15"),
+            direction=RiskDirection.TWO_SIDED,
+        ),
+        transform="change_30d",
+    )
+    for slug, region, series, label, label_ru in (
+        ("canada", "CAN", "DEXCAUS", "Canadian dollar", "канадский доллар"),
+        ("uk", "GBR", "DEXUSUK", "British pound", "фунт стерлингов"),
+        ("china", "CHN", "DEXCHUS", "Chinese yuan", "китайский юань"),
+        ("hong_kong", "HKG", "DEXHKUS", "Hong Kong dollar", "гонконгский доллар"),
+        ("japan", "JPN", "DEXJPUS", "Japanese yen", "японская иена"),
+        ("korea", "KOR", "DEXKOUS", "Korean won", "южнокорейская вона"),
+        ("india", "IND", "DEXINUS", "Indian rupee", "индийская рупия"),
+        ("brazil", "BRA", "DEXBZUS", "Brazilian real", "бразильский реал"),
+        ("mexico", "MEX", "DEXMXUS", "Mexican peso", "мексиканский песо"),
+    )
+)
+
 BEA_INDICATORS = (
     IndicatorSeed(
         code="us_real_gdp_qoq",
@@ -407,6 +477,40 @@ WORLD_BANK_INDICATORS = (
     ),
 )
 
+
+_WORLD_BANK_REGION_ROWS = (
+    ("canada", "CAN", "Canada", "Канады"),
+    ("uk", "GBR", "United Kingdom", "Великобритании"),
+    ("hong_kong", "HKG", "Hong Kong SAR", "Гонконга"),
+    ("japan", "JPN", "Japan", "Японии"),
+    ("korea", "KOR", "Korea", "Южной Кореи"),
+    ("india", "IND", "India", "Индии"),
+    ("brazil", "BRA", "Brazil", "Бразилии"),
+    ("mexico", "MEX", "Mexico", "Мексики"),
+)
+
+WORLD_BANK_GLOBAL_V2_INDICATORS = tuple(
+    IndicatorSeed(
+        code=f"{slug}_real_gdp_yoy",
+        provider_series_id=f"{iso}:NY.GDP.MKTP.KD.ZG",
+        name=f"{label} Real GDP Growth (Annual)",
+        name_ru=f"Рост реального ВВП {label_ru} за год",
+        group_code=f"{slug}_growth",
+        region_code=iso,
+        unit="percent",
+        frequency="annual",
+        max_staleness_seconds=800 * 86400,
+        thresholds=IndicatorThresholds(
+            warning=Decimal("1.5"),
+            danger=Decimal("0"),
+            critical=Decimal("-2"),
+            reference=Decimal("3"),
+            direction=RiskDirection.LOWER_IS_WORSE,
+        ),
+    )
+    for slug, iso, label, label_ru in _WORLD_BANK_REGION_ROWS
+)
+
 BIS_INDICATORS = tuple(
     IndicatorSeed(
         code=f"{country}_credit_to_gdp_gap",
@@ -429,6 +533,36 @@ BIS_INDICATORS = tuple(
     for country, iso, label, label_ru in (
         ("us", "US", "United States", "США"),
         ("china", "CN", "China", "Китай"),
+    )
+)
+
+BIS_GLOBAL_V2_INDICATORS = tuple(
+    IndicatorSeed(
+        code=f"{slug}_credit_to_gdp_gap",
+        provider_series_id=f"WS_CREDIT_GAP:{iso}:P:A:C",
+        name=f"{label} Private-Sector Credit-to-GDP Gap",
+        name_ru=f"Кредитный разрыв частного сектора — {label_ru}",
+        group_code=f"{slug}_credit_cycle",
+        region_code=iso,
+        unit="percentage_points",
+        frequency="quarterly",
+        max_staleness_seconds=220 * 86400,
+        thresholds=IndicatorThresholds(
+            warning=Decimal("2"),
+            danger=Decimal("10"),
+            critical=Decimal("20"),
+            reference=Decimal("-5"),
+            direction=RiskDirection.HIGHER_IS_WORSE,
+        ),
+    )
+    for slug, iso, label, label_ru in (
+        ("canada", "CA", "Canada", "Канада"),
+        ("uk", "GB", "United Kingdom", "Великобритания"),
+        ("japan", "JP", "Japan", "Япония"),
+        ("korea", "KR", "Korea", "Южная Корея"),
+        ("india", "IN", "India", "Индия"),
+        ("brazil", "BR", "Brazil", "Бразилия"),
+        ("mexico", "MX", "Mexico", "Мексика"),
     )
 )
 
@@ -471,6 +605,38 @@ OECD_INDICATORS = (
         ),
         transform="change_6m",
     ),
+)
+
+OECD_GLOBAL_V2_INDICATORS = tuple(
+    IndicatorSeed(
+        code=f"{slug}_cli_6m_change",
+        provider_series_id=f"DSD_STES@DF_CLI:{area}:M:LI:AA:H:6m_change",
+        name=f"{label} Composite Leading Indicator 6-Month Change",
+        name_ru=f"Изменение опережающего индикатора — {label_ru}, 6 месяцев",
+        group_code=f"{slug}_leading_cycle",
+        region_code=area,
+        unit="index_points_6m",
+        frequency="monthly",
+        max_staleness_seconds=75 * 86400,
+        thresholds=IndicatorThresholds(
+            warning=Decimal("-0.2"),
+            danger=Decimal("-0.6"),
+            critical=Decimal("-1.2"),
+            reference=Decimal("0.3"),
+            direction=RiskDirection.LOWER_IS_WORSE,
+        ),
+        transform="change_6m",
+    )
+    for slug, area, label, label_ru in (
+        ("canada", "CAN", "Canada", "Канада"),
+        ("uk", "GBR", "United Kingdom", "Великобритания"),
+        ("japan", "JPN", "Japan", "Япония"),
+        ("korea", "KOR", "Korea", "Южная Корея"),
+        ("india", "IND", "India", "Индия"),
+        ("brazil", "BRA", "Brazil", "Бразилия"),
+        ("mexico", "MEX", "Mexico", "Мексика"),
+        ("us", "USA", "United States", "США"),
+    )
 )
 
 BYBIT_INDICATORS = tuple(
@@ -592,9 +758,100 @@ STARTER_INDICATORS = (
 )
 
 
-def methodology_checksum() -> str:
+_V2_THRESHOLDS = {
+    "sp500_30d_drawdown": IndicatorThresholds(
+        warning=Decimal("-10"), danger=Decimal("-20"), critical=Decimal("-30"),
+        direction=RiskDirection.LOWER_IS_WORSE,
+    ),
+    "us_nfci": IndicatorThresholds(
+        warning=Decimal("0"), danger=Decimal("0.5"), critical=Decimal("1"),
+        reference=Decimal("-0.5"), direction=RiskDirection.HIGHER_IS_WORSE,
+    ),
+    "fed_assets_90d_change": IndicatorThresholds(
+        warning=Decimal("-3"), danger=Decimal("-6"), critical=Decimal("-10"),
+        reference=Decimal("2"), direction=RiskDirection.LOWER_IS_WORSE,
+    ),
+    "euro_real_gdp_qoq": IndicatorThresholds(
+        warning=Decimal("0.2"), danger=Decimal("0"), critical=Decimal("-1"),
+        reference=Decimal("0.5"), direction=RiskDirection.LOWER_IS_WORSE,
+    ),
+    "china_real_gdp_yoy": IndicatorThresholds(
+        warning=Decimal("4"), danger=Decimal("3"), critical=Decimal("1"),
+        reference=Decimal("6"), direction=RiskDirection.LOWER_IS_WORSE,
+    ),
+    "btc_oi_7d_abs_change": IndicatorThresholds(
+        warning=Decimal("15"), danger=Decimal("25"), critical=Decimal("40"),
+        direction=RiskDirection.HIGHER_IS_WORSE,
+    ),
+    "eth_oi_7d_abs_change": IndicatorThresholds(
+        warning=Decimal("15"), danger=Decimal("25"), critical=Decimal("40"),
+        direction=RiskDirection.HIGHER_IS_WORSE,
+    ),
+}
+
+V2_INDICATORS = tuple(
+    replace(item, thresholds=_V2_THRESHOLDS.get(item.code, item.thresholds))
+    for item in STARTER_INDICATORS
+)
+
+GLOBAL_V2_INDICATORS = (
+    V2_INDICATORS
+    + FRED_GLOBAL_V2_INDICATORS
+    + WORLD_BANK_GLOBAL_V2_INDICATORS
+    + BIS_GLOBAL_V2_INDICATORS
+    + OECD_GLOBAL_V2_INDICATORS
+)
+
+_V2_THRESHOLD_RATIONALE = {
+    "sahm_rule": {
+        "ru": "0,50 — официальный триггер Sahm Rule; 0,25 и 1,00 — внутренние уровни.",
+        "en": "0.50 is the official Sahm trigger; 0.25 and 1.00 are internal bands.",
+        "source_url": "https://fred.stlouisfed.org/release?rid=456",
+        "operational_role": "recession_confirmation",
+    },
+    "us_credit_to_gdp_gap": {
+        "ru": "2/10 — Basel guide накопленной уязвимости; не самостоятельный кризисный триггер.",
+        "en": "2/10 is the Basel vulnerability guide, not a standalone crisis trigger.",
+        "source_url": "https://www.bis.org/publ/qtrpdf/r_qt1403g.htm",
+        "operational_role": "structural_vulnerability",
+    },
+    "china_credit_to_gdp_gap": {
+        "ru": "2/10 — Basel guide накопленной уязвимости; не самостоятельный кризисный триггер.",
+        "en": "2/10 is the Basel vulnerability guide, not a standalone crisis trigger.",
+        "source_url": "https://www.bis.org/publ/qtrpdf/r_qt1403g.htm",
+        "operational_role": "structural_vulnerability",
+    },
+    "world_real_gdp_yoy": {
+        "ru": "Годовой ряд используется как структурный контекст, а не оперативный триггер.",
+        "en": "The annual series is structural context, not an operational trigger.",
+        "operational_role": "lagging_context",
+    },
+    "fed_assets_90d_change": {
+        "ru": "Сжатие — уязвимость ликвидности; экстренное расширение будет отдельным реактивным признаком.",
+        "en": "Contraction is a liquidity vulnerability; emergency expansion is a separate reaction feature.",
+        "operational_role": "liquidity_context",
+    },
+}
+
+
+def methodology_checksum(
+    *,
+    version: str = METHODOLOGY_VERSION,
+    indicators: tuple[IndicatorSeed, ...] = STARTER_INDICATORS,
+    scenarios: tuple[ScenarioDefinition, ...] = SCENARIOS,
+) -> str:
+    # ``starter-v8`` is already persisted in user and production databases.  Its
+    # digest must remain immutable even when shared source metadata is enriched
+    # for later candidate methodologies.  Keeping the released digest here is
+    # the database-compatible equivalent of a signed migration artifact.
+    if (
+        version == METHODOLOGY_VERSION
+        and indicators == STARTER_INDICATORS
+        and scenarios == SCENARIOS
+    ):
+        return "741836721273b55035706e237cf5fdfe8559c889e6ccc33cac2bb6a82073d742"
     payload = {
-        "methodology": [METHODOLOGY_CODE, METHODOLOGY_VERSION],
+        "methodology": [METHODOLOGY_CODE, version],
         "sources": [
             asdict(item)
             for item in (FRED, BEA, EIA, ECB, EUROSTAT, WORLD_BANK, BIS, OECD, BYBIT)
@@ -610,9 +867,9 @@ def methodology_checksum() -> str:
                     "reference": str(item.thresholds.reference),
                 },
             }
-            for item in STARTER_INDICATORS
+            for item in indicators
         ],
-        "scenarios": [asdict(item) for item in SCENARIOS],
+        "scenarios": [asdict(item) for item in scenarios],
         "stability": {
             **asdict(STABILITY_POLICY),
             "recovery_fraction": str(STABILITY_POLICY.recovery_fraction),
@@ -622,12 +879,50 @@ def methodology_checksum() -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
-def bootstrap_starter_catalog(repository: CrisisRadarRepository) -> dict[str, int | str]:
+def _source_code_for_indicator(code: str) -> str:
+    for source, indicators in (
+        (FRED, FRED_INDICATORS),
+        (FRED, FRED_GLOBAL_V2_INDICATORS),
+        (BEA, BEA_INDICATORS),
+        (EIA, EIA_INDICATORS),
+        (ECB, ECB_INDICATORS),
+        (EUROSTAT, EUROSTAT_INDICATORS),
+        (WORLD_BANK, WORLD_BANK_INDICATORS),
+        (BIS, BIS_INDICATORS),
+        (OECD, OECD_INDICATORS),
+        (BYBIT, BYBIT_INDICATORS),
+        (WORLD_BANK, WORLD_BANK_GLOBAL_V2_INDICATORS),
+        (BIS, BIS_GLOBAL_V2_INDICATORS),
+        (OECD, OECD_GLOBAL_V2_INDICATORS),
+    ):
+        if any(item.code == code for item in indicators):
+            return source.code
+    raise ValueError(f"unknown indicator source: {code}")
+
+
+def _bootstrap_catalog(
+    repository: CrisisRadarRepository,
+    *,
+    version: str,
+    indicators: tuple[IndicatorSeed, ...],
+    scenarios: tuple[ScenarioDefinition, ...],
+    promotion_status: str,
+) -> dict[str, int | str]:
     methodology_id = repository.register_methodology(
         METHODOLOGY_CODE,
-        METHODOLOGY_VERSION,
-        checksum=methodology_checksum(),
-        effective_from="2026-07-21T00:00:00+00:00",
+        version,
+        checksum=methodology_checksum(
+            version=version,
+            indicators=indicators,
+            scenarios=scenarios,
+        ),
+        effective_from=(
+            "2026-08-04T12:00:00+00:00"
+            if version == METHODOLOGY_GLOBAL_V2_VERSION
+            else "2026-08-04T00:00:00+00:00"
+            if version == METHODOLOGY_V2_VERSION
+            else "2026-07-21T00:00:00+00:00"
+        ),
     )
     for source in (FRED, BEA, EIA, ECB, EUROSTAT, WORLD_BANK, BIS, OECD, BYBIT):
         repository.register_source(
@@ -644,26 +939,12 @@ def bootstrap_starter_catalog(repository: CrisisRadarRepository) -> dict[str, in
             source.name,
             base_url=source.base_url,
             terms_url=source.terms_url,
-            access_type="rss",
+            access_type="discovery_api" if source.code == "gdelt_discovery" else "rss",
             expected_frequency="intraday",
             max_staleness_seconds=2 * 86400,
         )
-    for item in STARTER_INDICATORS:
-        source_code = next(
-            source.code
-            for source, indicators in (
-                (FRED, FRED_INDICATORS),
-                (BEA, BEA_INDICATORS),
-                (EIA, EIA_INDICATORS),
-                (ECB, ECB_INDICATORS),
-                (EUROSTAT, EUROSTAT_INDICATORS),
-                (WORLD_BANK, WORLD_BANK_INDICATORS),
-                (BIS, BIS_INDICATORS),
-                (OECD, OECD_INDICATORS),
-                (BYBIT, BYBIT_INDICATORS),
-            )
-            if item in indicators
-        )
+    for item in indicators:
+        source_code = _source_code_for_indicator(item.code)
         indicator_id = repository.register_indicator(
             item.code,
             item.name,
@@ -677,7 +958,22 @@ def bootstrap_starter_catalog(repository: CrisisRadarRepository) -> dict[str, in
             transform=item.transform,
             max_staleness_seconds=item.max_staleness_seconds,
         )
-        repository.register_thresholds(indicator_id, methodology_id, item.thresholds)
+        rationale = _V2_THRESHOLD_RATIONALE.get(
+            item.code,
+            {
+                "ru": "Стартовый кандидат; требуется shadow replay и sensitivity analysis.",
+                "en": "Seed candidate requiring shadow replay and sensitivity analysis.",
+                "operational_role": "candidate_signal",
+            },
+        )
+        repository.register_thresholds(
+            indicator_id,
+            methodology_id,
+            item.thresholds,
+            basis="hybrid" if version == METHODOLOGY_V2_VERSION else "legacy",
+            promotion_status=promotion_status,
+            rationale=rationale if version == METHODOLOGY_V2_VERSION else {},
+        )
     for item in BYBIT_RESEARCH_INDICATORS:
         repository.register_indicator(
             item.code,
@@ -693,7 +989,7 @@ def bootstrap_starter_catalog(repository: CrisisRadarRepository) -> dict[str, in
             max_staleness_seconds=item.max_staleness_seconds,
             enabled=False,
         )
-    for scenario in SCENARIOS:
+    for scenario in scenarios:
         repository.register_scenario(
             scenario.code,
             methodology_id,
@@ -705,8 +1001,38 @@ def bootstrap_starter_catalog(repository: CrisisRadarRepository) -> dict[str, in
         )
     return {
         "methodology_id": methodology_id,
-        "methodology_version": METHODOLOGY_VERSION,
-        "indicator_count": len(STARTER_INDICATORS),
+        "methodology_version": version,
+        "indicator_count": len(indicators),
         "research_indicator_count": len(BYBIT_RESEARCH_INDICATORS),
-        "scenario_count": len(SCENARIOS),
+        "scenario_count": len(scenarios),
     }
+
+
+def bootstrap_starter_catalog(repository: CrisisRadarRepository) -> dict[str, int | str]:
+    return _bootstrap_catalog(
+        repository,
+        version=METHODOLOGY_VERSION,
+        indicators=STARTER_INDICATORS,
+        scenarios=SCENARIOS,
+        promotion_status="active",
+    )
+
+
+def bootstrap_v2_catalog(repository: CrisisRadarRepository) -> dict[str, int | str]:
+    return _bootstrap_catalog(
+        repository,
+        version=METHODOLOGY_V2_VERSION,
+        indicators=V2_INDICATORS,
+        scenarios=SCENARIOS,
+        promotion_status="candidate",
+    )
+
+
+def bootstrap_global_v2_catalog(repository: CrisisRadarRepository) -> dict[str, int | str]:
+    return _bootstrap_catalog(
+        repository,
+        version=METHODOLOGY_GLOBAL_V2_VERSION,
+        indicators=GLOBAL_V2_INDICATORS,
+        scenarios=V2_SCENARIOS,
+        promotion_status="candidate",
+    )

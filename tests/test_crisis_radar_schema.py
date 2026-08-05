@@ -34,6 +34,13 @@ EXPECTED_TABLES = {
     "cr_replay_runs",
     "cr_replay_signals",
     "cr_backtest_provenance",
+    "cr_event_clusters",
+    "cr_event_evidence",
+    "cr_indicator_features",
+    "cr_contagion_features",
+    "cr_scenario_fusion_states",
+    "cr_data_health_events",
+    "cr_data_health_deliveries",
 }
 
 

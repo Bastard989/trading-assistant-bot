@@ -82,6 +82,92 @@ def test_crisis_radar_history_requires_auth_and_validates_input(monkeypatch, tmp
     ).status_code == 422
 
 
+def test_crisis_radar_operations_requires_auth_and_exposes_no_secrets(monkeypatch, tmp_path) -> None:
+    module = load_test_app(monkeypatch, tmp_path)
+    module.crisis_radar.bootstrap()
+    client = TestClient(module.app)
+
+    assert client.get("/api/crisis-radar/operations").status_code == 401
+    response = client.get("/api/crisis-radar/operations", headers=auth_header(42))
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert set(payload) == {
+        "as_of", "snapshot", "sync_runs_24h", "queue_depth", "events_24h", "agent_24h"
+    }
+    assert payload["snapshot"] is None
+    assert set(payload["queue_depth"]) == {
+        "scenario_alerts", "data_health_alerts", "reports"
+    }
+    assert "api_key" not in response.text.casefold()
+
+
+def test_personal_thresholds_are_owner_scoped_and_do_not_replace_system_values(
+    monkeypatch, tmp_path
+) -> None:
+    module = load_test_app(monkeypatch, tmp_path)
+    module.crisis_radar.bootstrap()
+    client = TestClient(module.app)
+    body = {
+        "warning": "20",
+        "danger": "28",
+        "critical": "45",
+        "reference": "0",
+        "direction": "higher_is_worse",
+    }
+
+    saved = client.put(
+        "/api/crisis-radar/thresholds/vix/personal",
+        json=body,
+        headers=mutation_headers(42, "personal-vix-threshold-1"),
+    )
+
+    assert saved.status_code == 200
+    with module.db.connect() as connection:
+        rows = connection.execute(
+            """
+            SELECT scope, owner_user_id, warning_value, danger_value, critical_value
+            FROM cr_threshold_sets AS thresholds
+            JOIN cr_indicator_definitions AS indicator
+              ON indicator.id = thresholds.indicator_id
+            WHERE indicator.code='vix'
+            ORDER BY scope
+            """
+        ).fetchall()
+    assert [(row["scope"], row["owner_user_id"]) for row in rows] == [
+        ("personal", 42),
+        ("system", 0),
+    ]
+    assert tuple(rows[0][key] for key in ("warning_value", "danger_value", "critical_value")) == (
+        "20",
+        "28",
+        "45",
+    )
+    assert tuple(rows[1][key] for key in ("warning_value", "danger_value", "critical_value")) == (
+        "25",
+        "30",
+        "40",
+    )
+
+    forbidden = client.put(
+        "/api/crisis-radar/thresholds/vix/personal",
+        json=body,
+        headers=mutation_headers(99, "personal-vix-threshold-2"),
+    )
+    assert forbidden.status_code == 200
+    with module.db.connect() as connection:
+        owners = connection.execute(
+            """
+            SELECT owner_user_id FROM cr_threshold_sets AS thresholds
+            JOIN cr_indicator_definitions AS indicator
+              ON indicator.id = thresholds.indicator_id
+            WHERE indicator.code='vix' AND scope='personal'
+            ORDER BY owner_user_id
+            """
+        ).fetchall()
+    assert [row[0] for row in owners] == [42, 99]
+
+
 def test_crisis_radar_calibration_is_authenticated_and_hides_missing_probability(
     monkeypatch, tmp_path
 ) -> None:

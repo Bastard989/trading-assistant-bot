@@ -38,6 +38,7 @@ def _quote(
     option_risk_profile: str = "linear",
     max_loss: str | None = None,
     max_gain: str | None = None,
+    history_size: int = 0,
 ) -> MarketQuote:
     return MarketQuote(
         symbol=symbol,
@@ -53,6 +54,10 @@ def _quote(
         option_risk_profile=option_risk_profile,
         max_loss_pct=None if max_loss is None else Decimal(max_loss),
         max_gain_pct=None if max_gain is None else Decimal(max_gain),
+        historical_sample_size=history_size,
+        historical_q25_pct=Decimal("5") if history_size else None,
+        historical_median_pct=Decimal("8") if history_size else None,
+        historical_q75_pct=Decimal("12") if history_size else None,
     )
 
 
@@ -145,6 +150,7 @@ def test_stale_relevant_quote_forces_wait() -> None:
 
 def test_watch_low_confidence_or_inactive_scenarios_do_not_create_directional_ideas() -> None:
     for status, confidence in (
+        ("unknown", "high"),
         ("watch", "high"),
         ("elevated", "low"),
         ("inactive", "high"),
@@ -224,6 +230,30 @@ def test_inputs_require_utc_and_valid_decimal_ranges() -> None:
             asset_class=AssetClass.OPTIONS,
             option_risk_profile="defined_risk",
         )
+
+
+def test_production_history_gate_rejects_unverified_expected_return() -> None:
+    context = OpportunityContext(
+        as_of=NOW,
+        stage=MarketStage.CONFIRMATION,
+        data_quality_score=Decimal("0.90"),
+        scenarios=(_scenario(),),
+        quotes=(_quote(),),
+        require_historical_distribution=True,
+    )
+    assert generate_opportunities(context)[0].side is OpportunitySide.WAIT
+
+    verified = OpportunityContext(
+        as_of=NOW,
+        stage=MarketStage.CONFIRMATION,
+        data_quality_score=Decimal("0.90"),
+        scenarios=(_scenario(),),
+        quotes=(_quote(history_size=12),),
+        require_historical_distribution=True,
+    )
+    idea = generate_opportunities(verified)[0]
+    assert idea.historical_sample_size == 12
+    assert idea.expected_range_pct.minimum == Decimal("5.0000")
 
 
 def test_future_quote_is_rejected() -> None:

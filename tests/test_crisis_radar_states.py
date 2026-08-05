@@ -64,7 +64,7 @@ def test_starter_catalog_is_versioned_and_idempotent(tmp_path) -> None:
     assert first["indicator_count"] == 23
     assert len(methodology_checksum()) == 64
     with repository.db.connect() as connection:
-        assert connection.execute("SELECT count(*) FROM cr_sources").fetchone()[0] == 11
+        assert connection.execute("SELECT count(*) FROM cr_sources").fetchone()[0] == 17
         assert connection.execute("SELECT count(*) FROM cr_indicator_definitions").fetchone()[0] == 31
         assert connection.execute(
             "SELECT count(*) FROM cr_indicator_definitions WHERE enabled = 1"

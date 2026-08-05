@@ -6,6 +6,8 @@ from decimal import Decimal, ROUND_HALF_EVEN
 
 from trading_bot.crisis_radar.domain import (
     DataFreshness,
+    CoverageAssessment,
+    CoverageStatus,
     FreshnessPolicy,
     GroupState,
     IndicatorBand,
@@ -145,21 +147,31 @@ def aggregate_groups(states: list[IndicatorState]) -> list[GroupState]:
     return result
 
 
-def build_market_overview(states: list[IndicatorState], *, snapshot_at: datetime) -> MarketOverview:
+def build_market_overview(
+    states: list[IndicatorState],
+    *,
+    snapshot_at: datetime,
+    coverage: CoverageAssessment | None = None,
+) -> MarketOverview:
     groups = aggregate_groups(states)
     warning = sum(group.band in {IndicatorBand.WARNING, IndicatorBand.DANGER, IndicatorBand.CRITICAL} for group in groups)
     danger = sum(group.band in {IndicatorBand.DANGER, IndicatorBand.CRITICAL} for group in groups)
     critical = sum(group.band is IndicatorBand.CRITICAL for group in groups)
     if critical >= 3:
-        stage = MarketStage.CRISIS
+        calculated_stage = MarketStage.CRISIS
     elif critical >= 2 or danger >= 3:
-        stage = MarketStage.CONFIRMATION
+        calculated_stage = MarketStage.CONFIRMATION
     elif danger >= 2 or warning >= 3:
-        stage = MarketStage.WARNING
+        calculated_stage = MarketStage.WARNING
     elif warning >= 1:
-        stage = MarketStage.TENSION
+        calculated_stage = MarketStage.TENSION
     else:
-        stage = MarketStage.STABLE
+        calculated_stage = MarketStage.STABLE
+    stage = (
+        MarketStage.INSUFFICIENT_DATA
+        if coverage is not None and coverage.status is CoverageStatus.INSUFFICIENT_DATA
+        else calculated_stage
+    )
 
     labels_ru = {
         "labor": "рынок труда",
@@ -181,7 +193,18 @@ def build_market_overview(states: list[IndicatorState], *, snapshot_at: datetime
         "china_leading_cycle": "опережающий цикл Китая",
     }
     active = [labels_ru.get(group.group_code, group.group_code) for group in groups if group.band is not IndicatorBand.NORMAL]
-    if active:
+    if coverage is not None and coverage.status is CoverageStatus.INSUFFICIENT_DATA:
+        missing = ", ".join(coverage.missing_required_groups) or "обязательные каналы"
+        explanation_ru = (
+            "Недостаточно свежих данных для оценки рынка. "
+            f"Недоступны или просрочены: {missing}."
+        )
+        missing_en = ", ".join(coverage.missing_required_groups) or "required channels"
+        explanation_en = (
+            "There is not enough fresh data to assess the market. "
+            f"Unavailable or stale: {missing_en}."
+        )
+    elif active:
         explanation_ru = f"Ухудшение отмечено в группах: {', '.join(active)}. Стадия основана на совместном подтверждении."
         explanation_en = "Deterioration is present in: " + ", ".join(
             group.group_code for group in groups if group.band is not IndicatorBand.NORMAL
@@ -191,6 +214,7 @@ def build_market_overview(states: list[IndicatorState], *, snapshot_at: datetime
         explanation_en = "Independent groups do not currently confirm a crisis combination."
     return MarketOverview(
         stage=stage,
+        calculated_stage=calculated_stage,
         snapshot_at=snapshot_at,
         groups=tuple(groups),
         active_group_count=warning,
@@ -199,4 +223,5 @@ def build_market_overview(states: list[IndicatorState], *, snapshot_at: datetime
         critical_group_count=critical,
         explanation_ru=explanation_ru,
         explanation_en=explanation_en,
+        coverage=coverage,
     )

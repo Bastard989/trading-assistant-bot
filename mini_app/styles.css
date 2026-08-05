@@ -1012,6 +1012,11 @@ pre {
 }
 
 .crisis-controls { align-self: flex-start; flex-wrap: wrap; }
+.crisis-controls .mini-action.active {
+  border-color: rgba(109, 229, 255, .7);
+  background: rgba(40, 183, 232, .16);
+  color: #dff8ff;
+}
 
 .crisis-help-btn,
 .crisis-help-close {
@@ -1066,10 +1071,11 @@ pre {
 .stage-warning { border-color: rgba(255, 145, 77, .5); background: rgba(255, 145, 77, .12); color: #ffd0af; }
 .stage-confirmation { border-color: rgba(255, 101, 125, .52); background: rgba(255, 101, 125, .13); color: #ffc1cb; }
 .stage-crisis { border-color: rgba(240, 92, 255, .62); background: rgba(240, 92, 255, .15); color: #f8c5ff; box-shadow: 0 0 28px rgba(240, 92, 255, .16); }
+.stage-insufficient_data { border-color: rgba(177, 191, 222, .35); background: rgba(177, 191, 222, .1); color: #d8e0f2; }
 
 .crisis-summary-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 10px;
   margin-top: 18px;
 }
@@ -1163,7 +1169,7 @@ pre {
 .crisis-today-result-card small { color: var(--muted); line-height: 1.4; }
 .crisis-top-signal details { color: var(--muted); font-size: 11px; }
 .crisis-top-signal summary { color: #bfefff; cursor: pointer; }
-.crisis-today-result { min-height: 126px; }
+.crisis-today-result { min-height: 126px; display: grid; gap: 9px; }
 .crisis-today-result-card { height: 100%; }
 .crisis-today-result-card.is-wait { border-left-color: var(--amber); }
 .crisis-today-result-card.is-alert { border-left-color: #ff914d; }
@@ -1214,6 +1220,48 @@ pre {
 .crisis-calendar-event a { color: #e8f6ff; }
 .crisis-calendar-event small { color: var(--muted); }
 .crisis-calendar-event > span { color: var(--muted); font-size: 10px; text-transform: uppercase; }
+
+.crisis-trend-grid,
+.crisis-event-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.crisis-trend-card,
+.crisis-event-card {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--green);
+  border-radius: 10px;
+  background: rgba(5, 10, 19, .78);
+  padding: 13px;
+}
+.crisis-trend-card.regime-transition,
+.crisis-event-card.event-discovery { border-left-color: var(--amber); }
+.crisis-trend-card.regime-stressed,
+.crisis-event-card.event-corroborated { border-left-color: #ff914d; }
+.crisis-trend-card.regime-extreme,
+.crisis-event-card.event-official { border-left-color: var(--red); }
+.crisis-contagion-card { border-left-color: var(--violet); }
+.crisis-trend-head,
+.crisis-event-head { display: flex; justify-content: space-between; gap: 8px; }
+.crisis-trend-head span,
+.crisis-event-head span { color: var(--muted); font-size: 10px; font-weight: 900; text-transform: uppercase; }
+.crisis-trend-card p,
+.crisis-event-card p { margin: 0; color: #c8d2e8; font-size: 12px; line-height: 1.45; }
+.crisis-trend-card > div:last-child { display: grid; gap: 4px; color: var(--muted); font-size: 10px; }
+.crisis-event-card > small { color: var(--muted); }
+.crisis-event-card details { border-top: 1px solid var(--line); padding-top: 8px; color: var(--muted); font-size: 11px; }
+.crisis-event-card summary { color: #bfefff; cursor: pointer; }
+.crisis-event-card ul { display: grid; gap: 10px; margin: 9px 0 0; padding-left: 18px; }
+.crisis-event-card li { min-width: 0; }
+.crisis-event-card li strong,
+.crisis-event-card li small { display: block; overflow-wrap: anywhere; }
+.crisis-event-card li small { margin-top: 3px; color: var(--muted); }
 
 .crisis-group-grid {
   display: grid;
@@ -1673,7 +1721,7 @@ pre {
   .topbar { min-height: 140px; padding: 16px; align-items: flex-end; }
   .section-head { align-items: flex-start; flex-direction: column; }
   .head-actions { justify-content: flex-start; }
-  .metrics, .form-grid, .compact-grid, .analytics-grid, .session-form, .model-provider-grid, .model-task-list, .crisis-summary-grid, .crisis-group-grid, .crisis-scenario-grid, .crisis-opportunity-grid, .crisis-world-grid, .crisis-change-grid, .crisis-top-signals { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .metrics, .form-grid, .compact-grid, .analytics-grid, .session-form, .model-provider-grid, .model-task-list, .crisis-summary-grid, .crisis-group-grid, .crisis-scenario-grid, .crisis-opportunity-grid, .crisis-world-grid, .crisis-change-grid, .crisis-top-signals, .crisis-trend-grid, .crisis-event-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .price-tape, .market-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .row, .trade-main, .trade-details, .journal-card, .edit-grid { grid-template-columns: 1fr 1fr; }
   .space-backdrop img { top: -36px; width: 190vw; opacity: 0.56; }
@@ -1683,7 +1731,7 @@ pre {
   .app { padding: 10px; }
   .topbar { min-height: 132px; }
   .topbar-actions { align-items: flex-end; flex-direction: column-reverse; }
-  .metrics, .form-grid, .compact-grid, .analytics-grid, .price-tape, .market-grid, .session-form, .session-card, .model-status-grid, .model-provider-grid, .model-form, .model-task-list, .crisis-summary-grid, .crisis-group-grid, .crisis-scenario-grid, .crisis-opportunity-grid, .crisis-world-grid, .crisis-change-grid, .crisis-today-grid, .crisis-top-signals { grid-template-columns: 1fr; }
+  .metrics, .form-grid, .compact-grid, .analytics-grid, .price-tape, .market-grid, .session-form, .session-card, .model-status-grid, .model-provider-grid, .model-form, .model-task-list, .crisis-summary-grid, .crisis-group-grid, .crisis-scenario-grid, .crisis-opportunity-grid, .crisis-world-grid, .crisis-change-grid, .crisis-today-grid, .crisis-top-signals, .crisis-trend-grid, .crisis-event-grid { grid-template-columns: 1fr; }
   .crisis-top-signals-card { grid-column: auto; }
   .row, .trade-main, .trade-details, .journal-card, .edit-grid { grid-template-columns: 1fr; }
   .photo-picker { grid-column: 1; }

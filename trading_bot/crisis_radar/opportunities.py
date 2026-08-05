@@ -33,6 +33,7 @@ class OpportunitySide(str, Enum):
 
 
 class MarketStage(str, Enum):
+    INSUFFICIENT_DATA = "insufficient_data"
     STABLE = "stable"
     TENSION = "tension"
     WARNING = "warning"
@@ -90,7 +91,7 @@ class ScenarioSignal:
     def __post_init__(self) -> None:
         if not self.code.strip() or not self.horizon.strip():
             raise ValueError("scenario code and horizon must not be empty")
-        if self.status not in {"inactive", "watch", "elevated", "confirmed"}:
+        if self.status not in {"unknown", "inactive", "watch", "elevated", "confirmed"}:
             raise ValueError("unknown scenario status")
         if self.confidence not in {"low", "medium", "high"}:
             raise ValueError("unknown scenario confidence")
@@ -112,6 +113,10 @@ class MarketQuote:
     option_risk_profile: str = "linear"
     max_loss_pct: Decimal | None = None
     max_gain_pct: Decimal | None = None
+    historical_sample_size: int = 0
+    historical_median_pct: Decimal | None = None
+    historical_q25_pct: Decimal | None = None
+    historical_q75_pct: Decimal | None = None
 
     def __post_init__(self) -> None:
         if not self.symbol.strip() or not self.exposures:
@@ -136,6 +141,18 @@ class MarketQuote:
             _positive(self.max_loss_pct, "max_loss_pct")
         if self.max_gain_pct is not None:
             _positive(self.max_gain_pct, "max_gain_pct")
+        if self.historical_sample_size < 0:
+            raise ValueError("historical_sample_size must not be negative")
+        distribution = (
+            self.historical_q25_pct,
+            self.historical_median_pct,
+            self.historical_q75_pct,
+        )
+        if self.historical_sample_size:
+            if any(value is None or not value.is_finite() for value in distribution):
+                raise ValueError("historical distribution requires q25, median and q75")
+            if not self.historical_q25_pct <= self.historical_median_pct <= self.historical_q75_pct:
+                raise ValueError("historical distribution quantiles are not ordered")
 
 
 @dataclass(frozen=True)
@@ -145,6 +162,7 @@ class OpportunityContext:
     data_quality_score: Decimal
     scenarios: tuple[ScenarioSignal, ...]
     quotes: tuple[MarketQuote, ...]
+    require_historical_distribution: bool = False
 
     def __post_init__(self) -> None:
         _utc(self.as_of, "context as_of")
@@ -170,6 +188,8 @@ class OpportunityIdea:
     rationale: LocalizedText
     evidence: tuple[LocalizedText, ...]
     limitations: tuple[LocalizedText, ...]
+    historical_sample_size: int = 0
+    historical_median_pct: Decimal | None = None
     analysis_only: bool = True
     execution_allowed: bool = False
     personalized_advice: bool = False
@@ -305,10 +325,41 @@ _TEMPLATES = (
             "Defensive demand during a China slowdown can support USD currency pairs.",
         ),
     ),
+    _Template(
+        "banking_crisis", "banks", (AssetClass.STOCKS, AssetClass.ETF, AssetClass.INDICES),
+        OpportunitySide.SHORT, "bank_stress_short",
+        LocalizedText("Банковский стресс может давить на акции банков.", "Banking stress can pressure bank equities."),
+    ),
+    _Template(
+        "banking_crisis", "gold", (AssetClass.COMMODITIES, AssetClass.ETF, AssetClass.FUTURES),
+        OpportunitySide.HEDGE, "systemic_hedge",
+        LocalizedText("Золото может хеджировать системный банковский риск.", "Gold may hedge systemic banking risk."),
+    ),
+    _Template(
+        "sovereign_currency_crisis", "usd", (AssetClass.FX, AssetClass.FUTURES),
+        OpportunitySide.LONG, "reserve_currency_hedge",
+        LocalizedText("Спрос на доллар может расти при валютном стрессе.", "USD demand can rise during currency stress."),
+    ),
+    _Template(
+        "commodity_supply_shock", "oil", (AssetClass.COMMODITIES, AssetClass.ETF, AssetClass.FUTURES),
+        OpportunitySide.LONG, "supply_shock_long",
+        LocalizedText("Подтверждённый дефицит предложения может поддержать сырьё.", "A confirmed supply shortage can support commodities."),
+    ),
+    _Template(
+        "tech_ai_repricing", "technology", (AssetClass.STOCKS, AssetClass.ETF, AssetClass.INDICES, AssetClass.OPTIONS),
+        OpportunitySide.HEDGE, "technology_repricing_hedge",
+        LocalizedText("Хедж ограничивает риск переоценки технологического сектора.", "A hedge limits technology-sector repricing risk."),
+    ),
+    _Template(
+        "exchange_stablecoin_failure", "crypto", (AssetClass.CRYPTO_FUTURES, AssetClass.OPTIONS),
+        OpportunitySide.HEDGE, "crypto_counterparty_hedge",
+        LocalizedText("Хедж может ограничить заражение от биржи или стейблкоина.", "A hedge can limit exchange or stablecoin contagion."),
+    ),
 )
 
 
 _STATUS_SCORE = {
+    "unknown": ZERO,
     "inactive": ZERO,
     "watch": Decimal("0.35"),
     "elevated": Decimal("0.70"),
@@ -320,6 +371,7 @@ _CONFIDENCE_SCORE = {
     "high": ONE,
 }
 _STAGE_SCORE = {
+    MarketStage.INSUFFICIENT_DATA: ZERO,
     MarketStage.STABLE: Decimal("0.15"),
     MarketStage.TENSION: Decimal("0.35"),
     MarketStage.WARNING: Decimal("0.60"),
@@ -360,6 +412,16 @@ def _score(context: OpportunityContext, scenario: ScenarioSignal, quote: MarketQ
 
 
 def _ranges(quote: MarketQuote) -> tuple[PercentRange, PercentRange]:
+    if (
+        quote.historical_q25_pct is not None
+        and quote.historical_q75_pct is not None
+    ):
+        expected = PercentRange(
+            _q(quote.historical_q25_pct),
+            _q(quote.historical_q75_pct),
+        )
+        loss = quote.max_loss_pct or quote.adverse_move_pct
+        return expected, PercentRange(_q(-loss), _q(-loss * Decimal("0.50")))
     gain = quote.max_gain_pct or quote.expected_move_pct
     loss = quote.max_loss_pct or quote.adverse_move_pct
     return (
@@ -443,10 +505,11 @@ def generate_opportunities(
     )
     rejected_stale = 0
     rejected_options = 0
+    rejected_history = 0
     candidates: list[tuple[Decimal, _Template, ScenarioSignal, MarketQuote]] = []
     for template in _TEMPLATES:
         scenario = scenarios.get(template.scenario_code)
-        if scenario is None or scenario.status in {"inactive", "watch"}:
+        if scenario is None or scenario.status in {"unknown", "inactive", "watch"}:
             continue
         if scenario.confidence == "low":
             continue
@@ -458,6 +521,9 @@ def generate_opportunities(
                 continue
             if quote.asset_class is AssetClass.OPTIONS and quote.option_risk_profile != "defined_risk":
                 rejected_options += 1
+                continue
+            if context.require_historical_distribution and quote.historical_sample_size < 5:
+                rejected_history += 1
                 continue
             score = _score(context, scenario, quote)
             if score >= minimum_score:
@@ -486,6 +552,13 @@ def generate_opportunities(
                 LocalizedText(
                     f"Отклонено опционных конструкций без ограниченного риска: {rejected_options}.",
                     f"Option structures without defined risk rejected: {rejected_options}.",
+                )
+            )
+        if rejected_history:
+            reasons.append(
+                LocalizedText(
+                    f"Нет достаточного условного исторического распределения: {rejected_history} инструментов.",
+                    f"A sufficient conditional historical distribution is missing for {rejected_history} instruments.",
                 )
             )
         return (_wait_idea(reasons),)
@@ -545,6 +618,8 @@ def generate_opportunities(
                     ),
                 ),
                 limitations=tuple(limitations),
+                historical_sample_size=quote.historical_sample_size,
+                historical_median_pct=quote.historical_median_pct,
             )
         )
     return tuple(ideas)

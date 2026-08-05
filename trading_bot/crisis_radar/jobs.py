@@ -11,7 +11,7 @@ from trading_bot.crisis_radar.sources.fred_client import FredClient
 from trading_bot.crisis_radar.sources.europe_clients import EcbClient, EurostatClient
 from trading_bot.crisis_radar.sources.global_clients import BisClient, OecdClient, WorldBankClient
 from trading_bot.crisis_radar.sources.official_clients import BeaClient, EiaClient
-from trading_bot.crisis_radar.sources.news_clients import RssClient
+from trading_bot.crisis_radar.sources.news_clients import GdeltDiscoveryClient, RssClient
 
 
 logger = logging.getLogger(__name__)
@@ -105,7 +105,9 @@ class CrisisRadarJobs:
                 self.service.recompute()
                 if self.alert_user_ids:
                     self.service.repository.enqueue_alert_deliveries(self.alert_user_ids)
+                    self.service.repository.enqueue_data_health_deliveries(self.alert_user_ids)
                     await self._deliver_alerts(context)
+                    await self._deliver_data_health_alerts(context)
                     await self._deliver_reports(context)
                 logger.info("Crisis Radar official sync completed: sources=%s", sorted(results))
             except Exception:
@@ -127,7 +129,9 @@ class CrisisRadarJobs:
                 self.service.recompute()
                 if self.alert_user_ids:
                     self.service.repository.enqueue_alert_deliveries(self.alert_user_ids)
+                    self.service.repository.enqueue_data_health_deliveries(self.alert_user_ids)
                     await self._deliver_alerts(context)
+                    await self._deliver_data_health_alerts(context)
                 logger.info("Crisis Radar global sync completed: sources=%s", sorted(results))
             except Exception:
                 logger.exception("Crisis Radar global scheduled sync failed")
@@ -138,10 +142,25 @@ class CrisisRadarJobs:
             return
         async with self._sync_lock:
             try:
+                news_events_v2 = bool(
+                    getattr(getattr(self.service, "feature_flags", None), "news_events_v2", False)
+                )
+                source_codes = (
+                    (
+                        "fed_news", "ecb_news", "sec_news", "cftc_news",
+                        "bis_news", "boj_news", "rbi_news",
+                    )
+                    if news_events_v2
+                    else ("fed_news", "ecb_news")
+                )
                 results = {
                     source_code: await self.service.sync_news(RssClient(source_code))
-                    for source_code in ("fed_news", "ecb_news")
+                    for source_code in source_codes
                 }
+                if news_events_v2:
+                    results["gdelt_discovery"] = await self.service.sync_gdelt_discovery(
+                        GdeltDiscoveryClient()
+                    )
                 logger.info("Crisis Radar news sync completed: sources=%s", sorted(results))
             except Exception:
                 logger.exception("Crisis Radar news scheduled sync failed")
@@ -185,6 +204,12 @@ class CrisisRadarJobs:
             "oil_stagflation": "Нефтяной инфляционный шок",
             "crypto_leverage_unwind": "Криптовалютный сброс плечей",
             "china_hard_landing": "Резкое замедление экономики Китая",
+            "regional_recession": "Региональная рецессия",
+            "banking_crisis": "Банковский кризис",
+            "sovereign_currency_crisis": "Суверенный / валютный кризис",
+            "commodity_supply_shock": "Сырьевой / логистический шок",
+            "tech_ai_repricing": "Переоценка технологического / AI-сектора",
+            "exchange_stablecoin_failure": "Крах биржи / стейблкоина",
         }
         for delivery in self.service.repository.pending_alert_deliveries():
             payload = delivery.payload
@@ -194,7 +219,12 @@ class CrisisRadarJobs:
                 f"Crisis Radar · {direction}\n"
                 f"Сценарий: {names.get(delivery.scenario_code, delivery.scenario_code)}\n"
                 f"Статус: {delivery.from_state} → {delivery.to_state}\n"
-                f"Горизонт: {payload.get('horizon', '—')}\n\n{explanation}"
+                f"Горизонт: {payload.get('horizon', '—')}\n"
+                f"Изменившие статус каналы: "
+                f"{', '.join(item.get('group_code', '—') for item in payload.get('evidence', [])) or '—'}\n\n"
+                f"{explanation}\n\n"
+                "Вывод отменяется, если сценарий вернётся ниже повышенного уровня "
+                "или обязательные данные станут недоступны. Это аналитика, сделка не открывается."
             )
             try:
                 await context.bot.send_message(chat_id=delivery.user_id, text=message)
@@ -204,6 +234,40 @@ class CrisisRadarJobs:
             except Exception as exc:
                 logger.warning("Crisis Radar Telegram delivery failed: %s", type(exc).__name__)
                 self.service.repository.mark_alert_failed(
+                    delivery.delivery_id,
+                    error=type(exc).__name__,
+                    retry_at=datetime.now(timezone.utc) + timedelta(minutes=15),
+                )
+
+    async def _deliver_data_health_alerts(self, context) -> None:
+        if context is None or getattr(context, "bot", None) is None:
+            logger.warning("Crisis Radar data-health alerts are queued; Telegram is unavailable")
+            return
+        labels = {
+            "healthy": "данные восстановлены",
+            "degraded": "данные частично недоступны",
+            "insufficient_data": "недостаточно данных для оценки рынка",
+        }
+        for delivery in self.service.repository.pending_data_health_deliveries():
+            payload = delivery.payload
+            missing = [*payload.get("missing_regions", []), *payload.get("missing_groups", [])]
+            message = (
+                "Crisis Radar · СОСТОЯНИЕ ДАННЫХ\n"
+                f"{labels.get(delivery.from_status, delivery.from_status)} → "
+                f"{labels.get(delivery.to_status, delivery.to_status)}\n"
+                f"Покрытие: {payload.get('ratio', '—')}\n"
+                f"Недоступно: {', '.join(missing) or '—'}\n"
+                "Это техническое предупреждение, а не рыночный сигнал. "
+                "При недостатке данных радар скрывает спокойную/кризисную стадию."
+            )
+            try:
+                await context.bot.send_message(chat_id=delivery.user_id, text=message[:4096])
+                self.service.repository.mark_data_health_sent(
+                    delivery.delivery_id, sent_at=datetime.now(timezone.utc)
+                )
+            except Exception as exc:
+                logger.warning("Crisis Radar data-health delivery failed: %s", type(exc).__name__)
+                self.service.repository.mark_data_health_failed(
                     delivery.delivery_id,
                     error=type(exc).__name__,
                     retry_at=datetime.now(timezone.utc) + timedelta(minutes=15),

@@ -1,3 +1,4 @@
+import json
 from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
@@ -33,6 +34,25 @@ def test_fed_assets_transform_calculates_90_day_change() -> None:
     )
 
     assert observations[-1].value == Decimal("-5.0000")
+
+
+def test_fx_transform_calculates_signed_30_day_change() -> None:
+    payload = json.dumps(
+        {
+            "observations": [
+                {"date": "2026-06-01", "realtime_start": "2026-06-01", "value": "100"},
+                {"date": "2026-07-01", "realtime_start": "2026-07-01", "value": "112"},
+            ]
+        }
+    ).encode()
+    observations = FredTransformAdapter().normalize(
+        payload,
+        SeriesRequest("japan_fx_30d_change", "DEXJPUS", "percent"),
+        transform="change_30d",
+        fetched_at=NOW,
+    )
+
+    assert observations[-1].value == Decimal("12.0000")
 
 
 def test_fred_transform_rejects_unknown_transform() -> None:

@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Trading Assistant</title>
-    <link rel="stylesheet" href="/static/styles.css?v=20260722-crisis-radar-6" />
+    <link rel="stylesheet" href="/static/styles.css?v=20260804-crisis-radar-production-1" />
   </head>
   <body>
     <div class="space-backdrop" aria-hidden="true">
@@ -93,23 +93,26 @@
               <h2 id="crisisTitle">Состояние мирового рынка</h2>
               <p id="crisisExplanation" class="crisis-explanation">Загружаю состояние рынка…</p>
             </div>
-            <div class="crisis-controls">
+            <div class="crisis-controls" id="crisisViewNav" aria-label="Уровень подробности">
               <button class="crisis-help-btn" type="button" data-action="crisis-help" data-help="stage" aria-label="Как читать состояние рынка?">?</button>
-              <button id="crisisModeBtn" class="mini-action" type="button">Все данные и методика</button>
+              <button id="crisisModeBtn" class="mini-action active" type="button" data-action="crisis-view-level" data-level="overview">Главное</button>
+              <button class="mini-action" type="button" data-action="crisis-view-level" data-level="analysis">Разобрать</button>
+              <button class="mini-action" type="button" data-action="crisis-view-level" data-level="methodology">Методика</button>
             </div>
           </div>
           <div class="crisis-summary-grid">
             <div><small id="crisisAsOfLabel">Последний расчёт</small><strong id="crisisAsOf">—</strong></div>
-            <div><small id="crisisActiveLabel">Групп ухудшается</small><strong id="crisisActiveGroups">0</strong></div>
-            <div><small id="crisisDangerLabel">Опасных групп</small><strong id="crisisDangerGroups">0</strong></div>
-            <div><small id="crisisCriticalLabel">Критических групп</small><strong id="crisisCriticalGroups">0</strong></div>
+            <div data-crisis-summary-detail hidden><small id="crisisActiveLabel">Групп ухудшается</small><strong id="crisisActiveGroups">0</strong></div>
+            <div data-crisis-summary-detail hidden><small id="crisisDangerLabel">Опасных групп</small><strong id="crisisDangerGroups">0</strong></div>
+            <div data-crisis-summary-detail hidden><small id="crisisCriticalLabel">Критических групп</small><strong id="crisisCriticalGroups">0</strong></div>
+            <div><small id="crisisCoverageLabel">Покрытие данных</small><strong id="crisisCoverage">—</strong></div>
           </div>
           <div id="crisisChanges" class="crisis-change-grid" aria-live="polite"></div>
         </section>
 
-        <section class="crisis-today-grid" aria-label="Что важно сегодня">
+        <section id="crisisTodayGrid" class="crisis-today-grid" aria-label="Что важно сегодня">
           <article class="band crisis-today-card crisis-top-signals-card">
-            <div class="section-head"><div><span class="crisis-today-eyebrow" id="crisisSignalsEyebrow">Главное сегодня</span><h2 id="crisisSignalsTitle">Три сигнала, за которыми следим</h2><p id="crisisSignalsCopy" class="section-copy">Сработавшие или ближайшие к опасному порогу показатели.</p></div><button class="crisis-help-btn" type="button" data-action="crisis-help" data-help="signals" aria-label="Что означают главные сигналы?">?</button></div>
+            <div class="section-head"><div><span class="crisis-today-eyebrow" id="crisisSignalsEyebrow">Главное сегодня</span><h2 id="crisisSignalsTitle">Критические мировые события</h2><p id="crisisSignalsCopy" class="section-copy">Только подтверждённые или официальные события; повторы объединены.</p></div><button class="crisis-help-btn" type="button" data-action="crisis-help" data-help="news" aria-label="Как события влияют на радар?">?</button></div>
             <div id="crisisTopSignals" class="crisis-top-signals"></div>
           </article>
 
@@ -119,43 +122,53 @@
           </article>
 
           <article class="band crisis-today-card">
-            <div class="section-head"><div><span class="crisis-today-eyebrow" id="crisisScenarioEyebrow">Сценарий</span><h2 id="crisisLeadScenarioTitle">Что сейчас вероятнее всего развивается</h2></div><button class="crisis-help-btn" type="button" data-action="crisis-help" data-help="scenarios" aria-label="Как работают сценарии?">?</button></div>
+            <div class="section-head"><div><span class="crisis-today-eyebrow" id="crisisScenarioEyebrow">Сценарии</span><h2 id="crisisLeadScenarioTitle">Что сейчас развивается</h2></div><button class="crisis-help-btn" type="button" data-action="crisis-help" data-help="scenarios" aria-label="Как работают сценарии?">?</button></div>
             <div id="crisisLeadScenario" class="crisis-today-result"></div>
           </article>
 
           <article class="band crisis-today-card">
-            <div class="section-head"><div><span class="crisis-today-eyebrow" id="crisisActionEyebrow">Действие</span><h2 id="crisisBestOpportunityTitle">Лучшая аналитическая возможность</h2></div><button class="crisis-help-btn" type="button" data-action="crisis-help" data-help="opportunities" aria-label="Как читать возможности?">?</button></div>
+            <div class="section-head"><div><span class="crisis-today-eyebrow" id="crisisActionEyebrow">Возможности</span><h2 id="crisisBestOpportunityTitle">До трёх сценарных идей</h2></div><button class="crisis-help-btn" type="button" data-action="crisis-help" data-help="opportunities" aria-label="Как читать возможности?">?</button></div>
             <div id="crisisBestOpportunity" class="crisis-today-result"></div>
           </article>
         </section>
 
-        <section class="band crisis-detail-section" data-crisis-detail hidden>
+        <section class="band crisis-detail-section" data-crisis-level="analysis" hidden>
           <div class="section-head"><div><h2 id="crisisCalendarTitle">Календарь публикаций</h2><p id="crisisCalendarCopy" class="section-copy">Подтверждённые даты важных макроэкономических данных.</p></div><button class="crisis-help-btn" type="button" data-action="crisis-help" data-help="calendar" aria-label="О календаре публикаций">?</button></div>
           <div id="crisisCalendar" class="crisis-calendar-list"></div>
         </section>
 
-        <section class="band crisis-detail-section" data-crisis-detail hidden>
+        <section class="band crisis-detail-section" data-crisis-level="analysis" hidden>
+          <div class="section-head"><div><h2 id="crisisTrendsTitle">Тренды и распространение стресса</h2><p id="crisisTrendsCopy" class="section-copy">Что ухудшается устойчиво, ускоряется или начинает двигаться вместе с другими рынками.</p></div><button class="crisis-help-btn" type="button" data-action="crisis-help" data-help="trends" aria-label="О трендах и распространении стресса">?</button></div>
+          <div id="crisisTrends" class="crisis-trend-grid"></div>
+        </section>
+
+        <section class="band crisis-detail-section" data-crisis-level="analysis" hidden>
+          <div class="section-head"><div><h2 id="crisisEventsTitle">Мировые события и доказательства</h2><p id="crisisEventsCopy" class="section-copy">События объединены по смыслу; внутри можно открыть независимые источники.</p></div><button class="crisis-help-btn" type="button" data-action="crisis-help" data-help="news" aria-label="О мировых событиях">?</button></div>
+          <div id="crisisEventClusters" class="crisis-event-grid"></div>
+        </section>
+
+        <section class="band crisis-detail-section" data-crisis-level="analysis" hidden>
           <div class="section-head"><div><h2 id="crisisGroupsTitle">Каналы риска</h2><p id="crisisGroupsCopy" class="section-copy">Независимые группы сигналов.</p></div><button class="crisis-help-btn" type="button" data-action="crisis-help" data-help="groups" aria-label="О каналах риска">?</button></div>
           <div id="crisisGroups" class="crisis-group-grid"></div>
         </section>
 
-        <section class="band crisis-detail-section" data-crisis-detail hidden>
+        <section class="band crisis-detail-section" data-crisis-level="analysis" hidden>
           <div class="section-head"><div><h2 id="crisisScenariosTitle">Все сценарии</h2><p id="crisisScenariosCopy" class="section-copy">Совместное подтверждение независимыми каналами.</p></div><button class="crisis-help-btn" type="button" data-action="crisis-help" data-help="scenarios" aria-label="О кризисных сценариях">?</button></div>
           <div id="crisisScenarios" class="crisis-scenario-grid"></div>
         </section>
 
-        <section class="band crisis-detail-section" data-crisis-detail hidden>
+        <section class="band crisis-detail-section" data-crisis-level="analysis" hidden>
           <div class="section-head"><div><h2 id="crisisOpportunitiesTitle">Все возможности</h2><p id="crisisOpportunitiesCopy" class="section-copy">Условные long / short / hedge / wait идеи без открытия сделки.</p></div><div class="crisis-section-actions"><span id="crisisOpportunityCoverage" class="live-status">проверка</span><button class="crisis-help-btn" type="button" data-action="crisis-help" data-help="opportunities" aria-label="О возможностях">?</button></div></div>
           <div id="crisisOpportunities" class="crisis-opportunity-grid"></div>
           <small id="crisisOpportunityDisclaimer" class="crisis-agent-disclaimer">Диапазоны — сценарная оценка, а не обещание прибыли.</small>
         </section>
 
-        <section class="band crisis-detail-section" data-crisis-detail hidden>
+        <section class="band crisis-detail-section" data-crisis-level="analysis" hidden>
           <div class="section-head"><div><h2 id="crisisWorldTitle">Мировой контур</h2><p id="crisisWorldCopy" class="section-copy">США, Европа, Китай и глобальные каналы с честными пропусками.</p></div><button class="crisis-help-btn" type="button" data-action="crisis-help" data-help="world" aria-label="О мировом контуре">?</button></div>
           <div id="crisisWorld" class="crisis-world-grid"></div>
         </section>
 
-        <section class="band crisis-agent-panel crisis-detail-section" data-crisis-detail hidden>
+        <section class="band crisis-agent-panel crisis-detail-section" data-crisis-level="analysis" hidden>
           <div class="section-head">
             <div><h2 id="crisisAgentTitle">Спросить аналитика</h2><p id="crisisAgentCopy" class="section-copy">Подключённая модель объясняет уже рассчитанные данные и не меняет сигналы или сделки.</p></div>
             <div class="crisis-section-actions"><span id="crisisAgentStatus" class="live-status is-offline">проверка</span><button class="crisis-help-btn" type="button" data-action="crisis-help" data-help="agent" aria-label="О локальном аналитике">?</button></div>
@@ -169,17 +182,17 @@
           <small id="crisisAgentDisclaimer" class="crisis-agent-disclaimer">Это объяснение данных, а не финансовый совет и не команда на сделку.</small>
         </section>
 
-        <section class="band crisis-detail-section" data-crisis-detail hidden>
+        <section class="band crisis-detail-section" data-crisis-level="analysis" hidden>
           <div class="section-head"><div><h2 id="crisisNewsTitle">Официальный контекст</h2><p id="crisisNewsCopy" class="section-copy">Публикации центральных банков, связанные со сценариями. Новость сама по себе не меняет стадию рынка.</p></div><button class="crisis-help-btn" type="button" data-action="crisis-help" data-help="news" aria-label="О новостном контексте">?</button></div>
           <div id="crisisNews" class="crisis-news-list"></div>
         </section>
 
-        <section class="band crisis-detail-section" data-crisis-detail hidden>
+        <section class="band crisis-detail-section" data-crisis-level="methodology" hidden>
           <div class="section-head"><div><h2 id="crisisIndicatorsTitle">Все индикаторы и точные пороги</h2><p id="crisisIndicatorsCopy" class="section-copy">Текущее значение, расстояние до следующего порога и свежесть.</p></div><button class="crisis-help-btn" type="button" data-action="crisis-help" data-help="indicators" aria-label="Об индикаторах и порогах">?</button></div>
           <div id="crisisIndicators" class="crisis-indicator-list"></div>
         </section>
 
-        <section id="crisisTechnical" class="band crisis-technical crisis-detail-section" data-crisis-detail hidden>
+        <section id="crisisTechnical" class="band crisis-technical crisis-detail-section" data-crisis-level="methodology" hidden>
           <div class="section-head"><div><h2 id="crisisTechnicalTitle">Данные и методика</h2><p id="crisisTechnicalCopy" class="section-copy">Версия методики, scores и здоровье источников.</p></div><button class="crisis-help-btn" type="button" data-action="crisis-help" data-help="methodology" aria-label="О данных и методике">?</button></div>
           <div id="crisisMethodology" class="crisis-methodology"></div>
           <div id="crisisSources" class="crisis-source-list"></div>
@@ -187,7 +200,7 @@
 
         <dialog id="crisisHelpDialog" class="crisis-help-dialog">
           <form method="dialog" class="crisis-help-sheet">
-            <div class="section-head"><div><span class="crisis-today-eyebrow" id="crisisHelpEyebrow">Подсказка</span><h2 id="crisisHelpTitle">Как читать раздел</h2></div><button class="crisis-help-close" value="close" aria-label="Закрыть">×</button></div>
+            <div class="section-head"><div><span class="crisis-today-eyebrow" id="crisisHelpEyebrow">Подсказка</span><h2 id="crisisHelpTitle">Как читать раздел</h2></div><button id="crisisHelpClose" class="crisis-help-close" value="close" aria-label="Закрыть">×</button></div>
             <p id="crisisHelpBody"></p>
             <div id="crisisHelpPoints" class="crisis-help-points"></div>
           </form>
@@ -406,6 +419,6 @@
     </main>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <script src="/static/i18n.js?v=20260721-global-i18n-3"></script>
-    <script src="/static/app.js?v=20260722-crisis-radar-6"></script>
+    <script src="/static/app.js?v=20260804-crisis-radar-production-1"></script>
   </body>
 </html>

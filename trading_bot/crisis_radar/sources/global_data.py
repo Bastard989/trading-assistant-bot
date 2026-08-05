@@ -20,6 +20,32 @@ _BIS_CSV = "WS_CREDIT_GAP_csv_flat.csv"
 _BIS_MAX_UNCOMPRESSED_BYTES = 20_000_000
 _OECD_MONTH = re.compile(r"^(\d{4})-(0[1-9]|1[0-2])$")
 
+_WORLD_BANK_COUNTRIES = {
+    "BRA": "brazil_real_gdp_yoy",
+    "CAN": "canada_real_gdp_yoy",
+    "CHN": "china_real_gdp_yoy",
+    "GBR": "uk_real_gdp_yoy",
+    "HKG": "hong_kong_real_gdp_yoy",
+    "IND": "india_real_gdp_yoy",
+    "JPN": "japan_real_gdp_yoy",
+    "KOR": "korea_real_gdp_yoy",
+    "MEX": "mexico_real_gdp_yoy",
+    "WLD": "world_real_gdp_yoy",
+}
+
+_OECD_AREAS = {
+    "BRA": "brazil_cli_6m_change",
+    "CAN": "canada_cli_6m_change",
+    "CHN": "china_cli_6m_change",
+    "GBR": "uk_cli_6m_change",
+    "G20": "g20_cli_6m_change",
+    "IND": "india_cli_6m_change",
+    "JPN": "japan_cli_6m_change",
+    "KOR": "korea_cli_6m_change",
+    "MEX": "mexico_cli_6m_change",
+    "USA": "us_cli_6m_change",
+}
+
 
 class WorldBankAdapter:
     source_code = "world_bank"
@@ -34,10 +60,7 @@ class WorldBankAdapter:
         if fetched_at.tzinfo is None or fetched_at.utcoffset() is None:
             raise ValueError("fetched_at must be timezone-aware")
         country_code = country.strip().upper()
-        indicator_code = {
-            "CHN": "china_real_gdp_yoy",
-            "WLD": "world_real_gdp_yoy",
-        }.get(country_code)
+        indicator_code = _WORLD_BANK_COUNTRIES.get(country_code)
         if indicator_code is None:
             raise ValueError("unsupported World Bank country code")
         try:
@@ -92,7 +115,7 @@ class BisAdapter:
     source_code = "bis"
 
     def normalize_credit_gaps(
-        self, payload: bytes, *, fetched_at: datetime
+        self, payload: bytes, *, fetched_at: datetime, include_global: bool = False
     ) -> list[Observation]:
         if fetched_at.tzinfo is None or fetched_at.utcoffset() is None:
             raise ValueError("fetched_at must be timezone-aware")
@@ -107,7 +130,12 @@ class BisAdapter:
                 csv_payload = archive.read(entry)
             text = csv_payload.decode("utf-8-sig")
             rows = csv.DictReader(io.StringIO(text))
-            observations = self._normalize_rows(rows, payload=payload, fetched_at=fetched_at)
+            observations = self._normalize_rows(
+                rows,
+                payload=payload,
+                fetched_at=fetched_at,
+                include_global=include_global,
+            )
         except (zipfile.BadZipFile, UnicodeDecodeError, csv.Error) as exc:
             raise SourcePayloadError("invalid BIS credit-gap archive") from exc
         if not observations:
@@ -120,6 +148,7 @@ class BisAdapter:
         *,
         payload: bytes,
         fetched_at: datetime,
+        include_global: bool,
     ) -> list[Observation]:
         required = {
             "FREQ:Frequency",
@@ -135,12 +164,26 @@ class BisAdapter:
         content_hash = hashlib.sha256(payload).hexdigest()
         vintage = f"{fetched_at.date().isoformat()}:{content_hash[:12]}"
         country_mapping = {
-            "US: United States": "us_credit_to_gdp_gap",
-            "CN: China": "china_credit_to_gdp_gap",
+            "BR": "brazil_credit_to_gdp_gap",
+            "CA": "canada_credit_to_gdp_gap",
+            "CN": "china_credit_to_gdp_gap",
+            "GB": "uk_credit_to_gdp_gap",
+            "IN": "india_credit_to_gdp_gap",
+            "JP": "japan_credit_to_gdp_gap",
+            "KR": "korea_credit_to_gdp_gap",
+            "MX": "mexico_credit_to_gdp_gap",
+            "US": "us_credit_to_gdp_gap",
         }
+        if not include_global:
+            country_mapping = {
+                code: indicator
+                for code, indicator in country_mapping.items()
+                if code in {"CN", "US"}
+            }
         result = []
         for row in rows:
-            indicator_code = country_mapping.get(row["BORROWERS_CTY:Borrowers' country"])
+            country_value = row["BORROWERS_CTY:Borrowers' country"]
+            indicator_code = country_mapping.get(country_value.split(":", 1)[0].strip())
             if (
                 indicator_code is None
                 or row["FREQ:Frequency"] != "Q: Quarterly"
@@ -190,13 +233,18 @@ class OecdAdapter:
     source_code = "oecd"
 
     def normalize_cli_momentum(
-        self, payload: bytes, *, fetched_at: datetime
+        self, payload: bytes, *, fetched_at: datetime, include_global: bool = False
     ) -> list[Observation]:
         if fetched_at.tzinfo is None or fetched_at.utcoffset() is None:
             raise ValueError("fetched_at must be timezone-aware")
         try:
             rows = csv.DictReader(io.StringIO(payload.decode("utf-8-sig")))
-            observations = self._normalize_cli_rows(rows, payload=payload, fetched_at=fetched_at)
+            observations = self._normalize_cli_rows(
+                rows,
+                payload=payload,
+                fetched_at=fetched_at,
+                include_global=include_global,
+            )
         except (UnicodeDecodeError, csv.Error) as exc:
             raise SourcePayloadError("invalid OECD CLI CSV") from exc
         if not observations:
@@ -209,6 +257,7 @@ class OecdAdapter:
         *,
         payload: bytes,
         fetched_at: datetime,
+        include_global: bool,
     ) -> list[Observation]:
         required = {
             "DATAFLOW",
@@ -224,7 +273,10 @@ class OecdAdapter:
         }
         if rows.fieldnames is None or not required.issubset(rows.fieldnames):
             raise SourcePayloadError("OECD CLI CSV is missing required columns")
-        values: dict[str, dict[tuple[int, int], Decimal]] = {"G20": {}, "CHN": {}}
+        selected_areas = _OECD_AREAS if include_global else {"G20": "", "CHN": ""}
+        values: dict[str, dict[tuple[int, int], Decimal]] = {
+            area: {} for area in selected_areas
+        }
         for row in rows:
             area = row.get("REF_AREA", "")
             if area not in values:
@@ -252,10 +304,6 @@ class OecdAdapter:
 
         content_hash = hashlib.sha256(payload).hexdigest()
         vintage = f"{fetched_at.date().isoformat()}:{content_hash[:12]}"
-        indicator_codes = {
-            "G20": "g20_cli_6m_change",
-            "CHN": "china_cli_6m_change",
-        }
         result = []
         for area, series in values.items():
             for (year, month), current in sorted(series.items()):
@@ -277,7 +325,7 @@ class OecdAdapter:
                     continue
                 result.append(
                     Observation(
-                        indicator_code=indicator_codes[area],
+                        indicator_code=_OECD_AREAS[area],
                         source_code=self.source_code,
                         value=(current - previous).quantize(Decimal("0.0001")),
                         unit="index_points_6m",

@@ -16,6 +16,9 @@ def test_crisis_radar_is_a_first_class_mini_app_tab() -> None:
     assert "/api/crisis-radar/world" in APP_JS
     assert "/api/crisis-radar/sources/health" in APP_JS
     assert "/api/crisis-radar/opportunities" in APP_JS
+    assert "/api/crisis-radar/events" in APP_JS
+    assert "/api/crisis-radar/scenarios/fusion" in APP_JS
+    assert "/api/crisis-radar/trends" in APP_JS
     assert "/api/crisis-radar/agent/status" in APP_JS
     assert "/api/crisis-radar/agent/chat" in APP_JS
     assert 'id="crisisAgentForm"' in INDEX_HTML
@@ -31,7 +34,8 @@ def test_crisis_radar_supports_ru_en_and_progressive_disclosure() -> None:
     assert 'data-app-locale="en"' in INDEX_HTML
     assert "let crisisLocale = appLocale" in APP_JS
     assert 'id="crisisTechnical"' in INDEX_HTML
-    assert 'data-crisis-detail hidden' in INDEX_HTML
+    assert 'data-crisis-level="analysis" hidden' in INDEX_HTML
+    assert 'data-crisis-level="methodology" hidden' in INDEX_HTML
     assert 'id="crisisTopSignals"' in INDEX_HTML
     assert 'id="crisisNextEvent"' in INDEX_HTML
     assert 'id="crisisLeadScenario"' in INDEX_HTML
@@ -41,7 +45,11 @@ def test_crisis_radar_supports_ru_en_and_progressive_disclosure() -> None:
     assert "renderCrisisToday" in APP_JS
     assert "openCrisisIndicator" in APP_JS
     assert "crisisDetailed" in APP_JS
+    assert 'let crisisViewLevel = "overview"' in APP_JS
     assert "crisisCopy" in APP_JS
+    assert 'id="crisisCoverage"' in INDEX_HTML
+    assert "insufficient_data" in APP_JS
+    assert '["24h", "7d", "15d"]' in APP_JS
 
 
 def test_crisis_radar_renders_threshold_context_and_mobile_layout() -> None:

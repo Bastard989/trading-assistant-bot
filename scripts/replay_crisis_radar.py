@@ -15,22 +15,22 @@ from trading_bot.crisis_radar.catalog import METHODOLOGY_CODE, METHODOLOGY_VERSI
 from trading_bot.crisis_radar.replay import replay_scenario
 from trading_bot.crisis_radar.repositories import CrisisRadarRepository
 from trading_bot.db import CURRENT_SCHEMA_VERSION, Database
+from trading_bot.crisis_radar.validation import evaluate_calibration_gate, threshold_sensitivity
 
 
 UTC = timezone.utc
 ALLOWED_HORIZON_DAYS = (1, 7, 15, 30, 90, 365)
 
 
-def _calibration_acceptable(metrics) -> bool:
-    return bool(
-        metrics.brier_score is not None
-        and metrics.baseline_brier_score is not None
-        and metrics.brier_score < metrics.baseline_brier_score
-        and metrics.precision is not None
-        and metrics.recall is not None
-        and metrics.recall > 0
-        and metrics.positive_event_count >= 3
-    )
+def _calibration_acceptable(metrics, validation: dict | None = None) -> bool:
+    validation = validation or {}
+    return evaluate_calibration_gate(
+        metrics,
+        holdout_event_count=int(validation.get("holdout_event_count") or 0),
+        sensitivity_stable=bool(validation.get("sensitivity_stable")),
+        region_holdout_passed=bool(validation.get("region_holdout_passed")),
+        crisis_holdout_passed=bool(validation.get("crisis_holdout_passed")),
+    ).passed
 
 
 def _aware_date(value: str, field: str, *, end_of_day: bool = False) -> datetime:
@@ -115,6 +115,13 @@ def execute_replay(
     probability = None
     confidence = "insufficient"
     reason = "no_resolved_samples"
+    promotion_validation = {
+        "holdout_event_count": 0,
+        "sensitivity_stable": False,
+        "region_holdout_passed": False,
+        "crisis_holdout_passed": False,
+        "status": "not_run",
+    }
     if samples:
         result = walk_forward_calibrate(samples)
         metrics = {
@@ -150,7 +157,38 @@ def execute_replay(
             ),
         }
         latest = result.predictions[-1]
-        acceptable = _calibration_acceptable(result.metrics)
+        available = [
+            item for item in result.predictions if item.calibrated_probability is not None
+        ]
+        sensitivity = threshold_sensitivity(
+            (item.calibrated_probability for item in available),
+            (item.sample.outcome for item in available),
+        )
+        holdout_start = max(0, len(result.predictions) * 4 // 5)
+        holdout_events = len(
+            {
+                item.sample.event_at
+                for item in result.predictions[holdout_start:]
+                if item.sample.event_at is not None
+            }
+        )
+        recalls = [
+            Decimal(str(item["recall"]))
+            for item in sensitivity
+            if item["recall"] is not None
+        ]
+        sensitivity_stable = bool(
+            len(recalls) >= 3 and max(recalls) - min(recalls) <= Decimal("0.20")
+        )
+        promotion_validation = {
+            "holdout_event_count": holdout_events,
+            "sensitivity_stable": sensitivity_stable,
+            "region_holdout_passed": False,
+            "crisis_holdout_passed": False,
+            "status": "experimental",
+            "threshold_sensitivity": sensitivity,
+        }
+        acceptable = _calibration_acceptable(result.metrics, promotion_validation)
         probability = (
             format(latest.calibrated_probability, "f")
             if acceptable and latest.calibrated_probability is not None
@@ -178,6 +216,7 @@ def execute_replay(
                     "onset_policy": "exclude_active_events",
                     "right_censor_policy": "exclude_unresolved_horizons",
                     "probability_scope": "historical_only",
+                    "promotion_validation": promotion_validation,
                 },
             )
             repository.link_backtest_provenance(
@@ -205,6 +244,7 @@ def execute_replay(
         "confidence": confidence,
         "reason": reason,
         "metrics": metrics,
+        "promotion_validation": promotion_validation,
         "live_probability": None,
         "live_probability_reason": "historical_calibration_is_not_a_live_prediction",
     }

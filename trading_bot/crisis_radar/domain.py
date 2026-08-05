@@ -20,6 +20,7 @@ class IndicatorBand(str, Enum):
 
 
 class MarketStage(str, Enum):
+    INSUFFICIENT_DATA = "insufficient_data"
     STABLE = "stable"
     TENSION = "tension"
     WARNING = "warning"
@@ -28,6 +29,7 @@ class MarketStage(str, Enum):
 
 
 class ScenarioStatus(str, Enum):
+    UNKNOWN = "unknown"
     INACTIVE = "inactive"
     WATCH = "watch"
     ELEVATED = "elevated"
@@ -53,6 +55,44 @@ class DataFreshness(str, Enum):
     DELAYED = "delayed"
     STALE = "stale"
     MISSING = "missing"
+
+
+class CoverageStatus(str, Enum):
+    HEALTHY = "healthy"
+    DEGRADED = "degraded"
+    INSUFFICIENT_DATA = "insufficient_data"
+
+
+@dataclass(frozen=True)
+class CoverageAssessment:
+    status: CoverageStatus
+    ratio: Decimal
+    expected_count: int
+    available_count: int
+    fresh_count: int
+    delayed_count: int
+    stale_count: int
+    missing_count: int
+    available_group_codes: frozenset[str]
+    missing_required_groups: tuple[str, ...]
+    missing_required_regions: tuple[str, ...]
+    reason_codes: tuple[str, ...]
+
+    def __post_init__(self) -> None:
+        if not self.ratio.is_finite() or not Decimal("0") <= self.ratio <= Decimal("1"):
+            raise ValueError("coverage ratio must be between zero and one")
+        counts = (
+            self.expected_count,
+            self.available_count,
+            self.fresh_count,
+            self.delayed_count,
+            self.stale_count,
+            self.missing_count,
+        )
+        if any(value < 0 for value in counts):
+            raise ValueError("coverage counts must not be negative")
+        if self.available_count != self.fresh_count + self.delayed_count:
+            raise ValueError("available coverage count must equal fresh plus delayed")
 
 
 @dataclass(frozen=True)
@@ -141,6 +181,7 @@ class GroupState:
 @dataclass(frozen=True)
 class MarketOverview:
     stage: MarketStage
+    calculated_stage: MarketStage
     snapshot_at: datetime
     groups: tuple[GroupState, ...]
     active_group_count: int
@@ -149,6 +190,7 @@ class MarketOverview:
     critical_group_count: int
     explanation_ru: str
     explanation_en: str
+    coverage: CoverageAssessment | None = None
 
 
 @dataclass(frozen=True)

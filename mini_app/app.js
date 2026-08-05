@@ -33,10 +33,14 @@ let activeSession = null;
 let sessionRealizedPnl = 0;
 let crisisLocale = appLocale;
 let crisisDetailed = false;
+let crisisViewLevel = "overview";
 let crisisSnapshot = null;
 let crisisWorld = null;
 let crisisSourceHealth = null;
 let crisisOpportunities = null;
+let crisisEvents = null;
+let crisisFusion = null;
+let crisisTrends = null;
 let crisisAgentThreadId = null;
 let crisisAgentState = null;
 let crisisAgentMessages = [];
@@ -83,10 +87,6 @@ document.getElementById("openTradeBtn").addEventListener("click", () => switchVi
 document.getElementById("sessionForm").addEventListener("submit", createSession);
 document.getElementById("watchlistToggle").addEventListener("click", toggleWatchlistEditor);
 document.getElementById("watchlistForm").addEventListener("submit", addWatchlistSymbol);
-document.getElementById("crisisModeBtn").addEventListener("click", () => {
-  crisisDetailed = !crisisDetailed;
-  renderCrisisRadar();
-});
 document.getElementById("crisisAgentForm").addEventListener("submit", askCrisisAgent);
 document.querySelectorAll(".app-locale-btn").forEach(button => {
   button.addEventListener("click", async () => {
@@ -123,6 +123,12 @@ document.addEventListener("click", async event => {
     case "close-trade": event.stopPropagation(); await closeTrade(id); break;
     case "cancel-trade": event.stopPropagation(); await cancelTrade(id); break;
     case "archive-session": await archiveSession(id); break;
+    case "crisis-view-level":
+      crisisViewLevel = ["overview", "analysis", "methodology"].includes(target.dataset.level)
+        ? target.dataset.level : "overview";
+      crisisDetailed = crisisViewLevel !== "overview";
+      renderCrisisRadar();
+      break;
     case "activate-session": await activateSession(id); break;
     case "download-obsidian": event.stopPropagation(); await downloadObsidianExport(); break;
     case "download-session-obsidian": event.stopPropagation(); await downloadObsidianExport(id); break;
@@ -178,14 +184,24 @@ const crisisCopy = {
   ru: {
     title: "Что происходит с мировым рынком",
     signalsEyebrow: "Главное сегодня",
-    signalsTitle: "Три сигнала, за которыми следим",
-    signalsCopy: "Сработавшие или ближайшие к опасному порогу показатели.",
+    signalsTitle: "Критические мировые события",
+    signalsCopy: "Только подтверждённые или официальные события; повторы объединены.",
     nextEyebrow: "Дальше",
     nextTitle: "Следующая важная публикация",
-    scenarioEyebrow: "Сценарий",
+    scenarioEyebrow: "Сценарии",
     leadScenarioTitle: "Что сейчас развивается",
-    actionEyebrow: "Действие",
-    bestOpportunityTitle: "Лучшая аналитическая возможность",
+    actionEyebrow: "Возможности",
+    bestOpportunityTitle: "До трёх сценарных идей",
+    overviewLevel: "Главное",
+    analysisLevel: "Разобрать",
+    methodologyLevel: "Методика",
+    detailLevelLabel: "Уровень подробности",
+    todayRegionLabel: "Что важно сегодня",
+    helpLabel: "Справка",
+    closeLabel: "Закрыть",
+    noCriticalEvents: "Подтверждённых критических событий сейчас нет",
+    eventSources: "независимых источников",
+    strength: "сила сценария",
     openDetails: "Открыть точные пороги и историю",
     normalDistance: "Пока норма; расстояние до первого тревожного порога",
     nextDistance: "До следующего уровня риска",
@@ -197,6 +213,10 @@ const crisisCopy = {
     active: "Групп ухудшается",
     danger: "Опасных групп",
     critical: "Критических групп",
+    coverage: "Покрытие данных",
+    coverageHealthy: "данные полные",
+    coverageDegraded: "частичное покрытие",
+    coverageInsufficient: "недостаточно данных",
     groups: "Каналы риска",
     groupsCopy: "Независимые группы сигналов. Несколько похожих показателей не считаются отдельными подтверждениями.",
     scenarios: "Сценарии",
@@ -233,6 +253,20 @@ const crisisCopy = {
     highImportance: "высокая важность",
     mediumImportance: "средняя важность",
     calendarEmpty: "В ближайшие 30 дней подтверждённых публикаций из выбранного списка нет",
+    trends: "Тренды и распространение стресса",
+    trendsCopy: "Устойчивое ухудшение, ускорение, смена режима и совместное движение независимых рынков.",
+    trendBreadth: "Ширина ухудшения",
+    trendCorrelation: "Связность рынков",
+    trendWorsening: "сила ухудшения",
+    trendPersistence: "последовательных ухудшений",
+    trendChangePoint: "обнаружена смена режима",
+    trendNoChangePoint: "резкой смены режима нет",
+    trendState: "состояние процесса",
+    eventClusters: "Мировые события и доказательства",
+    eventClustersCopy: "События объединены по смыслу; внутри доступны все независимые источники.",
+    eventEvidence: "Открыть доказательства",
+    eventOfficial: "официальных",
+    eventDiscovery: "только обнаружено",
     horizon: "горизонт",
     confidence: "полнота данных",
     evidence: "активных каналов",
@@ -291,14 +325,24 @@ const crisisCopy = {
   en: {
     title: "What is happening in global markets",
     signalsEyebrow: "Today at a glance",
-    signalsTitle: "Three signals to watch",
-    signalsCopy: "Triggered indicators or those nearest to a more dangerous threshold.",
+    signalsTitle: "Critical world events",
+    signalsCopy: "Only corroborated or official events; duplicates are merged.",
     nextEyebrow: "Next",
     nextTitle: "Next important release",
-    scenarioEyebrow: "Scenario",
+    scenarioEyebrow: "Scenarios",
     leadScenarioTitle: "What may be developing now",
-    actionEyebrow: "Action",
-    bestOpportunityTitle: "Best analytical opportunity",
+    actionEyebrow: "Opportunities",
+    bestOpportunityTitle: "Up to three scenario ideas",
+    overviewLevel: "Overview",
+    analysisLevel: "Analyse",
+    methodologyLevel: "Methodology",
+    detailLevelLabel: "Detail level",
+    todayRegionLabel: "What matters today",
+    helpLabel: "Help",
+    closeLabel: "Close",
+    noCriticalEvents: "No corroborated critical events are active",
+    eventSources: "independent sources",
+    strength: "scenario strength",
     openDetails: "Open exact thresholds and history",
     normalDistance: "Still normal; distance to the first warning threshold",
     nextDistance: "Distance to the next risk level",
@@ -310,6 +354,10 @@ const crisisCopy = {
     active: "Groups deteriorating",
     danger: "Danger groups",
     critical: "Critical groups",
+    coverage: "Data coverage",
+    coverageHealthy: "coverage healthy",
+    coverageDegraded: "partial coverage",
+    coverageInsufficient: "insufficient data",
     groups: "Risk channels",
     groupsCopy: "Independent signal groups. Correlated indicators are not treated as separate confirmation.",
     scenarios: "Scenarios",
@@ -346,6 +394,20 @@ const crisisCopy = {
     highImportance: "high importance",
     mediumImportance: "medium importance",
     calendarEmpty: "No confirmed selected releases in the next 30 days",
+    trends: "Trends and stress contagion",
+    trendsCopy: "Persistent deterioration, acceleration, regime shifts and co-movement across independent markets.",
+    trendBreadth: "Deterioration breadth",
+    trendCorrelation: "Market connectedness",
+    trendWorsening: "deterioration strength",
+    trendPersistence: "consecutive deteriorations",
+    trendChangePoint: "regime shift detected",
+    trendNoChangePoint: "no abrupt regime shift",
+    trendState: "process state",
+    eventClusters: "World events and evidence",
+    eventClustersCopy: "Semantically related events are merged; every independent source can be opened.",
+    eventEvidence: "Open evidence",
+    eventOfficial: "official",
+    eventDiscovery: "discovery only",
     horizon: "horizon",
     confidence: "data coverage",
     evidence: "active channels",
@@ -408,12 +470,13 @@ const crisisHelpCopy = {
     stage: ["Стадия мирового рынка", "Показывает, насколько широко и тяжело уже ухудшаются независимые части экономики и рынков. Это не вероятность и не обещание кризиса.", ["Напряжение означает отдельные ранние проблемы.", "Предупреждение требует нескольких ухудшающихся каналов.", "Подтверждение и кризис требуют одновременного сильного ухудшения независимых групп."]],
     signals: ["Главные сигналы", "Радар выбирает три наиболее тревожных или ближайших к следующему порогу индикатора, чтобы не заставлять тебя просматривать весь список.", ["Нажми карточку, чтобы открыть точные пороги и историю.", "Один сигнал не подтверждает кризис.", "Важнее одновременное ухудшение нескольких независимых каналов."]],
     calendar: ["Публикации данных", "Здесь показано, когда выйдет информация, способная подтвердить или ослабить текущую тревогу.", ["Дата берётся из официального календаря.", "Отсутствующее время не выдумывается.", "Сам выход данных ещё не означает кризис — важно новое значение."]],
+    trends: ["Тренды и заражение", "Движок отделяет разовое колебание от устойчивого ухудшения и проверяет, распространяется ли стресс между независимыми рынками.", ["Ширина — доля индикаторов с сильным ухудшением.", "Связность — средняя абсолютная корреляция последних изменений.", "Смена режима и причинно-временные связи считаются только по данным, доступным на момент расчёта."]],
     groups: ["Каналы риска", "Похожие показатели объединяются в группы, чтобы один и тот же процесс не считался несколько раз.", ["Сильнейший индикатор даёт 70% оценки группы.", "Среднее состояние группы даёт ещё 30%.", "Общая стадия считает группы, а не количество всех сырых рядов."]],
     scenarios: ["Кризисные сценарии", "Сценарий объединяет несколько независимых каналов и конкретный временной горизонт.", ["Наблюдение — раннее сочетание.", "Повышен — ухудшение стало сильнее.", "Подтверждён — несколько необходимых условий сработали совместно."]],
     opportunities: ["Аналитические возможности", "Это условные варианты long, short, hedge или wait, а не готовые сделки и не обещание доходности.", ["Идея появляется только при достаточном подтверждении и качестве данных.", "Диапазон прибыли является сценарием.", "При слабых данных честный результат — ждать."]],
     world: ["Мировой контур", "Показывает покрытие США, Европы, Китая, глобальной экономики и крипторынка.", ["Свежие данные участвуют в расчёте.", "Устаревшие и отсутствующие данные обозначаются отдельно.", "Пропуск не заменяется выдуманным значением."]],
     agent: ["Локальный аналитик", "Модель объясняет уже рассчитанные сигналы простыми словами, но не имеет права менять числа, пороги или стадию.", ["Ответ проходит проверку опоры на данные.", "Модель не открывает сделки.", "При сбое остаётся детерминированное объяснение системы."]],
-    news: ["Официальный контекст", "Новости центральных банков помогают понять причины и возможные последствия, но не меняют числовой сигнал сами по себе.", ["Используются официальные источники.", "Новость связывается со сценариями.", "Числовая стадия считается только по данным."]],
+    news: ["Мировые события", "Официальные и независимо подтверждённые события участвуют в сценарном анализе, но не могут в одиночку объявить кризис.", ["Повторы объединяются в один кластер.", "Discovery-источник даёт лишь слабый наблюдательный сигнал.", "Числовая стадия рынка по-прежнему считается только по измеримым индикаторам."]],
     indicators: ["Индикаторы и точные пороги", "Здесь находится полный технический уровень: значение, warning, danger, critical, направление ухудшения, свежесть и источник.", ["Пороги обязательны и версионируются.", "Сырой порог — это число в исходной единице.", "Персональный порог должен отображаться отдельно от системного."]],
     methodology: ["Данные и методика", "Раздел нужен для аудита: версия расчётов, качество источников, внутренние оценки и причины деградации.", ["Изменение порогов требует новой версии.", "Вероятность показывается только после успешной исторической проверки.", "Недостаточно данных — нормальный и честный результат."]],
   },
@@ -421,20 +484,21 @@ const crisisHelpCopy = {
     stage: ["Global market stage", "Shows how broad and severe the observed deterioration is across independent parts of the economy and markets. It is not a probability or a promise of a crisis.", ["Tension means isolated early weakness.", "Warning requires several deteriorating channels.", "Confirmation and crisis require broad simultaneous stress."]],
     signals: ["Top signals", "The radar selects the three most stressed indicators or those nearest to the next threshold.", ["Open a card for exact thresholds and history.", "One signal does not confirm a crisis.", "Independent confirmation matters more than raw count."]],
     calendar: ["Data releases", "Shows when information that could confirm or weaken the current concern is expected.", ["Dates come from official calendars.", "Missing times are not invented.", "A release matters through its value, not merely because it happened."]],
+    trends: ["Trends and contagion", "The engine separates one-off noise from persistent deterioration and checks whether stress is spreading across independent markets.", ["Breadth is the share of indicators with strong deterioration.", "Connectedness is the mean absolute correlation of recent changes.", "Regime shifts and lead-lag links use only data available at calculation time."]],
     groups: ["Risk channels", "Related indicators are grouped so the same process is not counted several times.", ["The strongest indicator contributes 70%.", "The group mean contributes 30%.", "Market stage counts groups, not every raw series."]],
     scenarios: ["Crisis scenarios", "A scenario combines independent channels with a defined horizon.", ["Watch is an early combination.", "Elevated means broader weakness.", "Confirmed means required conditions aligned."]],
     opportunities: ["Analytical opportunities", "Conditional long, short, hedge or wait views — not orders or promised returns.", ["Ideas require evidence and data quality.", "Return ranges are scenarios.", "Weak data correctly produces wait."]],
     world: ["World coverage", "Shows coverage across the US, Europe, China, the global economy and crypto.", ["Fresh data is used.", "Stale and missing data are explicit.", "Missing values are never fabricated."]],
     agent: ["Local analyst", "The model explains calculated signals but cannot change numbers, thresholds or stage.", ["Answers are checked against evidence.", "It cannot open trades.", "A deterministic fallback remains available."]],
-    news: ["Official context", "Central-bank news explains context but cannot change the numerical stage on its own.", ["Official feeds are used.", "News is linked to scenarios.", "Only data drives the calculated stage."]],
+    news: ["World events", "Official and independently corroborated events contribute to scenario analysis but cannot declare a crisis on their own.", ["Duplicates are merged into one cluster.", "A discovery-only source contributes only a weak watch signal.", "The numerical market stage remains driven by measurable indicators."]],
     indicators: ["Indicators and exact thresholds", "The complete technical layer: current value, warning, danger, critical, risk direction, freshness and source.", ["Thresholds are mandatory and versioned.", "Raw means the original measurement unit.", "Personal thresholds must remain separate from system thresholds."]],
     methodology: ["Data and methodology", "The audit layer: calculation version, source quality, internal scores and degradation reasons.", ["Threshold changes require a new version.", "Probability requires validated historical calibration.", "Insufficient data is an honest result."]],
   },
 };
 
 const crisisStageLabels = {
-  ru: { stable: "стабильность", tension: "напряжение", warning: "предупреждение", confirmation: "подтверждение", crisis: "кризис", unknown: "нет данных" },
-  en: { stable: "stability", tension: "tension", warning: "warning", confirmation: "confirmation", crisis: "crisis", unknown: "no data" },
+  ru: { insufficient_data: "недостаточно данных", stable: "стабильность", tension: "напряжение", warning: "предупреждение", confirmation: "подтверждение", crisis: "кризис", unknown: "нет данных" },
+  en: { insufficient_data: "insufficient data", stable: "stability", tension: "tension", warning: "warning", confirmation: "confirmation", crisis: "crisis", unknown: "no data" },
 };
 
 const crisisBandLabels = {
@@ -448,8 +512,8 @@ const crisisFreshnessLabels = {
 };
 
 const crisisScenarioLabels = {
-  ru: { inactive: "не активен", watch: "наблюдение", elevated: "повышен", confirmed: "подтверждён" },
-  en: { inactive: "inactive", watch: "watch", elevated: "elevated", confirmed: "confirmed" },
+  ru: { unknown: "недостаточно данных", inactive: "не активен", watch: "наблюдение", elevated: "повышен", confirmed: "подтверждён" },
+  en: { unknown: "insufficient data", inactive: "inactive", watch: "watch", elevated: "elevated", confirmed: "confirmed" },
 };
 
 const crisisConfidenceLabels = {
@@ -592,8 +656,19 @@ function localizeCrisisExplanation(value) {
 
 function localizeCrisisHorizon(value) {
   const result = String(value || "—");
-  if (crisisLocale !== "ru") return result;
-  return result.replace(/(\d+)h\b/g, "$1 ч").replace(/(\d+)d\b/g, "$1 дн.").replace(/(\d+)m\b/g, "$1 мес.").replace(/(\d+)y\b/g, "$1 г.");
+  if (crisisLocale === "ru") {
+    return result
+      .replace(/\bminutes\b/g, "минуты")
+      .replace(/(\d+)h\b/g, "$1 ч")
+      .replace(/(\d+)d\b/g, "$1 дн.")
+      .replace(/(\d+)m\b/g, "$1 мес.")
+      .replace(/(\d+)y\b/g, "$1 г.");
+  }
+  return result
+    .replace(/(\d+)h\b/g, "$1 hr")
+    .replace(/(\d+)d\b/g, "$1 days")
+    .replace(/(\d+)m\b/g, "$1 mo")
+    .replace(/(\d+)y\b/g, "$1 yr");
 }
 
 function crisisSigned(value, digits = 0) {
@@ -617,6 +692,7 @@ function openCrisisHelp(topic) {
 function openCrisisIndicator(code) {
   const safeCode = safeCrisisCode(code);
   if (!safeCode) return;
+  crisisViewLevel = "methodology";
   crisisDetailed = true;
   renderCrisisRadar();
   requestAnimationFrame(() => {
@@ -638,46 +714,43 @@ async function loadCrisisRadar() {
       api(`/api/crisis-radar/world?locale=${crisisLocale}`),
       api(`/api/crisis-radar/sources/health?locale=${crisisLocale}`),
       api(`/api/crisis-radar/opportunities?locale=${crisisLocale}&limit=10`),
+      api(`/api/crisis-radar/events?days=14&limit=50`),
+      api(`/api/crisis-radar/scenarios/fusion?locale=${crisisLocale}`),
+      api("/api/crisis-radar/trends"),
     ]);
     crisisSnapshot.calendar = requests[0].status === "fulfilled" ? requests[0].value : { ready: false, events: [] };
     crisisSnapshot.news = requests[1].status === "fulfilled" ? requests[1].value : { ready: false, items: [] };
     crisisWorld = requests[2].status === "fulfilled" ? requests[2].value : { ready: false, regions: [] };
     crisisSourceHealth = requests[3].status === "fulfilled" ? requests[3].value : { ready: false, sources: [], summary: {} };
     crisisOpportunities = requests[4].status === "fulfilled" ? requests[4].value : { ready: false, ideas: [], available_asset_classes: [] };
+    crisisEvents = requests[5].status === "fulfilled" ? requests[5].value : { ready: false, items: [] };
+    crisisFusion = requests[6].status === "fulfilled" ? requests[6].value : { ready: false, items: [] };
+    crisisTrends = requests[7].status === "fulfilled" ? requests[7].value : { ready: false, indicators: [] };
   } catch {
     crisisSnapshot = { ready: false, stage: "unknown", explanation: copy.unavailable, groups: [], indicators: [], sources: [] };
     crisisWorld = { ready: false, regions: [] };
     crisisSourceHealth = { ready: false, sources: [], summary: {} };
     crisisOpportunities = { ready: false, ideas: [], available_asset_classes: [] };
+    crisisEvents = { ready: false, items: [] };
+    crisisFusion = { ready: false, items: [] };
+    crisisTrends = { ready: false, indicators: [] };
   }
   await loadCrisisAgent();
   renderCrisisRadar();
 }
 
 function renderCrisisToday(snapshot, opportunityPayload, copy) {
-  const bandRank = { normal: 0, warning: 1, danger: 2, critical: 3 };
-  const indicators = (snapshot.indicators || [])
-    .filter(item => safeCrisisCode(item.code) && item.freshness !== "missing")
-    .sort((left, right) => {
-      const bandDelta = (bandRank[right.band] || 0) - (bandRank[left.band] || 0);
-      if (bandDelta) return bandDelta;
-      const leftDistance = Number(left.distance_to_next_text);
-      const rightDistance = Number(right.distance_to_next_text);
-      if (Number.isFinite(leftDistance) && Number.isFinite(rightDistance)) return leftDistance - rightDistance;
-      return Number.isFinite(leftDistance) ? -1 : 1;
-    })
+  const criticalEvents = (crisisEvents?.items || [])
+    .filter(item => ["corroborated", "official"].includes(item.status))
+    .sort((left, right) => Number(right.event_score || 0) - Number(left.event_score || 0))
     .slice(0, 3);
-
-  document.getElementById("crisisTopSignals").innerHTML = indicators.map(item => {
-    const code = safeCrisisCode(item.code);
-    const band = safeCrisisState(item.band, ["normal", "warning", "danger", "critical"], "normal");
-    const name = crisisNames[crisisLocale]?.[item.code] || item.name || item.code;
-    const distance = Number(item.distance_to_next_text);
-    const distanceText = Number.isFinite(distance)
-      ? `${band === "normal" ? copy.normalDistance : copy.nextDistance}: ${crisisNumber(distance, 4)} ${escapeHtml(item.unit || "")}`
-      : (band === "critical" ? crisisBandLabels[crisisLocale].critical : copy.noData);
-    return `<button class="crisis-top-signal band-${band}" type="button" data-action="open-crisis-indicator" data-indicator-code="${code}"><div class="crisis-top-signal-head"><span>${escapeHtml(crisisBandLabels[crisisLocale][band])}</span><small>${crisisNumber(item.value_text, 4)} ${escapeHtml(item.unit || "")}</small></div><strong>${escapeHtml(name)}</strong><p>${distanceText}</p><small class="crisis-today-action">${escapeHtml(copy.openDetails)} →</small></button>`;
-  }).join("") || `<div class="crisis-empty">${escapeHtml(copy.noData)}</div>`;
+  document.getElementById("crisisTopSignals").innerHTML = criticalEvents.map(item => {
+    const source = (item.evidence || [])[0];
+    const url = safeExternalUrl(source?.url);
+    const title = escapeHtml(item.title || item.taxonomy || "—");
+    const linkedTitle = url === "#" ? title : `<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${title}</a>`;
+    return `<article class="crisis-top-signal band-${item.status === "official" ? "critical" : "danger"}"><div class="crisis-top-signal-head"><span>${escapeHtml(item.status)}</span><small>${crisisNumber(Number(item.event_score || 0) * 100, 0)}/100</small></div><strong>${linkedTitle}</strong><p>${escapeHtml((item.regions || []).join(" · ") || item.taxonomy || "")}</p><small>${Number(item.source_count || 0)} ${escapeHtml(copy.eventSources)}</small></article>`;
+  }).join("") || `<div class="crisis-today-result-card"><strong>${escapeHtml(copy.noCriticalEvents)}</strong><p>${escapeHtml(crisisLocale === "en" ? "The radar continues scanning official and discovery feeds." : "Радар продолжает проверять официальные и discovery-источники.")}</p></div>`;
 
   const nextEvent = (snapshot.calendar?.events || [])[0];
   if (nextEvent) {
@@ -690,22 +763,32 @@ function renderCrisisToday(snapshot, opportunityPayload, copy) {
     document.getElementById("crisisNextEvent").innerHTML = `<div class="crisis-today-result-card"><strong>${escapeHtml(copy.noUpcoming)}</strong></div>`;
   }
 
-  const scenarioRank = { inactive: 0, watch: 1, elevated: 2, confirmed: 3 };
-  const leadScenario = [...(snapshot.scenarios || [])]
-    .sort((left, right) => (scenarioRank[right.status] || 0) - (scenarioRank[left.status] || 0))[0];
-  if (leadScenario && scenarioRank[leadScenario.status] > 0) {
-    const status = safeCrisisState(leadScenario.status, ["watch", "elevated", "confirmed"], "watch");
-    const cardClass = status === "confirmed" ? "is-critical" : "is-alert";
-    document.getElementById("crisisLeadScenario").innerHTML = `<div class="crisis-today-result-card ${cardClass}"><div class="crisis-today-result-head"><span>${escapeHtml(crisisScenarioLabels[crisisLocale][status])}</span><small>${escapeHtml(localizeCrisisHorizon(leadScenario.horizon))}</small></div><strong>${escapeHtml(leadScenario.name || crisisNames[crisisLocale]?.[leadScenario.code] || leadScenario.code)}</strong><p>${escapeHtml(localizeCrisisExplanation(leadScenario.explanation || ""))}</p><small>${escapeHtml(copy.evidence)}: ${Number(leadScenario.active_group_count || 0)}</small></div>`;
+  const scenarioRank = { unknown: -1, inactive: 0, watch: 1, elevated: 2, confirmed: 3 };
+  const fused = crisisFusion?.ready ? crisisFusion.items : snapshot.scenarios || [];
+  const leadScenarios = [...(fused || [])]
+    .filter(item => scenarioRank[item.status] > 0)
+    .sort((left, right) => Number(right.strength || 0) - Number(left.strength || 0)
+      || (scenarioRank[right.status] || 0) - (scenarioRank[left.status] || 0))
+    .slice(0, 3);
+  if (leadScenarios.length) {
+    document.getElementById("crisisLeadScenario").innerHTML = leadScenarios.map(item => {
+      const status = safeCrisisState(item.status, ["watch", "elevated", "confirmed"], "watch");
+      const cardClass = status === "confirmed" ? "is-critical" : "is-alert";
+      const strength = Number(item.strength);
+      return `<div class="crisis-today-result-card ${cardClass}"><div class="crisis-today-result-head"><span>${escapeHtml(crisisScenarioLabels[crisisLocale][status])}</span><small>${escapeHtml(localizeCrisisHorizon(item.horizon))}</small></div><strong>${escapeHtml(item.name || crisisNames[crisisLocale]?.[item.code] || item.code)}</strong><p>${escapeHtml(localizeCrisisExplanation(item.explanation || ""))}</p><small>${Number.isFinite(strength) ? `${escapeHtml(copy.strength)}: ${crisisNumber(strength, 0)}/100 · ` : ""}${escapeHtml(copy.evidence)}: ${Number(item.independent_numeric_clusters ?? item.active_group_count ?? 0)}</small></div>`;
+    }).join("");
   } else {
     document.getElementById("crisisLeadScenario").innerHTML = `<div class="crisis-today-result-card"><strong>${escapeHtml(copy.noActiveScenario)}</strong><p>${escapeHtml(crisisLocale === "en" ? "Keep monitoring independent channels." : "Продолжаем наблюдать за независимыми каналами.")}</p></div>`;
   }
 
-  const bestIdea = (opportunityPayload.ideas || [])[0];
-  if (bestIdea) {
-    const side = safeCrisisState(bestIdea.side, ["long", "short", "hedge", "wait"], "wait");
-    const label = side === "wait" ? copy.opportunityWait : side.toUpperCase();
-    document.getElementById("crisisBestOpportunity").innerHTML = `<div class="crisis-today-result-card ${side === "wait" ? "is-wait" : "is-alert"}"><div class="crisis-today-result-head"><span>${escapeHtml(label)}</span><small>${escapeHtml(copy.opportunityScore)} ${crisisNumber(Number(bestIdea.score) * 100, 0)}/100</small></div><strong>${escapeHtml(bestIdea.symbol || "MARKET")}</strong><p>${escapeHtml(bestIdea.rationale || copy.noOpportunity)}</p></div>`;
+  const topIdeas = (opportunityPayload.ideas || []).slice(0, 3);
+  if (topIdeas.length) {
+    document.getElementById("crisisBestOpportunity").innerHTML = topIdeas.map(item => {
+      const side = safeCrisisState(item.side, ["long", "short", "hedge", "wait"], "wait");
+      const label = side === "wait" ? copy.opportunityWait : side.toUpperCase();
+      const sampleSize = Number(item.historical_distribution?.sample_size || 0);
+      return `<div class="crisis-today-result-card ${side === "wait" ? "is-wait" : "is-alert"}"><div class="crisis-today-result-head"><span>${escapeHtml(label)}</span><small>${escapeHtml(copy.opportunityScore)} ${crisisNumber(Number(item.score) * 100, 0)}/100</small></div><strong>${escapeHtml(item.symbol || "MARKET")}</strong><p>${escapeHtml(item.rationale || copy.noOpportunity)}</p>${sampleSize >= 5 ? `<small>n=${sampleSize}</small>` : ""}</div>`;
+    }).join("");
   } else {
     document.getElementById("crisisBestOpportunity").innerHTML = `<div class="crisis-today-result-card is-wait"><strong>${escapeHtml(copy.noOpportunity)}</strong></div>`;
   }
@@ -714,7 +797,7 @@ function renderCrisisToday(snapshot, opportunityPayload, copy) {
 function renderCrisisRadar() {
   const copy = crisisCopy[crisisLocale];
   const snapshot = crisisSnapshot || { ready: false, stage: "unknown", groups: [], indicators: [], sources: [] };
-  const stage = safeCrisisState(snapshot.stage, ["stable", "tension", "warning", "confirmation", "crisis"], "unknown");
+  const stage = safeCrisisState(snapshot.stage, ["insufficient_data", "stable", "tension", "warning", "confirmation", "crisis"], "unknown");
   document.getElementById("crisisTitle").textContent = copy.title;
   document.getElementById("crisisSignalsEyebrow").textContent = copy.signalsEyebrow;
   document.getElementById("crisisSignalsTitle").textContent = copy.signalsTitle;
@@ -729,6 +812,7 @@ function renderCrisisRadar() {
   document.getElementById("crisisActiveLabel").textContent = copy.active;
   document.getElementById("crisisDangerLabel").textContent = copy.danger;
   document.getElementById("crisisCriticalLabel").textContent = copy.critical;
+  document.getElementById("crisisCoverageLabel").textContent = copy.coverage;
   document.getElementById("crisisGroupsTitle").textContent = copy.groups;
   document.getElementById("crisisGroupsCopy").textContent = copy.groupsCopy;
   document.getElementById("crisisScenariosTitle").textContent = copy.scenarios;
@@ -742,6 +826,10 @@ function renderCrisisRadar() {
   document.getElementById("crisisNewsCopy").textContent = copy.newsCopy;
   document.getElementById("crisisCalendarTitle").textContent = copy.calendar;
   document.getElementById("crisisCalendarCopy").textContent = copy.calendarCopy;
+  document.getElementById("crisisTrendsTitle").textContent = copy.trends;
+  document.getElementById("crisisTrendsCopy").textContent = copy.trendsCopy;
+  document.getElementById("crisisEventsTitle").textContent = copy.eventClusters;
+  document.getElementById("crisisEventsCopy").textContent = copy.eventClustersCopy;
   document.getElementById("crisisIndicatorsTitle").textContent = copy.indicators;
   document.getElementById("crisisIndicatorsCopy").textContent = copy.indicatorsCopy;
   document.getElementById("crisisTechnicalTitle").textContent = copy.technical;
@@ -755,7 +843,18 @@ function renderCrisisRadar() {
   document.getElementById("crisisAgentDisclaimer").textContent = copy.agentDisclaimer;
   document.querySelector('#crisisAgentMode option[value="fast"]').textContent = copy.agentFast;
   document.querySelector('#crisisAgentMode option[value="deep"]').textContent = copy.agentDeep;
-  document.getElementById("crisisModeBtn").textContent = crisisDetailed ? copy.simple : copy.detailed;
+  document.querySelectorAll('[data-action="crisis-view-level"]').forEach(button => {
+    button.classList.toggle("active", button.dataset.level === crisisViewLevel);
+    button.textContent = button.dataset.level === "analysis" ? copy.analysisLevel
+      : button.dataset.level === "methodology" ? copy.methodologyLevel : copy.overviewLevel;
+  });
+  document.getElementById("crisisViewNav").setAttribute("aria-label", copy.detailLevelLabel);
+  document.getElementById("crisisTodayGrid").setAttribute("aria-label", copy.todayRegionLabel);
+  document.getElementById("crisisHelpClose").setAttribute("aria-label", copy.closeLabel);
+  document.querySelectorAll('[data-action="crisis-help"]').forEach(button => {
+    const title = crisisHelpCopy[crisisLocale]?.[button.dataset.help]?.[0] || copy.title;
+    button.setAttribute("aria-label", `${copy.helpLabel}: ${title}`);
+  });
   const stageNode = document.getElementById("crisisStageBadge");
   stageNode.textContent = crisisStageLabels[crisisLocale][stage];
   stageNode.className = `crisis-stage stage-${stage}`;
@@ -766,16 +865,30 @@ function renderCrisisRadar() {
   document.getElementById("crisisActiveGroups").textContent = snapshot.breadth?.active || 0;
   document.getElementById("crisisDangerGroups").textContent = snapshot.breadth?.danger_or_worse || 0;
   document.getElementById("crisisCriticalGroups").textContent = snapshot.breadth?.critical || 0;
-  document.querySelectorAll("[data-crisis-detail]").forEach(section => { section.hidden = !crisisDetailed; });
+  const coverageRatio = Number(snapshot.coverage?.ratio);
+  const coverageStatus = safeCrisisState(snapshot.coverage?.status, ["healthy", "degraded", "insufficient_data"], "unknown");
+  const coverageLabel = coverageStatus === "healthy" ? copy.coverageHealthy
+    : coverageStatus === "degraded" ? copy.coverageDegraded
+      : coverageStatus === "insufficient_data" ? copy.coverageInsufficient : copy.noData;
+  document.getElementById("crisisCoverage").textContent = Number.isFinite(coverageRatio)
+    ? `${crisisNumber(coverageRatio * 100, 0)}% · ${coverageLabel}` : coverageLabel;
+  document.querySelectorAll("[data-crisis-level]").forEach(section => {
+    const level = section.dataset.crisisLevel;
+    section.hidden = crisisViewLevel === "overview"
+      || (crisisViewLevel === "analysis" && level === "methodology");
+  });
+  document.querySelectorAll("[data-crisis-summary-detail]").forEach(item => {
+    item.hidden = crisisViewLevel === "overview";
+  });
 
-  document.getElementById("crisisChanges").innerHTML = ["24h", "7d"].map(windowKey => {
+  document.getElementById("crisisChanges").innerHTML = ["24h", "7d", "15d"].map(windowKey => {
     const change = snapshot.changes?.[windowKey];
-    const label = windowKey === "24h" ? "24h" : "7d";
+    const label = windowKey;
     if (!change?.available) {
       return `<article class="crisis-change unavailable"><span>${label} · ${escapeHtml(copy.changes)}</span><strong>—</strong><small>${escapeHtml(copy.insufficientHistory)}</small></article>`;
     }
-    const fromStage = safeCrisisState(change.stage_from, ["stable", "tension", "warning", "confirmation", "crisis"], "unknown");
-    const toStage = safeCrisisState(change.stage_to, ["stable", "tension", "warning", "confirmation", "crisis"], "unknown");
+    const fromStage = safeCrisisState(change.stage_from, ["insufficient_data", "stable", "tension", "warning", "confirmation", "crisis"], "unknown");
+    const toStage = safeCrisisState(change.stage_to, ["insufficient_data", "stable", "tension", "warning", "confirmation", "crisis"], "unknown");
     return `<article class="crisis-change"><span>${label} · ${escapeHtml(copy.changes)}</span><strong>${escapeHtml(crisisStageLabels[crisisLocale][fromStage])} → ${escapeHtml(crisisStageLabels[crisisLocale][toStage])}</strong><small>${escapeHtml(copy.activeDelta)}: ${crisisSigned(change.active_groups_delta)}</small></article>`;
   }).join("");
 
@@ -795,19 +908,57 @@ function renderCrisisRadar() {
     return `<article class="crisis-calendar-event importance-${importance}"><time>${escapeHtml(dateLabel)}</time><div><strong>${linkedName}</strong><small>${escapeHtml(timeLabel)}</small></div><span>${escapeHtml(importanceLabel)}</span></article>`;
   }).join("") || `<div class="crisis-empty">${escapeHtml(copy.calendarEmpty)}</div>`;
 
+  const trendPayload = crisisTrends || { ready: false, indicators: [] };
+  const contagion = trendPayload.contagion || {};
+  const breadth = Number(contagion.breadth);
+  const correlation = Number(contagion.mean_absolute_correlation);
+  const trendCards = [...(trendPayload.indicators || [])]
+    .sort((left, right) => Number(right.features?.worsening_score || 0) - Number(left.features?.worsening_score || 0))
+    .slice(0, 6)
+    .map(item => {
+      const features = item.features || {};
+      const name = crisisNames[crisisLocale]?.[item.code] || item.code || "—";
+      const score = Number(features.worsening_score || 0);
+      const regime = safeCrisisState(features.volatility_regime, ["normal", "transition", "stressed", "extreme"], "normal");
+      const state = String(features.state_machine || "normal").replaceAll("_", " ");
+      return `<article class="crisis-trend-card regime-${regime}"><div class="crisis-trend-head"><span>${escapeHtml(regime)}</span><small>${escapeHtml(copy.trendWorsening)} ${crisisNumber(score * 100, 0)}/100</small></div><strong>${escapeHtml(name)}</strong><p>${escapeHtml(features.change_point ? copy.trendChangePoint : copy.trendNoChangePoint)}</p><div><span>${escapeHtml(copy.trendPersistence)}: ${Number(features.persistence_count || 0)}</span><span>${escapeHtml(copy.trendState)}: ${escapeHtml(state)}</span></div></article>`;
+    });
+  const contagionCard = trendPayload.ready
+    ? `<article class="crisis-trend-card crisis-contagion-card"><div class="crisis-trend-head"><span>${escapeHtml(contagion.stress_correlation_regime || "normal")}</span><small>${escapeHtml(trendPayload.feature_version || "—")}</small></div><strong>${escapeHtml(copy.trendBreadth)}: ${Number.isFinite(breadth) ? `${crisisNumber(breadth * 100, 0)}%` : "—"}</strong><p>${escapeHtml(copy.trendCorrelation)}: ${Number.isFinite(correlation) ? crisisNumber(correlation, 2) : "—"}</p><div><span>${Number(contagion.stressed_count || 0)} / ${Number(contagion.indicator_count || 0)}</span><span>${Number((contagion.lead_lag_edges || []).length)} lead-lag</span></div></article>`
+    : "";
+  document.getElementById("crisisTrends").innerHTML = `${contagionCard}${trendCards.join("")}`
+    || `<div class="crisis-empty">${escapeHtml(copy.noData)}</div>`;
+
+  document.getElementById("crisisEventClusters").innerHTML = (crisisEvents?.items || []).map(item => {
+    const status = safeCrisisState(item.status, ["discovery", "corroborated", "official"], "discovery");
+    const evidence = (item.evidence || []).map(source => {
+      const url = safeExternalUrl(source.url);
+      const title = escapeHtml(source.title || source.publisher || source.source_code || "—");
+      const linkedTitle = url === "#" ? title : `<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${title}</a>`;
+      return `<li><strong>${linkedTitle}</strong><small>${escapeHtml(source.publisher || source.source_code || "—")} · tier ${escapeHtml(source.source_tier || "—")} · ${escapeHtml(source.published_at || "—")}</small><p>${escapeHtml(source.excerpt || "")}</p></li>`;
+    }).join("");
+    const regions = (item.regions || []).join(" · ") || "GLOBAL";
+    const statusLabel = status === "official" ? `${copy.eventOfficial}: ${Number(item.official_source_count || 0)}`
+      : status === "discovery" ? copy.eventDiscovery : `${Number(item.source_count || 0)} ${copy.eventSources}`;
+    return `<article class="crisis-event-card event-${status}"><div class="crisis-event-head"><span>${escapeHtml(status)}</span><small>${crisisNumber(Number(item.event_score || 0) * 100, 0)}/100</small></div><strong>${escapeHtml(item.title || item.taxonomy || "—")}</strong><p>${escapeHtml(regions)} · ${escapeHtml(item.taxonomy || "")}</p><small>${escapeHtml(statusLabel)}</small><details><summary>${escapeHtml(copy.eventEvidence)} (${Number(item.source_count || 0)})</summary><ul>${evidence}</ul></details></article>`;
+  }).join("") || `<div class="crisis-empty">${escapeHtml(copy.noCriticalEvents)}</div>`;
+
   document.getElementById("crisisGroups").innerHTML = (snapshot.groups || []).map(group => {
     const band = safeCrisisState(group.band, ["normal", "warning", "danger", "critical"], "normal");
     const name = crisisNames[crisisLocale]?.[group.code] || group.code;
-    const score = crisisDetailed ? `<small>${copy.score}: ${crisisNumber(Number(group.stress_score) * 100, 0)}/100</small>` : "";
+    const score = crisisViewLevel === "methodology" ? `<small>${copy.score}: ${crisisNumber(Number(group.stress_score) * 100, 0)}/100</small>` : "";
     return `<article class="crisis-group band-${band}"><span>${escapeHtml(crisisBandLabels[crisisLocale][band])}</span><strong>${escapeHtml(name)}</strong><small>${Number(group.worsening_count || 0)} / ${Number(group.indicator_count || 0)}</small>${score}</article>`;
   }).join("") || `<div class="crisis-empty">${escapeHtml(copy.noData)}</div>`;
 
-  document.getElementById("crisisScenarios").innerHTML = (snapshot.scenarios || []).map(item => {
-    const status = safeCrisisState(item.status, ["inactive", "watch", "elevated", "confirmed"], "inactive");
+  const detailedScenarios = crisisFusion?.ready ? crisisFusion.items : snapshot.scenarios || [];
+  document.getElementById("crisisScenarios").innerHTML = detailedScenarios.map(item => {
+    const status = safeCrisisState(item.status, ["unknown", "inactive", "watch", "elevated", "confirmed"], "unknown");
     const confidence = safeCrisisState(item.confidence, ["low", "medium", "high"], "low");
     const name = item.name || crisisNames[crisisLocale]?.[item.code] || item.code;
     const explanation = localizeCrisisExplanation(item.explanation || copy.noData);
-    return `<article class="crisis-scenario scenario-${status}"><div class="crisis-scenario-head"><span>${escapeHtml(crisisScenarioLabels[crisisLocale][status])}</span><small>${escapeHtml(copy.horizon)} · ${escapeHtml(localizeCrisisHorizon(item.horizon))}</small></div><strong>${escapeHtml(name)}</strong><p>${escapeHtml(explanation)}</p><div class="crisis-scenario-meta"><span>${escapeHtml(copy.evidence)}: ${Number(item.active_group_count || 0)}</span><span>${escapeHtml(copy.confidence)}: ${escapeHtml(crisisConfidenceLabels[crisisLocale][confidence])}</span></div></article>`;
+    const strength = Number(item.strength);
+    const evidenceCount = Number(item.independent_numeric_clusters ?? item.active_group_count ?? 0);
+    return `<article class="crisis-scenario scenario-${status}"><div class="crisis-scenario-head"><span>${escapeHtml(crisisScenarioLabels[crisisLocale][status])}</span><small>${escapeHtml(copy.horizon)} · ${escapeHtml(localizeCrisisHorizon(item.horizon))}</small></div><strong>${escapeHtml(name)}</strong><p>${escapeHtml(explanation)}</p><div class="crisis-scenario-meta"><span>${escapeHtml(copy.evidence)}: ${evidenceCount}</span><span>${Number.isFinite(strength) ? `${escapeHtml(copy.strength)}: ${crisisNumber(strength, 0)}/100` : `${escapeHtml(copy.confidence)}: ${escapeHtml(crisisConfidenceLabels[crisisLocale][confidence])}`}</span></div></article>`;
   }).join("") || `<div class="crisis-empty">${escapeHtml(copy.noData)}</div>`;
 
   const opportunityPayload = crisisOpportunities || { ideas: [], available_asset_classes: [] };
@@ -823,14 +974,18 @@ function renderCrisisRadar() {
     const expectedMax = Number(item.expected_range_pct?.maximum);
     const lossMin = Number(item.loss_range_pct?.minimum);
     const lossMax = Number(item.loss_range_pct?.maximum);
-    const hasCalculator = ["long", "short"].includes(side)
+    const historySize = Number(item.historical_distribution?.sample_size || 0);
+    const hasCalculator = historySize >= 5 && ["long", "short"].includes(side)
       && Number.isFinite(Number(item.reference_price)) && Number(item.reference_price) > 0
       && Number.isFinite(expectedMin) && Number.isFinite(lossMin);
     const calculator = hasCalculator
       ? `<button class="mini-action" type="button" data-action="opportunity-calculator" data-symbol="${escapeHtml(item.symbol || "")}" data-side="${side}" data-price="${escapeHtml(item.reference_price)}" data-expected="${expectedMin}" data-loss="${Math.abs(lossMin)}">${escapeHtml(copy.opportunityCalculator)}</button>`
       : "";
     const evidence = (item.evidence || []).slice(0, 3).map(value => `<li>${escapeHtml(value)}</li>`).join("");
-    return `<article class="crisis-opportunity side-${side}"><div class="crisis-opportunity-head"><span>${escapeHtml(side === "wait" ? copy.opportunityWait : side.toUpperCase())}</span><small>#${Number(item.rank || 0)} · ${escapeHtml(copy.opportunityScore)} ${crisisNumber(Number(item.score) * 100, 0)}/100</small></div><strong>${escapeHtml(item.symbol || "MARKET")}</strong><p>${escapeHtml(item.rationale || "")}</p><div class="crisis-opportunity-ranges"><span>${escapeHtml(copy.opportunityRange)}: ${crisisNumber(expectedMin)}%…${crisisNumber(expectedMax)}%</span><span>${escapeHtml(copy.opportunityLoss)}: ${crisisNumber(lossMin)}%…${crisisNumber(lossMax)}%</span></div><details><summary>${escapeHtml(copy.opportunityTrigger)}</summary><p>${escapeHtml(item.trigger || "—")}</p><b>${escapeHtml(copy.opportunityInvalidation)}</b><p>${escapeHtml(item.invalidation || "—")}</p>${evidence ? `<ul>${evidence}</ul>` : ""}</details>${calculator}</article>`;
+    const ranges = historySize >= 5
+      ? `<div class="crisis-opportunity-ranges"><span>${escapeHtml(copy.opportunityRange)}: ${crisisNumber(expectedMin)}%…${crisisNumber(expectedMax)}% · n=${historySize}</span><span>${escapeHtml(copy.opportunityLoss)}: ${crisisNumber(lossMin)}%…${crisisNumber(lossMax)}%</span></div>`
+      : "";
+    return `<article class="crisis-opportunity side-${side}"><div class="crisis-opportunity-head"><span>${escapeHtml(side === "wait" ? copy.opportunityWait : side.toUpperCase())}</span><small>#${Number(item.rank || 0)} · ${escapeHtml(copy.opportunityScore)} ${crisisNumber(Number(item.score) * 100, 0)}/100</small></div><strong>${escapeHtml(item.symbol || "MARKET")}</strong><p>${escapeHtml(item.rationale || "")}</p>${ranges}<details><summary>${escapeHtml(copy.opportunityTrigger)}</summary><p>${escapeHtml(item.trigger || "—")}</p><b>${escapeHtml(copy.opportunityInvalidation)}</b><p>${escapeHtml(item.invalidation || "—")}</p>${evidence ? `<ul>${evidence}</ul>` : ""}</details>${calculator}</article>`;
   }).join("") || `<div class="crisis-empty">${escapeHtml(copy.noData)}</div>`;
 
   const worldPayload = crisisWorld || { regions: [] };
@@ -884,7 +1039,7 @@ function renderCrisisRadar() {
     const stabilityNote = item.held_by_hysteresis
       ? copy.hysteresisHold
       : rawBand !== band ? copy.pendingConfirmation : "";
-    const technical = crisisDetailed
+    const technical = crisisViewLevel === "methodology"
       ? `<div class="crisis-tech-row"><span>${copy.score}: ${crisisNumber(Number(item.stress_score_text) * 100, 0)}/100</span><span>quality: ${crisisNumber(Number(item.quality_score_text) * 100, 0)}/100</span><span>${escapeHtml(copy.rawSignal)}: ${escapeHtml(crisisBandLabels[crisisLocale][rawBand])}</span>${confirmationContext}${stabilityNote ? `<span class="crisis-stability-note">${escapeHtml(stabilityNote)}</span>` : ""}<span>${escapeHtml(item.released_at || "—")}</span></div>` : "";
     const expanded = expandedCrisisHistory.has(code);
     const chart = expanded

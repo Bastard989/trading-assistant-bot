@@ -2,10 +2,16 @@ import io
 
 import pytest
 
-from scripts.soak_check import ProbeResult, run_soak, validate_base_url
+from scripts.soak_check import (
+    MAX_SOAK_DURATION_SECONDS,
+    ProbeResult,
+    run_soak,
+    validate_base_url,
+)
 
 
 def test_soak_base_url_requires_https_or_loopback() -> None:
+    assert MAX_SOAK_DURATION_SECONDS == 1_209_600
     assert validate_base_url("http://127.0.0.1:8080") == "http://127.0.0.1:8080/"
     assert validate_base_url("https://radar.example.com") == "https://radar.example.com/"
     with pytest.raises(ValueError, match="loopback"):

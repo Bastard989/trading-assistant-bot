@@ -12,6 +12,7 @@ from urllib.request import Request, urlopen
 
 
 MAX_RESPONSE_BYTES = 32_768
+MAX_SOAK_DURATION_SECONDS = 14 * 24 * 60 * 60
 EXPECTED_STATUS = {
     "/health/live": "ok",
     "/health/ready": "ready",
@@ -137,8 +138,10 @@ def main() -> None:
     parser.add_argument("--timeout-seconds", type=float, default=5)
     parser.add_argument("--max-consecutive-failures", type=int, default=2)
     args = parser.parse_args()
-    if not 1 <= args.duration_seconds <= 604_800:
-        parser.error("duration-seconds must be between 1 and 604800")
+    if not 1 <= args.duration_seconds <= MAX_SOAK_DURATION_SECONDS:
+        parser.error(
+            f"duration-seconds must be between 1 and {MAX_SOAK_DURATION_SECONDS}"
+        )
     if not 0.1 <= args.interval_seconds <= 3600:
         parser.error("interval-seconds must be between 0.1 and 3600")
     if not 0.1 <= args.timeout_seconds <= 30:

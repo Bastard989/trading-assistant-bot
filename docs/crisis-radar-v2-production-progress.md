@@ -54,12 +54,15 @@
 
 - Repository candidate commits:
   `9dedacb` (v11 shadow core/UI), `5bbd69e` (self-host/CI/canary),
-  `9ac3d9f` (runtime-aligned documentation), `de15e10` (official HKMA news API).
+  `9ac3d9f` (runtime-aligned documentation), `de15e10` (official HKMA news API),
+  `660a254` (official OFAC sanctions feed).
 - GitHub Actions CI for `b8c8b37`: passed
   (https://github.com/Bastard989/trading-assistant-bot/actions/runs/31517269168).
 - GitHub Actions CI for `de15e10`: passed, including Linux Playwright, coverage
   gates, dependency audit, migrations and gitleaks
   (https://github.com/Bastard989/trading-assistant-bot/actions/runs/31519270936).
+- GitHub Actions CI for `660a254`: passed with the same complete Linux gate set
+  (https://github.com/Bastard989/trading-assistant-bot/actions/runs/31520769781).
 - Targeted replay/scoring/validation: `19 passed`.
 - Targeted UI/i18n/canary: `12 passed`.
 - Authenticated Playwright browser E2E: `1 passed` (RU/EN, six analysis tabs,

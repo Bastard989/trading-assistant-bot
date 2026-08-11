@@ -62,6 +62,7 @@ class ResearchIndicatorSeed:
     frequency: str
     max_staleness_seconds: int
     transform: str = "identity"
+    historical_backfill_mode: str = "initial_release"
 
 
 @dataclass(frozen=True)
@@ -613,6 +614,7 @@ FRED_V12_RESEARCH_INDICATORS = (
         unit="persons",
         frequency="weekly",
         max_staleness_seconds=14 * 86400,
+        historical_backfill_mode="current_revision_research",
     ),
     ResearchIndicatorSeed(
         code="us_unemployment_rate",
@@ -633,6 +635,7 @@ FRED_V12_RESEARCH_INDICATORS = (
         unit="percent",
         frequency="quarterly",
         max_staleness_seconds=120 * 86400,
+        historical_backfill_mode="current_revision_research",
     ),
     ResearchIndicatorSeed(
         code="us_cre_delinquency_rate",
@@ -643,6 +646,7 @@ FRED_V12_RESEARCH_INDICATORS = (
         unit="percent",
         frequency="quarterly",
         max_staleness_seconds=120 * 86400,
+        historical_backfill_mode="current_revision_research",
     ),
     ResearchIndicatorSeed(
         code="us_housing_starts_90d_change",
@@ -664,6 +668,7 @@ FRED_V12_RESEARCH_INDICATORS = (
         unit="million_usd",
         frequency="weekly",
         max_staleness_seconds=14 * 86400,
+        historical_backfill_mode="current_revision_research",
     ),
     ResearchIndicatorSeed(
         code="nasdaq_composite_30d_drawdown",
@@ -675,6 +680,7 @@ FRED_V12_RESEARCH_INDICATORS = (
         frequency="daily",
         max_staleness_seconds=4 * 86400,
         transform="drawdown_30d",
+        historical_backfill_mode="current_revision_research",
     ),
     ResearchIndicatorSeed(
         code="nasdaq_100_30d_drawdown",
@@ -686,6 +692,7 @@ FRED_V12_RESEARCH_INDICATORS = (
         frequency="daily",
         max_staleness_seconds=4 * 86400,
         transform="drawdown_30d",
+        historical_backfill_mode="current_revision_research",
     ),
     ResearchIndicatorSeed(
         code="brent_90d_change",
@@ -697,6 +704,7 @@ FRED_V12_RESEARCH_INDICATORS = (
         frequency="daily",
         max_staleness_seconds=10 * 86400,
         transform="change_90d",
+        historical_backfill_mode="current_revision_research",
     ),
     ResearchIndicatorSeed(
         code="henry_hub_gas_90d_change",
@@ -708,6 +716,7 @@ FRED_V12_RESEARCH_INDICATORS = (
         frequency="daily",
         max_staleness_seconds=10 * 86400,
         transform="change_90d",
+        historical_backfill_mode="current_revision_research",
     ),
 )
 

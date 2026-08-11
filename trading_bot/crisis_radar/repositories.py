@@ -1476,6 +1476,7 @@ class CrisisRadarRepository:
         methodology_version: str,
         *,
         as_of: datetime,
+        causal_only: bool = False,
     ) -> list[AnalysisInput]:
         if as_of.tzinfo is None or as_of.utcoffset() is None:
             raise ValueError("as_of must be timezone-aware")
@@ -1518,6 +1519,19 @@ class CrisisRadarRepository:
                     WHERE latest.indicator_id = indicator.id
                       AND latest.observed_at <= ?
                       AND latest.released_at <= ?
+                      AND (
+                          ? = 0
+                          OR (
+                              latest.quality_flags NOT LIKE '%"retrospective_revised"%'
+                              AND (
+                                  latest.quality_flags NOT LIKE '%"release_time_estimated"%'
+                                  OR (
+                                      julianday(latest.fetched_at)
+                                      - julianday(latest.observed_at)
+                                  ) * 86400.0 <= indicator.max_staleness_seconds
+                              )
+                          )
+                      )
                     ORDER BY latest.observed_at DESC, latest.released_at DESC,
                              latest.fetched_at DESC, latest.id DESC
                     LIMIT 1
@@ -1525,7 +1539,13 @@ class CrisisRadarRepository:
                 WHERE methodology.code = ? AND methodology.version = ? AND indicator.enabled = 1
                 ORDER BY indicator.code
                 """,
-                (as_of_text, as_of_text, methodology_code, methodology_version),
+                (
+                    as_of_text,
+                    as_of_text,
+                    int(causal_only),
+                    methodology_code,
+                    methodology_version,
+                ),
             ).fetchall()
         return _analysis_inputs_from_rows(rows)
 
@@ -1556,7 +1576,12 @@ class CrisisRadarRepository:
         return [Decimal(row["value_text"]) for row in rows]
 
     def recent_indicator_values_as_of(
-        self, code: str, *, as_of: datetime, limit: int = 5
+        self,
+        code: str,
+        *,
+        as_of: datetime,
+        limit: int = 5,
+        causal_only: bool = False,
     ) -> list[Decimal]:
         if limit < 1 or limit > 20:
             raise ValueError("recent indicator value limit must be between 1 and 20")
@@ -1579,13 +1604,26 @@ class CrisisRadarRepository:
                     WHERE latest.indicator_id = observation.indicator_id
                       AND latest.observed_at = observation.observed_at
                       AND latest.released_at <= ?
+                      AND (
+                          ? = 0
+                          OR (
+                              latest.quality_flags NOT LIKE '%"retrospective_revised"%'
+                              AND (
+                                  latest.quality_flags NOT LIKE '%"release_time_estimated"%'
+                                  OR (
+                                      julianday(latest.fetched_at)
+                                      - julianday(latest.observed_at)
+                                  ) * 86400.0 <= indicator.max_staleness_seconds
+                              )
+                          )
+                      )
                     ORDER BY latest.released_at DESC, latest.fetched_at DESC, latest.id DESC
                     LIMIT 1
                   )
                 ORDER BY observation.observed_at DESC, observation.id DESC
                 LIMIT ?
                 """,
-                (code, as_of_text, as_of_text, as_of_text, limit),
+                (code, as_of_text, as_of_text, as_of_text, int(causal_only), limit),
             ).fetchall()
         return [Decimal(row["value_text"]) for row in rows]
 
@@ -1596,6 +1634,7 @@ class CrisisRadarRepository:
         as_of: datetime,
         limit: int = 5000,
         exclude_retrospective_revised: bool = False,
+        causal_only: bool = False,
     ) -> tuple[TimePoint, ...]:
         if limit < 2 or limit > 20000:
             raise ValueError("trend point limit must be between 2 and 20000")
@@ -1610,12 +1649,38 @@ class CrisisRadarRepository:
                 JOIN cr_indicator_definitions AS indicator ON indicator.id=observation.indicator_id
                 WHERE indicator.code=? AND observation.observed_at <= ? AND observation.released_at <= ?
                   AND (? = 0 OR observation.quality_flags NOT LIKE '%"retrospective_revised"%')
+                  AND (
+                    ? = 0
+                    OR (
+                      observation.quality_flags NOT LIKE '%"retrospective_revised"%'
+                      AND (
+                        observation.quality_flags NOT LIKE '%"release_time_estimated"%'
+                        OR (
+                          julianday(observation.fetched_at)
+                          - julianday(observation.observed_at)
+                        ) * 86400.0 <= indicator.max_staleness_seconds
+                      )
+                    )
+                  )
                   AND observation.id=(
                     SELECT latest.id FROM cr_observations AS latest
                     WHERE latest.indicator_id=observation.indicator_id
                       AND latest.observed_at=observation.observed_at
                       AND latest.released_at <= ?
                       AND (? = 0 OR latest.quality_flags NOT LIKE '%"retrospective_revised"%')
+                      AND (
+                        ? = 0
+                        OR (
+                          latest.quality_flags NOT LIKE '%"retrospective_revised"%'
+                          AND (
+                            latest.quality_flags NOT LIKE '%"release_time_estimated"%'
+                            OR (
+                              julianday(latest.fetched_at)
+                              - julianday(latest.observed_at)
+                            ) * 86400.0 <= indicator.max_staleness_seconds
+                          )
+                        )
+                      )
                     ORDER BY latest.released_at DESC, latest.fetched_at DESC, latest.id DESC LIMIT 1
                   )
                 ORDER BY observation.observed_at DESC, observation.id DESC LIMIT ?
@@ -1625,8 +1690,10 @@ class CrisisRadarRepository:
                     as_of_text,
                     as_of_text,
                     int(exclude_retrospective_revised),
+                    int(causal_only),
                     as_of_text,
                     int(exclude_retrospective_revised),
+                    int(causal_only),
                     limit,
                 ),
             ).fetchall()

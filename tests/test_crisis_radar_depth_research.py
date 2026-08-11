@@ -53,7 +53,17 @@ class ResearchFredClient:
         }
         assert observation_start == date(2026, 1, 1)
         assert observation_end == date(2026, 5, 1)
-        assert initial_release is False
+        current_revision_only = {
+            "ICSA",
+            "DRTSCILM",
+            "DRCRELEXFACBS",
+            "SWPT",
+            "NASDAQCOM",
+            "NASDAQ100",
+            "DCOILBRENTEU",
+            "DHHNGSP",
+        }
+        assert initial_release is (request.provider_series_id not in current_revision_only)
         return _history_payload()
 
 
@@ -103,6 +113,18 @@ def test_depth_research_backfill_collects_but_never_scores_v11(tmp_path) -> None
         ).fetchall()
     assert {row[0] for row in stored} == research_codes
     assert all(row[1] == 0 and row[2] >= 1 for row in stored)
+    with database.connect() as connection:
+        current_revision_flags = connection.execute(
+            """
+            SELECT observation.quality_flags
+            FROM cr_observations AS observation
+            JOIN cr_indicator_definitions AS indicator
+              ON indicator.id=observation.indicator_id
+            WHERE indicator.code='nasdaq_100_30d_drawdown'
+            LIMIT 1
+            """
+        ).fetchone()[0]
+    assert "retrospective_revised" in current_revision_flags
     scored_codes = {
         item.observation.indicator_code
         for item in repository.analysis_inputs_as_of(

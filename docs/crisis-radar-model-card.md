@@ -85,13 +85,18 @@ never executed.
 - ten additional official FRED depth series are collection-only research inputs;
   they have no v11 thresholds and cannot affect the live stage until a new
   immutable methodology passes replay, sensitivity and canary gates; their
-  collection failures are isolated from required FRED source health;
+  collection failures are isolated from required FRED source health; only two
+  currently expose ALFRED initial-release vintages, while the remaining eight
+  are flagged `retrospective_revised` and excluded from causal replay;
 - 12 official-news channels do not constitute exhaustive world-news coverage;
 - events and contagion currently do not change numeric v11 stage, so their numeric
   ablation delta is expected to be zero;
 - scorecard MFE/MAE is unavailable without validated asset histories;
 - TradFi/options capability degrades when no permitted free quote feed exists;
 - rare events, revisions and regime change limit historical generalization;
+- causal replay rejects `retrospective_revised` rows and late historical imports
+  whose release time was only estimated; recent live estimated-release rows remain
+  eligible only inside the indicator's maximum staleness window;
 - 14-day production canary must run after each release and cannot be pre-declared.
 
 ## Prohibited claims and uses

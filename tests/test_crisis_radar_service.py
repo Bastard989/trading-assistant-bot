@@ -126,6 +126,47 @@ def test_fred_history_client_paginates_bounded_rows() -> None:
     assert len(payload["observations"]) == 101
 
 
+def test_fred_initial_release_history_chunks_vintage_windows() -> None:
+    ranges = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        realtime_start = date.fromisoformat(request.url.params["realtime_start"])
+        realtime_end = date.fromisoformat(request.url.params["realtime_end"])
+        ranges.append((realtime_start, realtime_end))
+        assert request.url.params["output_type"] == "4"
+        assert (realtime_end - realtime_start).days <= 1460
+        return httpx.Response(
+            200,
+            json={
+                "observations": [
+                    {
+                        "realtime_start": realtime_start.isoformat(),
+                        "realtime_end": realtime_start.isoformat(),
+                        "date": realtime_start.isoformat(),
+                        "value": "1",
+                    }
+                ]
+            },
+        )
+
+    async def scenario() -> bytes:
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http_client:
+            return await FredClient("secret-key", client=http_client).fetch_history(
+                SeriesRequest("claims", "ICSA", "persons"),
+                observation_start=date(2010, 1, 1),
+                observation_end=date(2020, 1, 1),
+                initial_release=True,
+            )
+
+    payload = json.loads(asyncio.run(scenario()))
+    assert len(ranges) == 3
+    assert all(
+        current[1] + timedelta(days=1) == following[0]
+        for current, following in zip(ranges, ranges[1:])
+    )
+    assert len(payload["observations"]) == len(ranges)
+
+
 class StubFredClient:
     values = {
         "SAHMREALTIME": "0.60",
@@ -160,25 +201,21 @@ class StubBackfillFredClient:
         observation_end: date,
         initial_release: bool = False,
     ) -> bytes:
+        assert initial_release is True
         if request.provider_series_id == "SP500":
-            return _fred_history_payload([("2000-01-01", "100"), ("2000-02-15", "80")])
+            return _fred_history_payload(
+                [("2000-01-01", "100"), ("2000-02-15", "80")],
+                releases={"2000-01-01": "2000-01-03", "2000-02-15": "2000-02-16"},
+            )
         if request.provider_series_id == "WALCL":
             return _fred_history_payload(
                 [("2000-01-01", "100"), ("2000-05-01", "95")],
-                releases=(
-                    {"2000-01-01": "2000-01-08", "2000-05-01": "2000-05-08"}
-                    if initial_release
-                    else None
-                ),
+                releases={"2000-01-01": "2000-01-08", "2000-05-01": "2000-05-08"},
             )
         value = StubFredClient.values[request.provider_series_id]
         return _fred_history_payload(
             [("2000-01-01", value), ("2000-02-15", value)],
-            releases=(
-                {"2000-01-01": "2000-01-08", "2000-02-15": "2000-02-22"}
-                if initial_release
-                else None
-            ),
+            releases={"2000-01-01": "2000-01-08", "2000-02-15": "2000-02-22"},
         )
 
 
@@ -237,7 +274,7 @@ def test_sync_uses_newest_observed_date_when_provider_returns_descending_history
     assert values["fed_assets_90d_change"] == "-6.0000"
 
 
-def test_fred_backfill_uses_initial_releases_and_delays_sahm_release(tmp_path) -> None:
+def test_fred_backfill_uses_initial_releases_for_every_series(tmp_path) -> None:
     repository = CrisisRadarRepository(Database(tmp_path / "backfill.sqlite3"))
     service = CrisisRadarService(repository)
 
@@ -260,7 +297,8 @@ def test_fred_backfill_uses_initial_releases_and_delays_sahm_release(tmp_path) -
     assert QualityFlag.RETROSPECTIVE_REVISED not in by_code["us_nfci"].quality_flags
     assert QualityFlag.RELEASE_TIME_ESTIMATED not in by_code["us_nfci"].quality_flags
     assert by_code["us_nfci"].released_at == datetime(2000, 2, 22, tzinfo=timezone.utc)
-    assert by_code["sahm_rule"].released_at == datetime(2000, 3, 31, tzinfo=timezone.utc)
+    assert QualityFlag.RELEASE_TIME_ESTIMATED not in by_code["sahm_rule"].quality_flags
+    assert by_code["sahm_rule"].released_at == datetime(2000, 2, 22, tzinfo=timezone.utc)
 
 
 def test_snapshot_changes_and_indicator_history_use_saved_evidence(tmp_path) -> None:

@@ -144,7 +144,10 @@ def replay_scenario(
     signal_at = started_at
     while signal_at <= ended_at:
         inputs = repository.analysis_inputs_as_of(
-            methodology_code, methodology_version, as_of=signal_at
+            methodology_code,
+            methodology_version,
+            as_of=signal_at,
+            causal_only=True,
         )
         inputs = [
             item
@@ -172,6 +175,7 @@ def replay_scenario(
                     item.observation.indicator_code,
                     as_of=signal_at,
                     limit=max(confirmation_points + 1, 3),
+                    causal_only=True,
                 ),
                 thresholds=item.thresholds,
                 confirmation_points=confirmation_points,

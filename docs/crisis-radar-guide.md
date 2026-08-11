@@ -73,9 +73,14 @@ v11 остаётся shadow до победы над baseline на replay и liv
 исследовательских рядов FRED: initial claims, unemployment, SLOOS lending
 standards, CRE delinquency, housing starts, central-bank liquidity swaps,
 Nasdaq Composite/100, Brent и Henry Hub gas. Они зарегистрированы как
-`enabled=false`, не имеют v11-порогов и не участвуют в текущем риске. Такое
-разделение позволяет накопить историю и провести replay, не меняя задним числом
-checksum или выводы immutable `candidate-v11`. Недоступность любого из этих
+`enabled=false`, не имеют v11-порогов и не участвуют в текущем риске. Для
+unemployment и housing starts официальный
+[FRED/ALFRED `output_type=4`](https://fred.stlouisfed.org/docs/api/fred/series_observations.html#output_type)
+даёт первоначальные публикации и фактическое время релиза. Остальные восемь рядов не
+имеют ALFRED-vintage: их исторические точки получают
+`retrospective_revised` и исключаются из причинного replay. Такое разделение
+позволяет накопить исследовательскую историю, не меняя задним числом checksum
+или выводы immutable `candidate-v11`. Недоступность любого из этих
 исследовательских рядов не понижает здоровье обязательного FRED-контура и не
 может перевести рабочий расчёт в degraded; ошибка остаётся отдельной
 research-диагностикой.
@@ -124,6 +129,13 @@ released_at <= cutoff
 Replay исключает `retrospective_revised`. Каждая точка хранит source, vintage,
 observed/released/fetched time и quality flags. Будущий релиз не может изменить
 прошлый replay-сигнал — это покрыто regression test.
+
+Дополнительный causal gate защищает старые импорты: если время релиза было лишь
+оценено (`release_time_estimated`) и точка фактически загружена позже допустимой
+свежести своего ряда, она не существует для исторического replay. Свежая live-точка
+с оценённым временем допускается, если задержка `fetched_at - observed_at` не
+превышает `max_staleness`. Настоящий ALFRED initial release допускается по
+сохранённому `released_at`, даже если был импортирован позднее.
 
 Просроченное значение не становится нейтральным: availability обнуляет его вклад,
 а coverage gate может вернуть `insufficient_data`.

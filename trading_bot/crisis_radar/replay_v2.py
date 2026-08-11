@@ -132,6 +132,7 @@ def v11_signals_as_of(
             METHODOLOGY_CODE,
             METHODOLOGY_V11_VERSION,
             as_of=snapshot_at,
+            causal_only=True,
         )
         if QualityFlag.RETROSPECTIVE_REVISED not in item.observation.quality_flags
     ]
@@ -151,6 +152,7 @@ def v11_signals_as_of(
             item.observation.indicator_code,
             as_of=snapshot_at,
             exclude_retrospective_revised=True,
+            causal_only=True,
         )
         if not points:
             continue

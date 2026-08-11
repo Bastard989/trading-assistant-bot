@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "recorded_at": "2026-08-11T20:43:48+00:00",
+  "recorded_at": "2026-08-11T21:13:43+00:00",
   "purpose": "collection-only inputs for a future immutable methodology",
   "source": "fred_official_api",
   "live_contracts": {
@@ -16,6 +16,10 @@
     "errors": [],
     "rows_fetched": 39317,
     "rows_written": 39317,
+    "causal_initial_release_series": 2,
+    "causal_initial_release_points": 873,
+    "current_revision_research_series": 8,
+    "current_revision_research_points": 38444,
     "database_integrity": "ok",
     "working_database_touched": false
   },
@@ -23,6 +27,8 @@
     {
       "indicator_code": "brent_90d_change",
       "provider_series_id": "DCOILBRENTEU",
+      "historical_backfill_mode": "current_revision_research",
+      "causal_replay_eligible": false,
       "points": 9214,
       "first_observed_at": "1990-04-02T00:00:00+00:00",
       "last_observed_at": "2026-08-03T00:00:00+00:00"
@@ -30,6 +36,8 @@
     {
       "indicator_code": "fed_liquidity_swaps",
       "provider_series_id": "SWPT",
+      "historical_backfill_mode": "current_revision_research",
+      "causal_replay_eligible": false,
       "points": 1234,
       "first_observed_at": "2002-12-18T00:00:00+00:00",
       "last_observed_at": "2026-08-05T00:00:00+00:00"
@@ -37,6 +45,8 @@
     {
       "indicator_code": "henry_hub_gas_90d_change",
       "provider_series_id": "DHHNGSP",
+      "historical_backfill_mode": "current_revision_research",
+      "causal_replay_eligible": false,
       "points": 7363,
       "first_observed_at": "1997-04-07T00:00:00+00:00",
       "last_observed_at": "2026-08-03T00:00:00+00:00"
@@ -44,6 +54,8 @@
     {
       "indicator_code": "nasdaq_100_30d_drawdown",
       "provider_series_id": "NASDAQ100",
+      "historical_backfill_mode": "current_revision_research",
+      "causal_replay_eligible": false,
       "points": 9219,
       "first_observed_at": "1990-01-03T00:00:00+00:00",
       "last_observed_at": "2026-08-10T00:00:00+00:00"
@@ -51,6 +63,8 @@
     {
       "indicator_code": "nasdaq_composite_30d_drawdown",
       "provider_series_id": "NASDAQCOM",
+      "historical_backfill_mode": "current_revision_research",
+      "causal_replay_eligible": false,
       "points": 9218,
       "first_observed_at": "1990-01-03T00:00:00+00:00",
       "last_observed_at": "2026-08-10T00:00:00+00:00"
@@ -58,6 +72,8 @@
     {
       "indicator_code": "us_cre_delinquency_rate",
       "provider_series_id": "DRCRELEXFACBS",
+      "historical_backfill_mode": "current_revision_research",
+      "causal_replay_eligible": false,
       "points": 141,
       "first_observed_at": "1991-01-01T00:00:00+00:00",
       "last_observed_at": "2026-01-01T00:00:00+00:00"
@@ -65,6 +81,8 @@
     {
       "indicator_code": "us_housing_starts_90d_change",
       "provider_series_id": "HOUST",
+      "historical_backfill_mode": "initial_release",
+      "causal_replay_eligible": true,
       "points": 435,
       "first_observed_at": "1990-04-01T00:00:00+00:00",
       "last_observed_at": "2026-06-01T00:00:00+00:00"
@@ -72,6 +90,8 @@
     {
       "indicator_code": "us_initial_claims",
       "provider_series_id": "ICSA",
+      "historical_backfill_mode": "current_revision_research",
+      "causal_replay_eligible": false,
       "points": 1909,
       "first_observed_at": "1990-01-06T00:00:00+00:00",
       "last_observed_at": "2026-08-01T00:00:00+00:00"
@@ -79,6 +99,8 @@
     {
       "indicator_code": "us_sloos_ci_tightening",
       "provider_series_id": "DRTSCILM",
+      "historical_backfill_mode": "current_revision_research",
+      "causal_replay_eligible": false,
       "points": 146,
       "first_observed_at": "1990-04-01T00:00:00+00:00",
       "last_observed_at": "2026-07-01T00:00:00+00:00"
@@ -86,6 +108,8 @@
     {
       "indicator_code": "us_unemployment_rate",
       "provider_series_id": "UNRATE",
+      "historical_backfill_mode": "initial_release",
+      "causal_replay_eligible": true,
       "points": 438,
       "first_observed_at": "1990-01-01T00:00:00+00:00",
       "last_observed_at": "2026-07-01T00:00:00+00:00"
@@ -97,6 +121,7 @@
     "v11_checksum_changed": false,
     "live_v11_stage_changed": false,
     "research_failure_degrades_required_fred_health": false,
+    "current_revision_points_flagged_retrospective_revised": true,
     "promotion_required": [
       "new_immutable_methodology_version",
       "threshold_rationale",

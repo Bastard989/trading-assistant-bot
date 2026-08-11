@@ -43,7 +43,7 @@ from trading_bot.crisis_radar.news import (
 from trading_bot.crisis_radar.event_pipeline import extract_event_candidate
 from trading_bot.crisis_radar.evidence_pipeline import EvidencePipeline
 from trading_bot.crisis_radar.official_catalogs import bootstrap_official_event_catalogs
-from trading_bot.crisis_radar.domain import MarketOverview
+from trading_bot.crisis_radar.domain import MarketOverview, QualityFlag
 from trading_bot.crisis_radar.derived_labels import (
     CryptoDailyRecord,
     generate_crypto_leverage_unwind_labels,
@@ -334,22 +334,32 @@ class CrisisRadarService:
             )
             if indicator_codes is None or item.code in indicator_codes
         )
-        initial_release_series = {"us_nfci", "fed_assets_90d_change"}
         for seed in selected_seeds:
             request = SeriesRequest(seed.code, seed.provider_series_id, seed.unit)
             try:
+                backfill_mode = getattr(
+                    seed,
+                    "historical_backfill_mode",
+                    "initial_release",
+                )
+                if backfill_mode not in {
+                    "initial_release",
+                    "current_revision_research",
+                }:
+                    raise RuntimeError("unsupported FRED historical backfill mode")
+                initial_release = backfill_mode == "initial_release"
                 payload = await client.fetch_history(
                     request,
                     observation_start=started_on,
                     observation_end=ended_on,
-                    initial_release=seed.code in initial_release_series,
+                    initial_release=initial_release,
                 )
                 observations = (
                     adapter.normalize(
                         payload,
                         request,
                         fetched_at=now,
-                        release_from_vintage=seed.code in initial_release_series,
+                        release_from_vintage=initial_release,
                     )
                     if seed.transform == "identity"
                     else transform_adapter.normalize(
@@ -357,24 +367,22 @@ class CrisisRadarService:
                         request,
                         transform=seed.transform,
                         fetched_at=now,
-                        release_from_vintage=seed.code in initial_release_series,
+                        release_from_vintage=initial_release,
                     )
                 )
-                normalized = []
-                for observation in observations:
-                    flags = set(observation.quality_flags)
-                    released_at = observation.released_at
-                    if seed.code == "sahm_rule":
-                        released_at = min(observation.observed_at + timedelta(days=45), now)
-                    normalized.append(
+                if not initial_release:
+                    observations = [
                         replace(
                             observation,
-                            released_at=released_at,
-                            quality_flags=frozenset(flags),
+                            quality_flags=frozenset(
+                                set(observation.quality_flags)
+                                | {QualityFlag.RETROSPECTIVE_REVISED}
+                            ),
                         )
-                    )
-                rows_fetched += len(normalized)
-                for observation in normalized:
+                        for observation in observations
+                    ]
+                rows_fetched += len(observations)
+                for observation in observations:
                     rows_written += int(
                         self.repository.save_observation(
                             observation, sync_run_id=sync_run_id

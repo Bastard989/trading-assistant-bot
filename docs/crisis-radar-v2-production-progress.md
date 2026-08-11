@@ -46,7 +46,16 @@ Numeric-depth research evidence:
 `docs/evidence/crisis-radar-depth-research-20260811.json`. A disposable database
 backfill wrote 39 317 points for all ten new series, covered 1990–2026 where the
 provider history permits, returned no source errors and passed SQLite integrity.
-The working and production databases were not touched by this verification.
+Of these, 873 unemployment/housing points have causal ALFRED initial-release
+times; the other 38 444 points are explicitly `retrospective_revised` research
+and cannot enter replay. The working and production databases were not touched
+by this verification.
+
+Replay now also rejects legacy `release_time_estimated` observations when they
+were fetched later than the indicator's maximum staleness window. This closes the
+path where a current revised historical download could appear available at an
+old cutoff. Fresh live estimated-release observations remain usable, and ALFRED
+initial releases use their actual release dates.
 
 ## Неподвижные ограничения
 
@@ -81,7 +90,7 @@ The working and production databases were not touched by this verification.
   `data/reports/crisis-radar-v11-financial-stress-manifest.json`.
 - Manifest не является успешным promotion evidence: числовое историческое
   покрытие v11 ниже fail-closed gate, eligible signals = 0, probability = null.
-- Полный regression suite после canary incident-lifecycle hardening: `410 passed`,
+- Полный regression suite после causal-backfill hardening: `416 passed`,
   одно предупреждение совместимости Starlette/httpx, overall coverage `80.20%`.
 - Отдельные coverage gates: computational core `90.31%`,
   auth/config/main/jobs/migrations `90.09%`, PostgreSQL memory `96.83%`.

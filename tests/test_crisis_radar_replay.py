@@ -8,7 +8,7 @@ from scripts.replay_crisis_radar import _calibration_acceptable
 from trading_bot.crisis_radar.backtest import ScenarioEvent, SignalPoint, build_labeled_samples
 from trading_bot.crisis_radar.backtest import BacktestMetrics
 from trading_bot.crisis_radar.catalog import METHODOLOGY_CODE, METHODOLOGY_VERSION
-from trading_bot.crisis_radar.domain import Observation
+from trading_bot.crisis_radar.domain import Observation, QualityFlag
 from trading_bot.crisis_radar.event_catalog import EventCatalogVersion, HistoricalEventLabel
 from trading_bot.crisis_radar.replay import replay_scenario
 from trading_bot.crisis_radar.repositories import CrisisRadarRepository
@@ -140,6 +140,93 @@ def test_replay_is_reproducible_as_of_and_does_not_write_live_snapshots(tmp_path
     with repository.db.connect() as connection:
         assert connection.execute("SELECT count(*) FROM cr_market_snapshots").fetchone()[0] == 0
         assert connection.execute("SELECT count(*) FROM cr_alert_events").fetchone()[0] == 0
+
+
+def test_causal_queries_exclude_late_estimated_backfill_but_keep_live_data(tmp_path) -> None:
+    repository = CrisisRadarRepository(Database(tmp_path / "causal-inputs.sqlite3"))
+    CrisisRadarService(repository).bootstrap()
+    repository.save_observation(
+        Observation(
+            indicator_code="vix",
+            source_code="fred",
+            value=Decimal("20"),
+            unit="index_points",
+            observed_at=START,
+            released_at=START + timedelta(days=1),
+            fetched_at=datetime(2026, 8, 11, tzinfo=UTC),
+            vintage="initial-release",
+        )
+    )
+    repository.save_observation(
+        Observation(
+            indicator_code="vix",
+            source_code="fred",
+            value=Decimal("45"),
+            unit="index_points",
+            observed_at=START + timedelta(days=30),
+            released_at=START + timedelta(days=30),
+            fetched_at=datetime(2026, 8, 11, tzinfo=UTC),
+            vintage="late-current-revision",
+            quality_flags=frozenset({QualityFlag.RELEASE_TIME_ESTIMATED}),
+        )
+    )
+    historical_cutoff = START + timedelta(days=31)
+
+    default_input = repository.analysis_inputs_as_of(
+        METHODOLOGY_CODE,
+        METHODOLOGY_VERSION,
+        as_of=historical_cutoff,
+    )
+    causal_input = repository.analysis_inputs_as_of(
+        METHODOLOGY_CODE,
+        METHODOLOGY_VERSION,
+        as_of=historical_cutoff,
+        causal_only=True,
+    )
+
+    assert next(
+        item for item in default_input if item.observation.indicator_code == "vix"
+    ).observation.value == Decimal("45")
+    assert next(
+        item for item in causal_input if item.observation.indicator_code == "vix"
+    ).observation.value == Decimal("20")
+    assert [
+        point.value
+        for point in repository.indicator_points_as_of(
+            "vix",
+            as_of=historical_cutoff,
+            causal_only=True,
+        )
+    ] == [Decimal("20")]
+    assert repository.recent_indicator_values_as_of(
+        "vix",
+        as_of=historical_cutoff,
+        causal_only=True,
+    ) == [Decimal("20")]
+
+    live_observed_at = START + timedelta(days=60)
+    repository.save_observation(
+        Observation(
+            indicator_code="vix",
+            source_code="fred",
+            value=Decimal("25"),
+            unit="index_points",
+            observed_at=live_observed_at,
+            released_at=live_observed_at,
+            fetched_at=live_observed_at + timedelta(days=1),
+            vintage="live-estimated-release",
+            quality_flags=frozenset({QualityFlag.RELEASE_TIME_ESTIMATED}),
+        )
+    )
+    live_input = repository.analysis_inputs_as_of(
+        METHODOLOGY_CODE,
+        METHODOLOGY_VERSION,
+        as_of=live_observed_at + timedelta(days=2),
+        causal_only=True,
+    )
+    assert next(
+        item for item in live_input if item.observation.indicator_code == "vix"
+    ).observation.value == Decimal("25")
 
 
 def test_onset_labels_exclude_active_events_and_right_censored_horizons() -> None:

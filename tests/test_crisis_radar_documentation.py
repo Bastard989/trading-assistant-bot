@@ -110,9 +110,16 @@ def test_depth_research_evidence_is_historical_and_cannot_claim_v11_promotion() 
     assert evidence["isolated_backfill"]["rows_written"] == sum(
         item["points"] for item in evidence["series"]
     )
+    assert evidence["isolated_backfill"]["causal_initial_release_points"] == sum(
+        item["points"] for item in evidence["series"] if item["causal_replay_eligible"]
+    )
+    assert evidence["isolated_backfill"]["current_revision_research_points"] == sum(
+        item["points"] for item in evidence["series"] if not item["causal_replay_eligible"]
+    )
     assert evidence["isolated_backfill"]["working_database_touched"] is False
     assert evidence["safety"]["registered_enabled"] is False
     assert evidence["safety"]["v11_thresholds_created"] is False
     assert evidence["safety"]["v11_checksum_changed"] is False
     assert evidence["safety"]["research_failure_degrades_required_fred_health"] is False
+    assert evidence["safety"]["current_revision_points_flagged_retrospective_revised"] is True
     assert "new_immutable_methodology_version" in evidence["safety"]["promotion_required"]

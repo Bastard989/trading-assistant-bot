@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 from collections.abc import Awaitable, Callable
-from datetime import date
+from datetime import date, timedelta
 
 import httpx
 
@@ -69,42 +69,62 @@ class FredClient:
             raise ValueError("FRED history page_size must be between 100 and 1000")
         if max_rows < 1 or max_rows > 20_000:
             raise ValueError("FRED history max_rows must be between 1 and 20000")
+        realtime_ranges: list[tuple[date | None, date | None]] = [(None, None)]
+        if initial_release:
+            # FRED JSON limits one request to 2,000 vintage dates. Four-year
+            # release windows stay below that ceiling even for daily series.
+            realtime_ranges = []
+            chunk_start = observation_start
+            while chunk_start <= observation_end:
+                chunk_end = min(observation_end, chunk_start + timedelta(days=1460))
+                realtime_ranges.append((chunk_start, chunk_end))
+                chunk_start = chunk_end + timedelta(days=1)
+
         rows: list[dict] = []
-        offset = 0
-        while offset < max_rows:
-            params = {
-                "series_id": request.provider_series_id,
-                "observation_start": observation_start.isoformat(),
-                "observation_end": observation_end.isoformat(),
-                "sort_order": "asc",
-                "limit": str(min(page_size, max_rows - offset)),
-                "offset": str(offset),
-            }
-            if initial_release:
-                params.update(
-                    {
-                        "output_type": "4",
-                        "realtime_start": observation_start.isoformat(),
-                        "realtime_end": observation_end.isoformat(),
-                    }
+        for realtime_start, realtime_end in realtime_ranges:
+            offset = 0
+            while len(rows) < max_rows:
+                limit = min(page_size, max_rows - len(rows))
+                params = {
+                    "series_id": request.provider_series_id,
+                    "observation_start": observation_start.isoformat(),
+                    "observation_end": observation_end.isoformat(),
+                    "sort_order": "asc",
+                    "limit": str(limit),
+                    "offset": str(offset),
+                }
+                if realtime_start is not None and realtime_end is not None:
+                    params.update(
+                        {
+                            "output_type": "4",
+                            "realtime_start": realtime_start.isoformat(),
+                            "realtime_end": realtime_end.isoformat(),
+                        }
+                    )
+                payload = await self._get(
+                    "/series/observations",
+                    params,
                 )
-            payload = await self._get(
-                "/series/observations",
-                params,
-            )
-            try:
-                document = json.loads(payload)
-                page = document["observations"]
-            except (json.JSONDecodeError, KeyError, TypeError) as exc:
-                raise FredClientError("FRED history returned malformed JSON") from exc
-            if not isinstance(page, list):
-                raise FredClientError("FRED history observations must be a list")
-            rows.extend(page)
-            if len(page) < min(page_size, max_rows - offset):
-                break
-            offset += len(page)
+                try:
+                    document = json.loads(payload)
+                    page = document["observations"]
+                except (json.JSONDecodeError, KeyError, TypeError) as exc:
+                    raise FredClientError("FRED history returned malformed JSON") from exc
+                if not isinstance(page, list):
+                    raise FredClientError("FRED history observations must be a list")
+                rows.extend(page)
+                if len(page) < limit:
+                    break
+                offset += len(page)
         if len(rows) >= max_rows:
             raise FredClientError("FRED history exceeds the configured row limit")
+        rows.sort(
+            key=lambda item: (
+                str(item.get("date", "")),
+                str(item.get("realtime_start", "")),
+                str(item.get("value", "")),
+            )
+        )
         encoded = json.dumps({"observations": rows}, separators=(",", ":")).encode()
         if len(encoded) > 12_000_000:
             raise FredClientError("combined FRED history exceeds the configured size limit")

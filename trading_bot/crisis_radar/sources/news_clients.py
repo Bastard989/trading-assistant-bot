@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Awaitable, Callable
+from typing import Protocol
 
 import httpx
 
@@ -11,6 +12,12 @@ class NewsSourceError(RuntimeError):
 
 
 Sleep = Callable[[float], Awaitable[None]]
+
+
+class NewsClient(Protocol):
+    source_code: str
+
+    async def fetch(self) -> bytes: ...
 
 
 class RssClient:
@@ -85,6 +92,72 @@ class RssClient:
             if owns_client:
                 await client.aclose()
         raise NewsSourceError("official RSS request failed")
+
+
+class HkmaNewsClient:
+    source_code = "hkma_news"
+    _URL = "https://api.hkma.gov.hk/public/press-releases"
+
+    def __init__(
+        self,
+        *,
+        client: httpx.AsyncClient | None = None,
+        attempts: int = 3,
+        timeout_seconds: float = 25,
+        sleep: Sleep = asyncio.sleep,
+        max_response_bytes: int = 1_000_000,
+    ) -> None:
+        if attempts < 1 or attempts > 5:
+            raise ValueError("attempts must be between 1 and 5")
+        self._client = client
+        self.attempts = attempts
+        self.timeout_seconds = timeout_seconds
+        self.sleep = sleep
+        self.max_response_bytes = max_response_bytes
+
+    async def fetch(self) -> bytes:
+        owns_client = self._client is None
+        client = self._client or httpx.AsyncClient(timeout=self.timeout_seconds)
+        try:
+            for attempt in range(1, self.attempts + 1):
+                try:
+                    response = await client.get(
+                        self._URL,
+                        params={"lang": "en", "offset": "0"},
+                        headers={
+                            "Accept": "application/json",
+                            "User-Agent": "TradingAssistant-CrisisRadar/7",
+                        },
+                    )
+                except httpx.RequestError as exc:
+                    if attempt == self.attempts:
+                        raise NewsSourceError(
+                            "HKMA official API request failed after retries"
+                        ) from exc
+                    await self.sleep(min(2 ** (attempt - 1), 5))
+                    continue
+                if response.status_code == 200:
+                    if len(response.content) > self.max_response_bytes:
+                        raise NewsSourceError(
+                            "HKMA official API response exceeds configured size limit"
+                        )
+                    return response.content
+                retryable = response.status_code == 429 or response.status_code >= 500
+                if not retryable or attempt == self.attempts:
+                    raise NewsSourceError(
+                        f"HKMA official API returned HTTP {response.status_code}"
+                    )
+                await self.sleep(min(2 ** (attempt - 1), 5))
+        finally:
+            if owns_client:
+                await client.aclose()
+        raise NewsSourceError("HKMA official API request failed")
+
+
+def news_client_for(source_code: str) -> NewsClient:
+    if source_code == HkmaNewsClient.source_code:
+        return HkmaNewsClient()
+    return RssClient(source_code)
 
 
 class GdeltDiscoveryClient:

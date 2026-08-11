@@ -33,13 +33,13 @@
 | 4. Signed OI | completed (shadow) | 1d/7d/30d signed OI, leverage build vs liquidation unwind, v10 absolute series preserved; boundary/API/service tests |
 | 5. Threshold registry v11 | completed (candidate) | Immutable metadata/checksum/source/role/profile/promotion evidence for v11; v10 untouched |
 | 6. Numeric depth | in_progress | 13 official FRED series live-verified again on 2026-08-11; labor, IG credit, deposits, primary credit, housing, STLFSI, real yield, broad USD; historical backfill/replay and non-US depth remain |
-| 7. News coverage/lifecycle | in_progress | Separate news coverage, snapshot-time decay, immediate fusion recompute; all 10 configured official feeds (Fed/ECB/SEC/CFTC/BIS/BoJ/RBI/BoE/BoC/FDIC) live-verified on 2026-08-11; offline fixtures cover security-sensitive adapters. RBA rejected from production after reproducible HTTP 403 |
+| 7. News coverage/lifecycle | in_progress | Separate news coverage, snapshot-time decay, immediate fusion recompute; all 11 configured official channels live-verified on 2026-08-11: 10 RSS (Fed/ECB/SEC/CFTC/BIS/BoJ/RBI/BoE/BoC/FDIC) plus strict HKMA press-release JSON API for Hong Kong/Greater China. Offline fixtures cover security-sensitive adapters. RBA rejected from production after reproducible HTTP 403; broader official sanctions/filings/exchange coverage remains |
 | 8. Evidence memory profiles | completed (optional advanced) | Basic SQLite FTS5 works without embeddings. Advanced pgvector has schema, continuous ingestion, embedding queue/fallback, hybrid search, health API and a real local PostgreSQL/pgvector verification with relational evidence ID |
 | 9. Scenarios/recovery/diff | completed (shadow seed) | 11 Crisis Playbooks, causal chain, anchors, invalidation, recovery, evidence IDs and persisted causal diff; historical calibration remains stage 12 |
 | 10. Exposure/scorecard | completed (shadow seed) | Read-only open-trade overlay and persistent signal lifecycle scorecards; outcome/reaction resolution needs live history |
 | 11. UI/help/navigation | completed | RU-first v11 metadata and bands, compact main view, journal subnavigation, models in tools, six analysis tabs, accessible help dialog, scenario expansion, exposure overlay; manually verified in in-app browser at desktop/mobile and automated authenticated Playwright E2E |
 | 12. Replay/calibration | implemented; gate failed honestly | Causal v10/v11 comparison plus economic/historical/full/no-trend/no-events/no-contagion/no-dependency/base-rate variants; future-release regression test; real financial-stress manifest checksum `66187057a90d204786af06a658b5ea4c420e694baca3dbaa69641a67b3621aaf`. Historical v11 coverage produced zero eligible samples, so v11 remains shadow and probability is null |
-| 13. Packaging/E2E/security | completed for repository candidate | Authenticated RU/EN/mobile/degraded Playwright E2E; CI installs Chromium; overall coverage 80.12%; computational core 90.31%, runtime 90.09%, PostgreSQL memory 96.83%; self-host doctor, source contracts, guarded update/rollback, encrypted off-host backup and isolated restore drill are tested |
+| 13. Packaging/E2E/security | completed for repository candidate | Authenticated RU/EN/mobile/degraded Playwright E2E; CI installs Chromium; overall coverage 80.14%; computational core 90.31%, runtime 90.09%, PostgreSQL memory 96.83%; self-host doctor, source contracts, guarded update/rollback, encrypted off-host backup and isolated restore drill are tested |
 | 14. Rollout/canary | implemented; external run pending | Radar-specific persistent canary code + systemd timer checks HTTP, snapshot lag, false-stable, numeric/news state, source failures, queues, backup checksum/age, disk size and sample density. Permanent HTTPS, real off-host mount and a new 14-day calendar run must be verified on the target server |
 
 ## Неподвижные ограничения
@@ -65,18 +65,24 @@
   `data/reports/crisis-radar-v11-financial-stress-manifest.json`.
 - Manifest не является успешным promotion evidence: числовое историческое
   покрытие v11 ниже fail-closed gate, eligible signals = 0, probability = null.
-- Полный CI-эквивалент: `402 passed`, одно предупреждение
-  совместимости Starlette/httpx, overall coverage `80.12%`.
+- Полный CI-эквивалент после HKMA integration: `406 passed`, одно предупреждение
+  совместимости Starlette/httpx, overall coverage `80.14%`.
 - Отдельные coverage gates: computational core `90.31%`,
   auth/config/main/jobs/migrations `90.09%`, PostgreSQL memory `96.83%`.
-- Source registry: 20 версионируемых контрактов; offline contract gate проходит.
-- Live source contracts: 13/13 FRED v11 series и 10/10 configured official
-  RSS feeds вернули валидные данные 2026-08-11.
+- Source registry: 21 версионируемый контракт; offline contract gate проходит.
+- Live source contracts: 13/13 FRED v11 series и 11/11 configured official
+  news channels (10 RSS + HKMA JSON API) вернули валидные данные 2026-08-11.
+- HKMA adapter rejects unsuccessful headers, malformed schema, duplicate/future
+  records and URLs outside `www.hkma.gov.hk`; scheduled sync, CLI and news coverage
+  use the same client/normalizer router.
 - Backup/update tests: verified SQLite restore, age encryption, off-host checksum,
   safe retention, PostgreSQL dump/disposable restore contract, immutable release
   activation and schema-safe rollback.
 - Production entrypoints напрямую запускаются из файлов, как в systemd; regression
-  test защищает от `ModuleNotFoundError`.
+  test защищает от `ModuleNotFoundError`, включая live FRED/news verifiers.
+- `pip-audit`: no known vulnerabilities; `gitleaks`: 55 commits, no leaks;
+  schema migration from empty database and repeated migration both returned
+  `migrations_ok`.
 
 ## Внешние условия, которые нельзя закрыть в репозитории
 

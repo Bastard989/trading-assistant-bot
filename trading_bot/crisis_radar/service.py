@@ -34,7 +34,11 @@ from trading_bot.crisis_radar.coverage import (
     assess_coverage,
 )
 from trading_bot.crisis_radar.feature_flags import CrisisRadarFeatureFlags
-from trading_bot.crisis_radar.news import NEWS_RULE_VERSION, RssAdapter, classify_news
+from trading_bot.crisis_radar.news import (
+    NEWS_RULE_VERSION,
+    classify_news,
+    normalize_official_news,
+)
 from trading_bot.crisis_radar.event_pipeline import extract_event_candidate
 from trading_bot.crisis_radar.evidence_pipeline import EvidencePipeline
 from trading_bot.crisis_radar.official_catalogs import bootstrap_official_event_catalogs
@@ -78,8 +82,8 @@ from trading_bot.crisis_radar.sources.global_data import BisAdapter, OecdAdapter
 from trading_bot.crisis_radar.sources.gdelt import GdeltDiscoveryAdapter
 from trading_bot.crisis_radar.sources.news_clients import (
     GdeltDiscoveryClient,
+    NewsClient,
     NewsSourceError,
-    RssClient,
 )
 from trading_bot.crisis_radar.sources.official_clients import BeaClient, EiaClient, OfficialSourceError
 from trading_bot.crisis_radar.stability import STABILITY_POLICY, stabilize_indicator_state
@@ -747,7 +751,7 @@ class CrisisRadarService:
 
     async def sync_news(
         self,
-        client: RssClient,
+        client: NewsClient,
         *,
         fetched_at: datetime | None = None,
         recompute_after: bool = True,
@@ -767,7 +771,7 @@ class CrisisRadarService:
         error = ""
         try:
             payload = await client.fetch()
-            items = RssAdapter(source_code).normalize(payload, fetched_at=now)
+            items = normalize_official_news(source_code, payload, fetched_at=now)
             rows_fetched = len(items)
             for item in items:
                 saved = self.repository.save_news_item(item, sync_run_id=sync_run_id)

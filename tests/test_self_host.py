@@ -18,6 +18,8 @@ def test_production_entrypoints_support_direct_execution() -> None:
         "scripts/release_manifest.py",
         "scripts/radar_canary.py",
         "scripts/self_host.py",
+        "scripts/verify_fred_v11_contracts.py",
+        "scripts/verify_news_v2_contracts.py",
     )
 
     for entrypoint in entrypoints:
@@ -88,7 +90,7 @@ def test_source_contract_check_and_service_order(monkeypatch) -> None:
     monkeypatch.setattr("scripts.self_host.subprocess.run", run)
 
     assert report["ok"] is True
-    assert report["source_count"] == 20
+    assert report["source_count"] == 21
     assert service_action("start")["ok"] is True
     assert calls == [
         ["systemctl", "start", "trading-assistant-api"],

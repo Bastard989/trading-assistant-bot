@@ -1,13 +1,19 @@
 from __future__ import annotations
 
+import argparse
 import asyncio
 import json
 import os
+import sys
+from pathlib import Path
 
-from dotenv import load_dotenv
+if __package__ in {None, ""}:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from trading_bot.crisis_radar.sources.base import SeriesRequest
-from trading_bot.crisis_radar.sources.fred_client import FredClient
+from dotenv import load_dotenv  # noqa: E402
+
+from trading_bot.crisis_radar.sources.base import SeriesRequest  # noqa: E402
+from trading_bot.crisis_radar.sources.fred_client import FredClient  # noqa: E402
 
 
 SERIES_IDS = (
@@ -57,4 +63,7 @@ async def main() -> None:
 
 
 if __name__ == "__main__":
+    argparse.ArgumentParser(
+        description="Live-verify configured FRED Crisis Radar v11 contracts"
+    ).parse_args()
     asyncio.run(main())

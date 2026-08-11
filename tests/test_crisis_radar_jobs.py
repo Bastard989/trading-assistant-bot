@@ -358,6 +358,7 @@ def test_sync_enqueues_owner_deliveries_and_news_v2_uses_full_registry() -> None
     assert service.repository.enqueued_health == [(42,), (42,)]
     assert "gdelt_discovery" in service.calls
     assert "fdic_news" in service.calls
+    assert "hkma_news" in service.calls
 
 
 def test_summary_persists_report_payload_and_rejects_unknown_type() -> None:

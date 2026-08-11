@@ -1,10 +1,16 @@
 from __future__ import annotations
 
+import argparse
 import asyncio
+import sys
 from datetime import datetime, timezone
+from pathlib import Path
 
-from trading_bot.crisis_radar.news import RssAdapter
-from trading_bot.crisis_radar.sources.news_clients import RssClient
+if __package__ in {None, ""}:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from trading_bot.crisis_radar.news import normalize_official_news  # noqa: E402
+from trading_bot.crisis_radar.sources.news_clients import news_client_for  # noqa: E402
 
 
 SOURCES = (
@@ -18,6 +24,7 @@ SOURCES = (
     "boe_news",
     "boc_news",
     "fdic_news",
+    "hkma_news",
 )
 
 
@@ -25,8 +32,8 @@ async def main() -> None:
     now = datetime.now(timezone.utc)
     for source_code in SOURCES:
         try:
-            payload = await RssClient(source_code).fetch()
-            items = RssAdapter(source_code).normalize(payload, fetched_at=now)
+            payload = await news_client_for(source_code).fetch()
+            items = normalize_official_news(source_code, payload, fetched_at=now)
             latest = items[-1]
             print(
                 f"{source_code}\tOK\t{len(items)}\t"
@@ -37,4 +44,7 @@ async def main() -> None:
 
 
 if __name__ == "__main__":
+    argparse.ArgumentParser(
+        description="Live-verify configured official Crisis Radar news contracts"
+    ).parse_args()
     asyncio.run(main())

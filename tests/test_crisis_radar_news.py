@@ -5,12 +5,22 @@ from pathlib import Path
 import httpx
 import pytest
 
-from trading_bot.crisis_radar.news import RssAdapter, classify_news
+from trading_bot.crisis_radar.news import (
+    HkmaNewsAdapter,
+    RssAdapter,
+    classify_news,
+    normalize_official_news,
+)
 from trading_bot.crisis_radar.repositories import CrisisRadarRepository
 from trading_bot.crisis_radar.service import CrisisRadarService
 from trading_bot.crisis_radar.feature_flags import CrisisRadarFeatureFlags
 from trading_bot.crisis_radar.sources.base import SourcePayloadError
-from trading_bot.crisis_radar.sources.news_clients import NewsSourceError, RssClient
+from trading_bot.crisis_radar.sources.news_clients import (
+    HkmaNewsClient,
+    NewsSourceError,
+    RssClient,
+    news_client_for,
+)
 from trading_bot.db import Database
 
 
@@ -65,6 +75,48 @@ def test_new_official_feeds_have_offline_contract_fixtures(
     assert items[0].source_tier == "A"
 
 
+def test_hkma_official_api_is_strictly_normalized_and_classified() -> None:
+    payload = (FIXTURES / "hkma_news.json").read_bytes()
+    items = normalize_official_news("hkma_news", payload, fetched_at=NOW)
+
+    assert len(items) == 2
+    assert items[-1].publisher == "Hong Kong Monetary Authority"
+    assert items[-1].importance == "high"
+    assert items[-1].url.startswith("https://www.hkma.gov.hk/")
+    assert items[-1].source_tier == "A"
+    assert items[-1].raw_payload_hash != items[-1].content_hash
+    evidence = {item.scenario_code for item in classify_news(items[-1])}
+    assert {"global_recession", "financial_stress"} <= evidence
+
+
+def test_hkma_adapter_rejects_failed_untrusted_duplicate_and_future_payloads() -> None:
+    payload = (FIXTURES / "hkma_news.json").read_text()
+    with pytest.raises(SourcePayloadError, match="unsuccessful"):
+        HkmaNewsAdapter().normalize(
+            payload.replace('"success": true', '"success": false').encode(),
+            fetched_at=NOW,
+        )
+    with pytest.raises(SourcePayloadError, match="untrusted URL"):
+        HkmaNewsAdapter().normalize(
+            payload.replace("https://www.hkma.gov.hk", "https://evil.example", 1).encode(),
+            fetched_at=NOW,
+        )
+    duplicate = payload.replace(
+        '"datasize": 2',
+        '"datasize": 3',
+    ).replace(
+        '    ]\n  }',
+        ',\n      {"title":"Duplicate","link":"https://www.hkma.gov.hk/eng/news-and-media/press-releases/2026/07/20260707-8/","date":"2026-07-07"}\n    ]\n  }',
+    )
+    with pytest.raises(SourcePayloadError, match="duplicate"):
+        HkmaNewsAdapter().normalize(duplicate.encode(), fetched_at=NOW)
+    future = payload.replace("2026-07-07", "2027-07-07").replace(
+        "2026-07-10", "2027-07-10"
+    )
+    with pytest.raises(SourcePayloadError, match="no current valid"):
+        HkmaNewsAdapter().normalize(future.encode(), fetched_at=NOW)
+
+
 def test_rss_rejects_entities_and_untrusted_item_links() -> None:
     with pytest.raises(SourcePayloadError, match="DTD and entities"):
         RssAdapter("fed_news").normalize(
@@ -110,6 +162,31 @@ def test_rss_client_retries_and_sanitizes_errors() -> None:
     asyncio.run(failure_scenario())
 
 
+def test_hkma_client_retries_uses_bounded_official_api_and_factory() -> None:
+    calls = 0
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        assert request.url.host == "api.hkma.gov.hk"
+        assert request.url.params["lang"] == "en"
+        assert request.url.params["offset"] == "0"
+        if calls == 1:
+            return httpx.Response(503)
+        return httpx.Response(200, content=(FIXTURES / "hkma_news.json").read_bytes())
+
+    async def scenario() -> bytes:
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            return await HkmaNewsClient(
+                client=client, sleep=lambda _: asyncio.sleep(0)
+            ).fetch()
+
+    assert asyncio.run(scenario()).startswith(b"{")
+    assert calls == 2
+    assert isinstance(news_client_for("hkma_news"), HkmaNewsClient)
+    assert isinstance(news_client_for("fed_news"), RssClient)
+
+
 class StubRssClient:
     def __init__(self, source_code: str, fixture: str) -> None:
         self.source_code = source_code
@@ -144,6 +221,19 @@ def test_news_sync_is_idempotent_and_does_not_change_market_stage(tmp_path) -> N
         assert connection.execute("SELECT count(*) FROM cr_market_snapshots").fetchone()[0] == 0
 
 
+def test_news_sync_routes_hkma_official_api_without_treating_it_as_rss(tmp_path) -> None:
+    repository = CrisisRadarRepository(Database(tmp_path / "hkma.sqlite3"))
+    service = CrisisRadarService(repository)
+    client = StubRssClient("hkma_news", "hkma_news.json")
+
+    result = asyncio.run(service.sync_news(client, fetched_at=NOW))
+    payload = service.news(locale="en", days=14, limit=10, as_of=NOW)
+
+    assert result["status"] == "succeeded"
+    assert result["rows_written"] == 2
+    assert any(item["title"].startswith("PBOC, HKMA") for item in payload["items"])
+
+
 def test_news_coverage_is_separate_from_numeric_coverage_and_fails_closed(tmp_path) -> None:
     repository = CrisisRadarRepository(Database(tmp_path / "coverage.sqlite3"))
     service = CrisisRadarService(
@@ -167,6 +257,7 @@ def test_news_coverage_is_separate_from_numeric_coverage_and_fails_closed(tmp_pa
     )
 
     assert coverage["status"] == "insufficient_data"
-    assert coverage["expected_source_count"] == 10
+    assert coverage["expected_source_count"] == 11
     assert coverage["healthy_source_count"] == 1
     assert "EU" in coverage["missing_regions"]
+    assert "HKG" in coverage["missing_regions"]

@@ -1353,7 +1353,7 @@ class CrisisRadarRepository:
         health = self.source_health_payload(as_of=snapshot_at)
         required = [
             item for item in health["sources"]
-            if item["enabled"] and item["access_type"] == "rss"
+            if item["enabled"] and item["access_type"] in {"rss", "official_api"}
         ]
         healthy = sum(item["status"] == "healthy" for item in required)
         degraded = sum(item["status"] in {"degraded", "stale"} for item in required)
@@ -1370,6 +1370,7 @@ class CrisisRadarRepository:
             "bis_news": "GLOBAL",
             "boe_news": "GBR", "boc_news": "CAN",
             "fdic_news": "US",
+            "hkma_news": "HKG",
         }
         covered_regions = {
             region_by_source[item["code"]]

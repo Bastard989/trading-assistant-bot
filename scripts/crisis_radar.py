@@ -22,7 +22,7 @@ from trading_bot.crisis_radar.sources.bybit import BybitClient
 from trading_bot.crisis_radar.sources.europe_clients import EcbClient, EurostatClient
 from trading_bot.crisis_radar.sources.global_clients import BisClient, OecdClient, WorldBankClient
 from trading_bot.crisis_radar.sources.official_clients import BeaClient, EiaClient
-from trading_bot.crisis_radar.sources.news_clients import RssClient
+from trading_bot.crisis_radar.sources.news_clients import news_client_for
 from trading_bot.db import CURRENT_SCHEMA_VERSION, Database
 
 
@@ -85,6 +85,7 @@ def main() -> None:
             "boe_news",
             "boc_news",
             "fdic_news",
+            "hkma_news",
             "bybit",
         ),
         default="all",
@@ -170,10 +171,11 @@ def main() -> None:
                 "boe_news",
                 "boc_news",
                 "fdic_news",
+                "hkma_news",
             )
             for source_code in news_source_codes:
                 if args.source in {"all", "news", source_code}:
-                    results[source_code] = await service.sync_news(RssClient(source_code))
+                    results[source_code] = await service.sync_news(news_client_for(source_code))
             if args.source in {"all", "bybit"}:
                 results["bybit"] = await service.sync_bybit(
                     BybitClient(), recompute_after=not combined

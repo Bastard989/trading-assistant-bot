@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import html
+import json
 import re
 import xml.etree.ElementTree as ElementTree
 from dataclasses import dataclass
@@ -78,7 +79,7 @@ def _plain_text(value: str, *, limit: int) -> str:
         parser.feed(value)
         parser.close()
     except (ValueError, AssertionError) as exc:
-        raise SourcePayloadError("invalid HTML in official RSS text") from exc
+        raise SourcePayloadError("invalid HTML in official news text") from exc
     normalized = re.sub(r"\s+", " ", html.unescape(" ".join(parser.parts))).strip()
     return normalized[:limit]
 
@@ -92,7 +93,7 @@ def _canonical_url(value: str, *, allowed_hosts: tuple[str, ...]) -> str:
         or parts.password
         or parts.port is not None
     ):
-        raise SourcePayloadError("official RSS item has an untrusted URL")
+        raise SourcePayloadError("official news item has an untrusted URL")
     path = re.sub(r"/{2,}", "/", parts.path or "/")
     return urlunsplit(("https", parts.hostname, path, "", ""))
 
@@ -233,6 +234,131 @@ class RssAdapter:
         )
 
 
+class HkmaNewsAdapter:
+    """Strict adapter for the official HKMA press-release JSON API."""
+
+    source_code = "hkma_news"
+    _HOSTS = ("www.hkma.gov.hk",)
+    _PUBLISHER = "Hong Kong Monetary Authority"
+    _HIGH_IMPORTANCE_TERMS = (
+        "bank failure",
+        "credit conditions",
+        "emergency",
+        "financial stability",
+        "liquidity",
+        "negative equity",
+        "resolution",
+        "reserve assets",
+        "systemic",
+    )
+
+    def normalize(self, payload: bytes, *, fetched_at: datetime) -> list[NewsItem]:
+        if fetched_at.tzinfo is None or fetched_at.utcoffset() is None:
+            raise ValueError("fetched_at must be timezone-aware")
+        try:
+            document = json.loads(payload.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise SourcePayloadError("invalid HKMA official API JSON") from exc
+        if not isinstance(document, dict):
+            raise SourcePayloadError("HKMA official API root must be an object")
+        header = document.get("header")
+        result = document.get("result")
+        if not isinstance(header, dict) or not isinstance(result, dict):
+            raise SourcePayloadError("HKMA official API response is missing header or result")
+        if header.get("success") is not True or header.get("err_code") != "0000":
+            raise SourcePayloadError("HKMA official API reported an unsuccessful response")
+        records = result.get("records")
+        if not isinstance(records, list) or not records or len(records) > 100:
+            raise SourcePayloadError("HKMA official API records must contain 1 to 100 items")
+        declared_size = result.get("datasize")
+        if not isinstance(declared_size, int) or declared_size < len(records):
+            raise SourcePayloadError("HKMA official API datasize is inconsistent")
+
+        items: list[NewsItem] = []
+        seen_ids: set[str] = set()
+        for record in records:
+            item = self._normalize_record(record, fetched_at=fetched_at)
+            if item is None:
+                continue
+            if item.provider_item_id in seen_ids:
+                raise SourcePayloadError("HKMA official API contains duplicate records")
+            seen_ids.add(item.provider_item_id)
+            items.append(item)
+        if not items:
+            raise SourcePayloadError("HKMA official API contains no current valid items")
+        return sorted(items, key=lambda item: item.published_at)
+
+    def _normalize_record(
+        self, record: object, *, fetched_at: datetime
+    ) -> NewsItem | None:
+        if not isinstance(record, dict):
+            raise SourcePayloadError("HKMA official API record must be an object")
+        title_raw = record.get("title")
+        link_raw = record.get("link")
+        date_raw = record.get("date")
+        if not all(isinstance(value, str) and value.strip() for value in (
+            title_raw,
+            link_raw,
+            date_raw,
+        )):
+            raise SourcePayloadError("HKMA official API record is missing required fields")
+        try:
+            published_at = datetime.strptime(date_raw, "%Y-%m-%d").replace(
+                tzinfo=timezone.utc
+            )
+        except ValueError as exc:
+            raise SourcePayloadError("invalid HKMA official API publication date") from exc
+        if published_at > fetched_at + timedelta(minutes=5):
+            return None
+
+        title = _plain_text(title_raw, limit=300)
+        if not title:
+            raise SourcePayloadError("HKMA official API record has an empty title")
+        url = _canonical_url(link_raw, allowed_hosts=self._HOSTS)
+        provider_item_id = hashlib.sha256(url.encode()).hexdigest()
+        normalized_title = " ".join(re.findall(r"[a-z0-9]{2,}", title.casefold()))
+        source_text = title.casefold()
+        importance = (
+            "high"
+            if any(term in source_text for term in self._HIGH_IMPORTANCE_TERMS)
+            else "medium"
+        )
+        content_hash = hashlib.sha256(
+            "\n".join((title, url, published_at.isoformat())).encode()
+        ).hexdigest()
+        raw_payload_hash = hashlib.sha256(
+            json.dumps(record, ensure_ascii=False, sort_keys=True).encode()
+        ).hexdigest()
+        return NewsItem(
+            source_code=self.source_code,
+            provider_item_id=provider_item_id,
+            published_at=published_at,
+            fetched_at=fetched_at,
+            title=title,
+            summary="",
+            url=url,
+            category="press_release",
+            language="en",
+            importance=importance,
+            content_hash=content_hash,
+            publisher=self._PUBLISHER,
+            original_language="en",
+            normalized_title=normalized_title,
+            dedup_hash=hashlib.sha256(normalized_title.encode()).hexdigest(),
+            source_tier="A",
+            evidence_excerpt=title[:600],
+            raw_payload_hash=raw_payload_hash,
+        )
+
+
+def normalize_official_news(
+    source_code: str, payload: bytes, *, fetched_at: datetime
+) -> list[NewsItem]:
+    if source_code == HkmaNewsAdapter.source_code:
+        return HkmaNewsAdapter().normalize(payload, fetched_at=fetched_at)
+    return RssAdapter(source_code).normalize(payload, fetched_at=fetched_at)
+
+
 _RULES = {
     "global_recession": {
         "growth": ("economic growth", "growth and resilience", "recession", "demand"),
@@ -254,7 +380,14 @@ _RULES = {
         "crypto_assets": ("crypto asset", "cryptoasset", "stablecoin", "digital asset"),
     },
     "china_hard_landing": {
-        "china": ("china", "chinese economy", "renminbi", "yuan"),
+        "china": (
+            "china",
+            "chinese economy",
+            "pboc",
+            "people's bank of china",
+            "renminbi",
+            "yuan",
+        ),
     },
 }
 

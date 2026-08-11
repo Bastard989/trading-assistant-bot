@@ -1,0 +1,22 @@
+{
+  "header": {
+    "success": true,
+    "err_code": "0000",
+    "err_msg": "No error found"
+  },
+  "result": {
+    "datasize": 2,
+    "records": [
+      {
+        "title": "PBOC, HKMA and SFC joint announcement on developing a trading platform in Hong Kong",
+        "link": "https://www.hkma.gov.hk/eng/news-and-media/press-releases/2026/07/20260707-8/",
+        "date": "2026-07-07"
+      },
+      {
+        "title": "Survey on Small and Medium-Sized Enterprises Credit Conditions for Second Quarter 2026",
+        "link": "https://www.hkma.gov.hk/eng/news-and-media/press-releases/2026/07/20260710-3/",
+        "date": "2026-07-10"
+      }
+    ]
+  }
+}

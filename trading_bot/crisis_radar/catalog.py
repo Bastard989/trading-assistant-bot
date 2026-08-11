@@ -70,6 +70,7 @@ class NewsSourceSeed:
     name: str
     base_url: str
     terms_url: str
+    access_type: str = "rss"
 
 
 FRED = SourceSeed(
@@ -213,6 +214,13 @@ NEWS_SOURCES = (
         name="FDIC Press Releases RSS",
         base_url="https://public.govdelivery.com/topics/USFDIC_26/feed.rss",
         terms_url="https://www.fdic.gov/news/press-releases",
+    ),
+    NewsSourceSeed(
+        code="hkma_news",
+        name="Hong Kong Monetary Authority Press Releases API",
+        base_url="https://api.hkma.gov.hk/public/press-releases",
+        terms_url="https://apidocs.hkma.gov.hk/documentation/press-releases/",
+        access_type="official_api",
     ),
     NewsSourceSeed(
         code="gdelt_discovery",
@@ -1257,7 +1265,11 @@ def _bootstrap_catalog(
             source.name,
             base_url=source.base_url,
             terms_url=source.terms_url,
-            access_type="discovery_api" if source.code == "gdelt_discovery" else "rss",
+            access_type=(
+                "discovery_api"
+                if source.code == "gdelt_discovery"
+                else source.access_type
+            ),
             expected_frequency="intraday",
             max_staleness_seconds=2 * 86400,
         )

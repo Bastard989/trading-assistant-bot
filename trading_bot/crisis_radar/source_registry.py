@@ -109,6 +109,11 @@ SOURCE_POLICIES = (
         "publication time", "bounded polling", None, "candidate", "US bank failures and resolutions",
     ),
     SourcePolicy(
+        "hkma_news", "A", "https://apidocs.hkma.gov.hk/documentation/press-releases/",
+        "official-json-api", "intraday", "publication date", "bounded polling", None,
+        "candidate", "Hong Kong and Greater China banking, liquidity and renminbi events",
+    ),
+    SourcePolicy(
         "gdelt_discovery", "C", "https://www.gdeltproject.org/about.html", "public-discovery-api", "intraday",
         "discovery lag", "one bounded query per interval", None, "discovery_only",
         "multilingual event discovery; cannot confirm an event alone",

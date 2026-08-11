@@ -11,7 +11,10 @@ from trading_bot.crisis_radar.sources.fred_client import FredClient
 from trading_bot.crisis_radar.sources.europe_clients import EcbClient, EurostatClient
 from trading_bot.crisis_radar.sources.global_clients import BisClient, OecdClient, WorldBankClient
 from trading_bot.crisis_radar.sources.official_clients import BeaClient, EiaClient
-from trading_bot.crisis_radar.sources.news_clients import GdeltDiscoveryClient, RssClient
+from trading_bot.crisis_radar.sources.news_clients import (
+    GdeltDiscoveryClient,
+    news_client_for,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -149,13 +152,13 @@ class CrisisRadarJobs:
                     (
                         "fed_news", "ecb_news", "sec_news", "cftc_news",
                         "bis_news", "boj_news", "rbi_news",
-                        "boe_news", "boc_news", "fdic_news",
+                        "boe_news", "boc_news", "fdic_news", "hkma_news",
                     )
                     if news_events_v2
                     else ("fed_news", "ecb_news")
                 )
                 results = {
-                    source_code: await self.service.sync_news(RssClient(source_code))
+                    source_code: await self.service.sync_news(news_client_for(source_code))
                     for source_code in source_codes
                 }
                 if news_events_v2:

@@ -11,6 +11,7 @@ from trading_bot.crisis_radar.catalog import (
     FRED_INDICATORS,
     FRED_GLOBAL_V2_INDICATORS,
     FRED_V11_DEPTH_INDICATORS,
+    FRED_V12_RESEARCH_INDICATORS,
     METHODOLOGY_CODE,
     METHODOLOGY_GLOBAL_V2_VERSION,
     METHODOLOGY_VERSION,
@@ -91,6 +92,25 @@ from trading_bot.crisis_radar.states import build_indicator_state, build_market_
 from trading_bot.crisis_radar.stage_v2 import calculate_stage_v2, dependency_for
 from trading_bot.crisis_radar.trends import calculate_contagion, calculate_indicator_features
 from trading_bot.crisis_radar.validation import evaluate_stored_calibration_gate
+
+
+def _active_fred_collection_seeds(
+    feature_flags: CrisisRadarFeatureFlags,
+) -> tuple:
+    seeds = FRED_INDICATORS
+    if feature_flags.global_sources_v2 or feature_flags.scoring_v11:
+        seeds += FRED_GLOBAL_V2_INDICATORS
+    if feature_flags.scoring_v11:
+        seeds += FRED_V11_DEPTH_INDICATORS + FRED_V12_RESEARCH_INDICATORS
+    return seeds
+
+
+_ALL_FRED_COLLECTION_SEEDS = (
+    FRED_INDICATORS
+    + FRED_GLOBAL_V2_INDICATORS
+    + FRED_V11_DEPTH_INDICATORS
+    + FRED_V12_RESEARCH_INDICATORS
+)
 
 
 class CrisisRadarService:
@@ -202,7 +222,7 @@ class CrisisRadarService:
         *,
         fetched_at: datetime | None = None,
         recompute_after: bool = True,
-    ) -> dict[str, int | str | None]:
+    ) -> dict[str, int | str | None | list[str]]:
         self.bootstrap()
         now = fetched_at or datetime.now(timezone.utc)
         if now.tzinfo is None or now.utcoffset() is None:
@@ -211,15 +231,12 @@ class CrisisRadarService:
         adapter = FredAdapter()
         transform_adapter = FredTransformAdapter()
         rows_fetched = 0
+        required_rows_fetched = 0
         rows_written = 0
-        errors: list[str] = []
-        fred_seeds = (
-            FRED_INDICATORS + FRED_GLOBAL_V2_INDICATORS + (
-                FRED_V11_DEPTH_INDICATORS if self.feature_flags.scoring_v11 else ()
-            )
-            if self.feature_flags.global_sources_v2
-            else FRED_INDICATORS
-        )
+        required_errors: list[str] = []
+        research_errors: list[str] = []
+        fred_seeds = _active_fred_collection_seeds(self.feature_flags)
+        research_codes = {item.code for item in FRED_V12_RESEARCH_INDICATORS}
         for seed in fred_seeds:
             request = SeriesRequest(seed.code, seed.provider_series_id, seed.unit)
             try:
@@ -239,29 +256,46 @@ class CrisisRadarService:
                     )
                 )
                 rows_fetched += len(observations)
+                if seed.code not in research_codes:
+                    required_rows_fetched += len(observations)
                 for observation in observations:
                     result = self.repository.save_observation(observation, sync_run_id=sync_run_id)
                     rows_written += int(result.inserted)
             except (FredClientError, SourcePayloadError) as exc:
-                errors.append(f"{seed.code}:{type(exc).__name__}")
-        status = "failed" if len(errors) == len(fred_seeds) else "partial" if errors else "succeeded"
+                target = research_errors if seed.code in research_codes else required_errors
+                target.append(f"{seed.code}:{type(exc).__name__}")
+        required_seed_count = sum(seed.code not in research_codes for seed in fred_seeds)
+        status = (
+            "failed"
+            if len(required_errors) == required_seed_count
+            else "partial"
+            if required_errors
+            else "succeeded"
+        )
         self.repository.finish_sync_run(
             sync_run_id,
             finished_at=datetime.now(timezone.utc),
             status=status,
             rows_fetched=rows_fetched,
             rows_written=rows_written,
-            error_code="source_errors" if errors else "",
-            error_detail=",".join(errors),
+            error_code="source_errors" if required_errors else "",
+            error_detail=",".join(required_errors),
         )
-        overview = self.recompute(snapshot_at=now) if rows_fetched and recompute_after else None
-        return {
+        overview = (
+            self.recompute(snapshot_at=now)
+            if required_rows_fetched and recompute_after
+            else None
+        )
+        result: dict[str, int | str | None | list[str]] = {
             "sync_run_id": sync_run_id,
             "status": status,
             "rows_fetched": rows_fetched,
             "rows_written": rows_written,
             "stage": None if overview is None else overview.stage.value,
         }
+        if research_codes & {seed.code for seed in fred_seeds}:
+            result["research_errors"] = research_errors
+        return result
 
     async def backfill_fred(
         self,
@@ -289,19 +323,15 @@ class CrisisRadarService:
         rows_fetched = 0
         rows_written = 0
         errors: list[str] = []
-        fred_seeds = (
-            FRED_INDICATORS + FRED_GLOBAL_V2_INDICATORS + (
-                FRED_V11_DEPTH_INDICATORS if self.feature_flags.scoring_v11 else ()
-            )
-            if self.feature_flags.global_sources_v2
-            else FRED_INDICATORS
-        )
-        known_codes = {item.code for item in fred_seeds}
+        active_seeds = _active_fred_collection_seeds(self.feature_flags)
+        known_codes = {item.code for item in _ALL_FRED_COLLECTION_SEEDS}
         if indicator_codes is not None and (not indicator_codes or not indicator_codes <= known_codes):
             raise ValueError("indicator_codes must contain known FRED indicator codes")
         selected_seeds = tuple(
             item
-            for item in fred_seeds
+            for item in (
+                active_seeds if indicator_codes is None else _ALL_FRED_COLLECTION_SEEDS
+            )
             if indicator_codes is None or item.code in indicator_codes
         )
         initial_release_series = {"us_nfci", "fed_assets_90d_change"}

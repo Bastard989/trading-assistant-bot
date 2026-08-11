@@ -20,6 +20,9 @@ RUNTIME_CONTRACT_PATH = ROOT / "docs" / "crisis-radar-v2-runtime-contract.json"
 ROLLOUT_EVIDENCE_PATH = (
     ROOT / "docs" / "evidence" / "crisis-radar-v2-server-rollout-20260811.json"
 )
+DEPTH_EVIDENCE_PATH = (
+    ROOT / "docs" / "evidence" / "crisis-radar-depth-research-20260811.json"
+)
 
 
 def test_documented_runtime_versions_match_code() -> None:
@@ -95,3 +98,21 @@ def test_server_rollout_evidence_is_sanitized_and_keeps_external_gates_open() ->
     serialized = json.dumps(evidence, sort_keys=True).lower()
     assert "telegram_bot_token" not in serialized
     assert "fred_api_key" not in serialized
+
+
+def test_depth_research_evidence_is_historical_and_cannot_claim_v11_promotion() -> None:
+    evidence = json.loads(DEPTH_EVIDENCE_PATH.read_text(encoding="utf-8"))
+
+    assert evidence["live_contracts"]["depth_research_passed"] == 10
+    assert evidence["live_contracts"]["depth_research_configured"] == 10
+    assert evidence["isolated_backfill"]["status"] == "succeeded"
+    assert evidence["isolated_backfill"]["errors"] == []
+    assert evidence["isolated_backfill"]["rows_written"] == sum(
+        item["points"] for item in evidence["series"]
+    )
+    assert evidence["isolated_backfill"]["working_database_touched"] is False
+    assert evidence["safety"]["registered_enabled"] is False
+    assert evidence["safety"]["v11_thresholds_created"] is False
+    assert evidence["safety"]["v11_checksum_changed"] is False
+    assert evidence["safety"]["research_failure_degrades_required_fred_health"] is False
+    assert "new_immutable_methodology_version" in evidence["safety"]["promotion_required"]

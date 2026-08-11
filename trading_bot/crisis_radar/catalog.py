@@ -599,6 +599,118 @@ FRED_V11_DEPTH_INDICATORS = (
     ),
 )
 
+
+# These series are collected as disabled research inputs for the next immutable
+# methodology version.  They must not silently change candidate-v11 scoring or
+# its checksum.  Promotion requires thresholds, replay and a new methodology ID.
+FRED_V12_RESEARCH_INDICATORS = (
+    ResearchIndicatorSeed(
+        code="us_initial_claims",
+        provider_series_id="ICSA",
+        name="US Initial Unemployment Claims",
+        group_code="labor_research",
+        region_code="US",
+        unit="persons",
+        frequency="weekly",
+        max_staleness_seconds=14 * 86400,
+    ),
+    ResearchIndicatorSeed(
+        code="us_unemployment_rate",
+        provider_series_id="UNRATE",
+        name="US Unemployment Rate",
+        group_code="labor_research",
+        region_code="US",
+        unit="percent",
+        frequency="monthly",
+        max_staleness_seconds=45 * 86400,
+    ),
+    ResearchIndicatorSeed(
+        code="us_sloos_ci_tightening",
+        provider_series_id="DRTSCILM",
+        name="US Banks Tightening C&I Lending Standards",
+        group_code="credit_research",
+        region_code="US",
+        unit="percent",
+        frequency="quarterly",
+        max_staleness_seconds=120 * 86400,
+    ),
+    ResearchIndicatorSeed(
+        code="us_cre_delinquency_rate",
+        provider_series_id="DRCRELEXFACBS",
+        name="US Commercial Real Estate Loan Delinquency Rate",
+        group_code="housing_cre_research",
+        region_code="US",
+        unit="percent",
+        frequency="quarterly",
+        max_staleness_seconds=120 * 86400,
+    ),
+    ResearchIndicatorSeed(
+        code="us_housing_starts_90d_change",
+        provider_series_id="HOUST",
+        name="US Housing Starts 90-Day Change",
+        group_code="housing_cre_research",
+        region_code="US",
+        unit="percent",
+        frequency="monthly",
+        max_staleness_seconds=45 * 86400,
+        transform="change_90d",
+    ),
+    ResearchIndicatorSeed(
+        code="fed_liquidity_swaps",
+        provider_series_id="SWPT",
+        name="Federal Reserve Central-Bank Liquidity Swaps",
+        group_code="dollar_liquidity_research",
+        region_code="GLOBAL",
+        unit="million_usd",
+        frequency="weekly",
+        max_staleness_seconds=14 * 86400,
+    ),
+    ResearchIndicatorSeed(
+        code="nasdaq_composite_30d_drawdown",
+        provider_series_id="NASDAQCOM",
+        name="NASDAQ Composite 30-Day Drawdown",
+        group_code="technology_market_research",
+        region_code="US",
+        unit="percent",
+        frequency="daily",
+        max_staleness_seconds=4 * 86400,
+        transform="drawdown_30d",
+    ),
+    ResearchIndicatorSeed(
+        code="nasdaq_100_30d_drawdown",
+        provider_series_id="NASDAQ100",
+        name="NASDAQ-100 30-Day Drawdown",
+        group_code="technology_market_research",
+        region_code="US",
+        unit="percent",
+        frequency="daily",
+        max_staleness_seconds=4 * 86400,
+        transform="drawdown_30d",
+    ),
+    ResearchIndicatorSeed(
+        code="brent_90d_change",
+        provider_series_id="DCOILBRENTEU",
+        name="Brent Crude Oil Price 90-Day Change",
+        group_code="commodity_research",
+        region_code="GLOBAL",
+        unit="percent",
+        frequency="daily",
+        max_staleness_seconds=10 * 86400,
+        transform="change_90d",
+    ),
+    ResearchIndicatorSeed(
+        code="henry_hub_gas_90d_change",
+        provider_series_id="DHHNGSP",
+        name="Henry Hub Natural Gas Price 90-Day Change",
+        group_code="commodity_research",
+        region_code="GLOBAL",
+        unit="percent",
+        frequency="daily",
+        max_staleness_seconds=10 * 86400,
+        transform="change_90d",
+    ),
+)
+
 BEA_INDICATORS = (
     IndicatorSeed(
         code="us_real_gdp_qoq",
@@ -1363,23 +1475,28 @@ def _bootstrap_catalog(
                 metadata_version="v11",
                 payload=group_metadata(item.group_code),
             )
-    for item in BYBIT_RESEARCH_INDICATORS:
-        if item.code in {indicator.code for indicator in indicators}:
-            continue
-        repository.register_indicator(
-            item.code,
-            item.name,
-            group_code=item.group_code,
-            unit=item.unit,
-            frequency=item.frequency,
-            risk_direction=RiskDirection.TWO_SIDED.value,
-            source_code=BYBIT.code,
-            region_code=item.region_code,
-            provider_series_id=item.provider_series_id,
-            transform=item.transform,
-            max_staleness_seconds=item.max_staleness_seconds,
-            enabled=False,
-        )
+    active_indicator_codes = {indicator.code for indicator in indicators}
+    for source, research_indicators in (
+        (BYBIT, BYBIT_RESEARCH_INDICATORS),
+        (FRED, FRED_V12_RESEARCH_INDICATORS),
+    ):
+        for item in research_indicators:
+            if item.code in active_indicator_codes:
+                continue
+            repository.register_indicator(
+                item.code,
+                item.name,
+                group_code=item.group_code,
+                unit=item.unit,
+                frequency=item.frequency,
+                risk_direction=RiskDirection.TWO_SIDED.value,
+                source_code=source.code,
+                region_code=item.region_code,
+                provider_series_id=item.provider_series_id,
+                transform=item.transform,
+                max_staleness_seconds=item.max_staleness_seconds,
+                enabled=False,
+            )
     for scenario in scenarios:
         repository.register_scenario(
             scenario.code,
@@ -1403,7 +1520,9 @@ def _bootstrap_catalog(
         "methodology_id": methodology_id,
         "methodology_version": version,
         "indicator_count": len(indicators),
-        "research_indicator_count": len(BYBIT_RESEARCH_INDICATORS),
+        "research_indicator_count": (
+            len(BYBIT_RESEARCH_INDICATORS) + len(FRED_V12_RESEARCH_INDICATORS)
+        ),
         "scenario_count": len(scenarios),
     }
 

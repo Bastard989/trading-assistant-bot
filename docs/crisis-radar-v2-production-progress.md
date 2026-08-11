@@ -32,7 +32,7 @@
 | 3. Dependency/group/stage v2 | completed (shadow) | Independent subchannels/clusters, intensity + systemic breadth, anchors, fail-closed coverage, v10/v11 comparison; tests |
 | 4. Signed OI | completed (shadow) | 1d/7d/30d signed OI, leverage build vs liquidation unwind, v10 absolute series preserved; boundary/API/service tests |
 | 5. Threshold registry v11 | completed (candidate) | Immutable metadata/checksum/source/role/profile/promotion evidence for v11; v10 untouched |
-| 6. Numeric depth | in_progress | 13 official FRED series live-verified again on 2026-08-11; labor, IG credit, deposits, primary credit, housing, STLFSI, real yield, broad USD; historical backfill/replay and non-US depth remain |
+| 6. Numeric depth | in_progress | 13 scoring FRED v11 series plus 10 disabled next-methodology research series live-verified on 2026-08-11. The research set adds initial claims, unemployment, SLOOS lending standards, CRE delinquency, housing starts, central-bank liquidity swaps, Nasdaq Composite/100, Brent and Henry Hub gas. Collection is enabled without changing the immutable v11 checksum or risk score; threshold promotion, historical backfill/replay and non-US depth remain |
 | 7. News coverage/lifecycle | in_progress | Separate news coverage, snapshot-time decay, immediate fusion recompute; all 12 configured official channels live-verified on 2026-08-11: 10 RSS, strict HKMA press-release JSON API for Hong Kong/Greater China and OFAC official GovDelivery topic `USTREAS_61` for sanctions events. Offline fixtures cover security-sensitive adapters. RBA rejected after reproducible HTTP 403; the retired native OFAC RSS is not used; broader filings/exchange coverage remains |
 | 8. Evidence memory profiles | completed (optional advanced) | Basic SQLite FTS5 works without embeddings. Advanced pgvector has schema, continuous ingestion, embedding queue/fallback, hybrid search, health API and a real local PostgreSQL/pgvector verification with relational evidence ID |
 | 9. Scenarios/recovery/diff | completed (shadow seed) | 11 Crisis Playbooks, causal chain, anchors, invalidation, recovery, evidence IDs and persisted causal diff; historical calibration remains stage 12 |
@@ -41,6 +41,12 @@
 | 12. Replay/calibration | implemented; gate failed honestly | Causal v10/v11 comparison plus economic/historical/full/no-trend/no-events/no-contagion/no-dependency/base-rate variants; future-release regression test; real financial-stress manifest checksum `66187057a90d204786af06a658b5ea4c420e694baca3dbaa69641a67b3621aaf`. Historical v11 coverage produced zero eligible samples, so v11 remains shadow and probability is null |
 | 13. Packaging/E2E/security | completed for repository candidate | Authenticated RU/EN/mobile/degraded Playwright E2E; CI installs Chromium; overall coverage 80.20%; computational core 90.31%, runtime 90.09%, PostgreSQL memory 96.83%; self-host doctor, source contracts, guarded update/rollback, encrypted off-host backup and isolated restore drill are tested |
 | 14. Rollout/canary | in progress on target server | Initial release `7c87903` safely migrated the live DB v20→v23. Active immutable hotfix release `715384d` deduplicates persistent canary incidents; API/bot are active, external temporary HTTPS health is green and all 12 official news channels pass from the server. A fresh radar-specific systemd canary for the active release started `2026-08-11T20:08:48Z` and cannot complete before `2026-08-25T20:08:48Z`. Permanent HTTPS and a real encrypted off-host mount remain external blockers |
+
+Numeric-depth research evidence:
+`docs/evidence/crisis-radar-depth-research-20260811.json`. A disposable database
+backfill wrote 39 317 points for all ten new series, covered 1990–2026 where the
+provider history permits, returned no source errors and passed SQLite integrity.
+The working and production databases were not touched by this verification.
 
 ## Неподвижные ограничения
 
@@ -80,8 +86,9 @@
 - Отдельные coverage gates: computational core `90.31%`,
   auth/config/main/jobs/migrations `90.09%`, PostgreSQL memory `96.83%`.
 - Source registry: 22 версионируемых контракта; offline contract gate проходит.
-- Live source contracts: 13/13 FRED v11 series и 12/12 configured official
-  news channels (10 RSS + HKMA JSON API + OFAC GovDelivery RSS) вернули валидные
+- Live source contracts: 13/13 scoring FRED v11 series, 10/10 disabled
+  next-methodology FRED research series and 12/12 configured official news
+  channels (10 RSS + HKMA JSON API + OFAC GovDelivery RSS) вернули валидные
   данные 2026-08-11.
 - HKMA adapter rejects unsuccessful headers, malformed schema, duplicate/future
   records and URLs outside `www.hkma.gov.hk`; scheduled sync, CLI and news coverage

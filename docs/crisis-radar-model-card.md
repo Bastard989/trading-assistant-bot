@@ -82,6 +82,10 @@ never executed.
 
 - causal history has insufficient breadth/depth for v11 promotion;
 - global regions have unequal channel depth;
+- ten additional official FRED depth series are collection-only research inputs;
+  they have no v11 thresholds and cannot affect the live stage until a new
+  immutable methodology passes replay, sensitivity and canary gates; their
+  collection failures are isolated from required FRED source health;
 - 12 official-news channels do not constitute exhaustive world-news coverage;
 - events and contagion currently do not change numeric v11 stage, so their numeric
   ablation delta is expected to be zero;

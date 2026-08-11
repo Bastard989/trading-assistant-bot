@@ -12,24 +12,17 @@ if __package__ in {None, ""}:
 
 from dotenv import load_dotenv  # noqa: E402
 
+from trading_bot.crisis_radar.catalog import (  # noqa: E402
+    FRED_V11_DEPTH_INDICATORS,
+    FRED_V12_RESEARCH_INDICATORS,
+)
 from trading_bot.crisis_radar.sources.base import SeriesRequest  # noqa: E402
 from trading_bot.crisis_radar.sources.fred_client import FredClient  # noqa: E402
 
 
-SERIES_IDS = (
-    "CCSA",
-    "PAYEMS",
-    "JTSJOL",
-    "JTSQUR",
-    "TEMPHELPS",
-    "AWHMAN",
-    "BAMLC0A0CM",
-    "DPSACBW027SBOG",
-    "WLCFLPCL",
-    "PERMIT",
-    "STLFSI4",
-    "DFII10",
-    "DTWEXBGS",
+SERIES_IDS = tuple(
+    item.provider_series_id
+    for item in FRED_V11_DEPTH_INDICATORS + FRED_V12_RESEARCH_INDICATORS
 )
 
 

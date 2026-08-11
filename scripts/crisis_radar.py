@@ -13,7 +13,10 @@ from dotenv import load_dotenv
 from trading_bot.crisis_radar.catalog import (
     BYBIT_INDICATORS,
     BYBIT_RESEARCH_INDICATORS,
+    FRED_GLOBAL_V2_INDICATORS,
     FRED_INDICATORS,
+    FRED_V11_DEPTH_INDICATORS,
+    FRED_V12_RESEARCH_INDICATORS,
 )
 from trading_bot.crisis_radar.repositories import CrisisRadarRepository
 from trading_bot.crisis_radar.service import CrisisRadarService
@@ -101,7 +104,14 @@ def main() -> None:
         action="append",
         choices=tuple(
             item.code
-            for item in FRED_INDICATORS + BYBIT_INDICATORS + BYBIT_RESEARCH_INDICATORS
+            for item in (
+                FRED_INDICATORS
+                + FRED_GLOBAL_V2_INDICATORS
+                + FRED_V11_DEPTH_INDICATORS
+                + FRED_V12_RESEARCH_INDICATORS
+                + BYBIT_INDICATORS
+                + BYBIT_RESEARCH_INDICATORS
+            )
         ),
         help="Limit a FRED or Bybit backfill to one or more registered indicators",
     )

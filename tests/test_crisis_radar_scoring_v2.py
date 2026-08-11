@@ -8,9 +8,12 @@ from trading_bot.crisis_radar.domain import (
     RiskDirection,
 )
 from trading_bot.crisis_radar.catalog import (
+    FRED_V12_RESEARCH_INDICATORS,
     METHODOLOGY_V11_VERSION,
     V11_INDICATORS,
+    V11_SCENARIOS,
     bootstrap_v11_catalog,
+    methodology_checksum,
 )
 from trading_bot.crisis_radar.repositories import CrisisRadarRepository
 from trading_bot.crisis_radar.feature_flags import CrisisRadarFeatureFlags
@@ -227,6 +230,49 @@ def test_v11_catalog_has_complete_immutable_metadata_and_dependency_graph(tmp_pa
         assert connection.execute(
             "SELECT count(*) FROM cr_dependency_assignments"
         ).fetchone()[0] == len(V11_INDICATORS)
+
+
+def test_next_depth_series_are_disabled_research_and_do_not_mutate_v11(tmp_path) -> None:
+    database = Database(tmp_path / "v11-depth-research.sqlite3")
+    repository = CrisisRadarRepository(database)
+    checksum_before = methodology_checksum(
+        version=METHODOLOGY_V11_VERSION,
+        indicators=V11_INDICATORS,
+        scenarios=V11_SCENARIOS,
+    )
+
+    bootstrap_v11_catalog(repository)
+
+    checksum_after = methodology_checksum(
+        version=METHODOLOGY_V11_VERSION,
+        indicators=V11_INDICATORS,
+        scenarios=V11_SCENARIOS,
+    )
+    research_codes = {item.code for item in FRED_V12_RESEARCH_INDICATORS}
+    assert research_codes.isdisjoint({item.code for item in V11_INDICATORS})
+    assert checksum_after == checksum_before
+    with database.connect() as connection:
+        rows = connection.execute(
+            """
+            SELECT code, enabled
+            FROM cr_indicator_definitions
+            WHERE code IN ({})
+            """.format(",".join("?" for _ in research_codes)),
+            tuple(sorted(research_codes)),
+        ).fetchall()
+        threshold_count = connection.execute(
+            """
+            SELECT count(*)
+            FROM cr_threshold_sets AS threshold_set
+            JOIN cr_indicator_definitions AS indicator
+              ON indicator.id=threshold_set.indicator_id
+            WHERE indicator.code IN ({})
+            """.format(",".join("?" for _ in research_codes)),
+            tuple(sorted(research_codes)),
+        ).fetchone()[0]
+    assert {row[0] for row in rows} == research_codes
+    assert all(row[1] == 0 for row in rows)
+    assert threshold_count == 0
 
 
 def test_service_persists_v11_as_shadow_without_replacing_v10(tmp_path) -> None:

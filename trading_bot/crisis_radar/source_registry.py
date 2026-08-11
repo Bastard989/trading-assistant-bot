@@ -114,6 +114,11 @@ SOURCE_POLICIES = (
         "candidate", "Hong Kong and Greater China banking, liquidity and renminbi events",
     ),
     SourcePolicy(
+        "ofac_news", "A", "https://ofac.treasury.gov/recent-actions",
+        "official-govdelivery-rss", "intraday", "publication time", "bounded polling",
+        None, "candidate", "US Treasury sanctions, designations and restrictions",
+    ),
+    SourcePolicy(
         "gdelt_discovery", "C", "https://www.gdeltproject.org/about.html", "public-discovery-api", "intraday",
         "discovery lag", "one bounded query per interval", None, "discovery_only",
         "multilingual event discovery; cannot confirm an event alone",

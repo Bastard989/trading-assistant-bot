@@ -114,6 +114,11 @@ class RssAdapter:
             "www.fdic.gov", "fdic.gov", "public.govdelivery.com",
             "content.govdelivery.com",
         ),
+        "ofac_news": (
+            "ofac.treasury.gov",
+            "public.govdelivery.com",
+            "content.govdelivery.com",
+        ),
     }
 
     _PUBLISHERS = {
@@ -128,6 +133,7 @@ class RssAdapter:
         "boc_news": "Bank of Canada",
         "rba_news": "Reserve Bank of Australia",
         "fdic_news": "Federal Deposit Insurance Corporation",
+        "ofac_news": "U.S. Treasury Office of Foreign Assets Control",
     }
 
     def __init__(self, source_code: str) -> None:

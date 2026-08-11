@@ -1371,6 +1371,7 @@ class CrisisRadarRepository:
             "boe_news": "GBR", "boc_news": "CAN",
             "fdic_news": "US",
             "hkma_news": "HKG",
+            "ofac_news": "GLOBAL",
         }
         covered_regions = {
             region_by_source[item["code"]]

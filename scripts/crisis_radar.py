@@ -86,6 +86,7 @@ def main() -> None:
             "boc_news",
             "fdic_news",
             "hkma_news",
+            "ofac_news",
             "bybit",
         ),
         default="all",
@@ -172,6 +173,7 @@ def main() -> None:
                 "boc_news",
                 "fdic_news",
                 "hkma_news",
+                "ofac_news",
             )
             for source_code in news_source_codes:
                 if args.source in {"all", "news", source_code}:

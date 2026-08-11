@@ -533,6 +533,9 @@ Seed-матрица для shadow comparison:
 пресс-релизов HKMA. Он учитывается в news coverage как самостоятельный источник
 Hong Kong/Greater China, проходит host allowlist и строгий schema contract и не
 маскируется под RSS. GDELT по-прежнему не считается подтверждением.
+Санкционные события поступают через официальный OFAC subscription topic
+`USTREAS_61`, опубликованный в GovDelivery RSS. Собственный OFAC RSS, закрытый
+провайдером в 2025 году, не используется и не имитируется HTML scraping.
 
 ### 8.2. Мультиязычность
 

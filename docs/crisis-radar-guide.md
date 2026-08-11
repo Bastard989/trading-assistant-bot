@@ -268,10 +268,13 @@ unwind. Отсутствующая проверяемая liquidation feed не 
 
 ## 8. Новости, события и память доказательств
 
-Official-first feeds: Fed, ECB, SEC, CFTC, BIS, BOJ, RBI, BoE, BoC, FDIC и HKMA.
-Первые десять источников используют официальные RSS; HKMA подключён через
+Official-first feeds: Fed, ECB, SEC, CFTC, BIS, BOJ, RBI, BoE, BoC, FDIC, HKMA
+и OFAC. Десять источников используют официальные RSS; HKMA подключён через
 официальный JSON API пресс-релизов и даёт отдельный банковский и ликвидностный
-контур Hong Kong/Greater China. GDELT используется только для discovery.
+контур Hong Kong/Greater China. OFAC использует публичный GovDelivery RSS темы
+официальной e-mail-подписки `USTREAS_61` и формирует санкционный event-контур.
+Старый собственный OFAC RSS, официально закрытый в 2025 году, не используется.
+GDELT используется только для discovery.
 Оригинальный язык и текст сохраняются; перевод производный. Dedupe, URL allowlist,
 bounded payload, XML/JSON hardening и prompt-like text defence применяются до
 извлечения событий.
@@ -280,8 +283,10 @@ bounded payload, XML/JSON hardening и prompt-like text defence применяю
 `success=true`, `err_code=0000`, согласованный `datasize`, 1–100 записей,
 дата `YYYY-MM-DD` и ссылка только на `www.hkma.gov.hk`. Неуспешный ответ,
 подмена домена, дубликаты, некорректная схема и публикации из будущего не
-попадают в память доказательств. Успешная live-проверка 11 августа 2026 года
-подтвердила 11 из 11 настроенных официальных новостных каналов; это проверка
+попадают в память доказательств. OFAC-канал принимает ссылки только с
+`ofac.treasury.gov`, `public.govdelivery.com` и `content.govdelivery.com`.
+Успешная live-проверка 11 августа 2026 года подтвердила 12 из 12 настроенных
+официальных новостных каналов; это проверка
 доступности и контракта, а не доказательство полноты всех мировых событий.
 
 ```text

@@ -223,6 +223,12 @@ NEWS_SOURCES = (
         access_type="official_api",
     ),
     NewsSourceSeed(
+        code="ofac_news",
+        name="OFAC Recent Actions GovDelivery RSS",
+        base_url="https://public.govdelivery.com/topics/USTREAS_61/feed.rss",
+        terms_url="https://ofac.treasury.gov/recent-actions",
+    ),
+    NewsSourceSeed(
         code="gdelt_discovery",
         name="GDELT DOC 2.0 Discovery",
         base_url="https://api.gdeltproject.org/api/v2/doc/doc",

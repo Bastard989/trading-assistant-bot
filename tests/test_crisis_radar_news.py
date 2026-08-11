@@ -14,6 +14,7 @@ from trading_bot.crisis_radar.news import (
 from trading_bot.crisis_radar.repositories import CrisisRadarRepository
 from trading_bot.crisis_radar.service import CrisisRadarService
 from trading_bot.crisis_radar.feature_flags import CrisisRadarFeatureFlags
+from trading_bot.crisis_radar.event_pipeline import extract_event_candidate
 from trading_bot.crisis_radar.sources.base import SourcePayloadError
 from trading_bot.crisis_radar.sources.news_clients import (
     HkmaNewsClient,
@@ -61,6 +62,7 @@ def test_ecb_double_slash_url_is_canonical_and_digital_euro_is_not_crypto_stress
         ("boe_news", "boe_news.xml", "www.bankofengland.co.uk"),
         ("boc_news", "boc_news.xml", "www.bankofcanada.ca"),
         ("fdic_news", "fdic_news.xml", "content.govdelivery.com"),
+        ("ofac_news", "ofac_news.xml", "content.govdelivery.com"),
     ),
 )
 def test_new_official_feeds_have_offline_contract_fixtures(
@@ -73,6 +75,18 @@ def test_new_official_feeds_have_offline_contract_fixtures(
     assert len(items) == 1
     assert expected_host in items[0].url
     assert items[0].source_tier == "A"
+
+
+def test_ofac_govdelivery_feed_creates_a_sanctions_event_candidate() -> None:
+    item = RssAdapter("ofac_news").normalize(
+        (FIXTURES / "ofac_news.xml").read_bytes(), fetched_at=NOW
+    )[0]
+
+    event = extract_event_candidate(item)
+    assert item.publisher == "U.S. Treasury Office of Foreign Assets Control"
+    assert event is not None
+    assert event.taxonomy == "sanctions"
+    assert "CHN" in event.regions
 
 
 def test_hkma_official_api_is_strictly_normalized_and_classified() -> None:
@@ -257,7 +271,7 @@ def test_news_coverage_is_separate_from_numeric_coverage_and_fails_closed(tmp_pa
     )
 
     assert coverage["status"] == "insufficient_data"
-    assert coverage["expected_source_count"] == 11
+    assert coverage["expected_source_count"] == 12
     assert coverage["healthy_source_count"] == 1
     assert "EU" in coverage["missing_regions"]
     assert "HKG" in coverage["missing_regions"]

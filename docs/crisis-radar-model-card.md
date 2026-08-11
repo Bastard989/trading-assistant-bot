@@ -24,10 +24,11 @@
 Входы: causally available numeric observations, thresholds, vintages, official
 news/evidence, source health and open-trade exposure.
 
-Проверенный official-news registry содержит 11 активных каналов: десять RSS
-(Fed, ECB, SEC, CFTC, BIS, BOJ, RBI, BoE, BoC, FDIC) и официальный JSON API
-HKMA. HKMA добавляет Hong Kong/Greater China banking/liquidity evidence; GDELT
-остаётся discovery-only и не подтверждает событие самостоятельно.
+Проверенный official-news registry содержит 12 активных каналов: десять RSS
+(Fed, ECB, SEC, CFTC, BIS, BOJ, RBI, BoE, BoC, FDIC), официальный JSON API
+HKMA и официальный OFAC subscription topic через GovDelivery RSS. HKMA добавляет
+Hong Kong/Greater China banking/liquidity evidence, OFAC — sanctions events;
+GDELT остаётся discovery-only и не подтверждает событие самостоятельно.
 
 Выходы:
 
@@ -81,7 +82,7 @@ never executed.
 
 - causal history has insufficient breadth/depth for v11 promotion;
 - global regions have unequal channel depth;
-- 11 official-news channels do not constitute exhaustive world-news coverage;
+- 12 official-news channels do not constitute exhaustive world-news coverage;
 - events and contagion currently do not change numeric v11 stage, so their numeric
   ablation delta is expected to be zero;
 - scorecard MFE/MAE is unavailable without validated asset histories;

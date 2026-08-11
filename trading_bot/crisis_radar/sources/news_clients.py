@@ -33,6 +33,7 @@ class RssClient:
         "boc_news": "https://www.bankofcanada.ca/content_type/press-releases/feed/",
         "rba_news": "https://www.rba.gov.au/rss/rss-cb-media-releases.xml",
         "fdic_news": "https://public.govdelivery.com/topics/USFDIC_26/feed.rss",
+        "ofac_news": "https://public.govdelivery.com/topics/USTREAS_61/feed.rss",
     }
 
     def __init__(

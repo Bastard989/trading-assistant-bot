@@ -90,7 +90,7 @@ def test_source_contract_check_and_service_order(monkeypatch) -> None:
     monkeypatch.setattr("scripts.self_host.subprocess.run", run)
 
     assert report["ok"] is True
-    assert report["source_count"] == 21
+    assert report["source_count"] == 22
     assert service_action("start")["ok"] is True
     assert calls == [
         ["systemctl", "start", "trading-assistant-api"],

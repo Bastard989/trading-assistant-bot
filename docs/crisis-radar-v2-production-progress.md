@@ -40,7 +40,7 @@
 | 11. UI/help/navigation | completed | RU-first v11 metadata and bands, compact main view, journal subnavigation, models in tools, six analysis tabs, accessible help dialog, scenario expansion, exposure overlay; manually verified in in-app browser at desktop/mobile and automated authenticated Playwright E2E |
 | 12. Replay/calibration | implemented; gate failed honestly | Causal v10/v11 comparison plus economic/historical/full/no-trend/no-events/no-contagion/no-dependency/base-rate variants; future-release regression test; real financial-stress manifest checksum `66187057a90d204786af06a658b5ea4c420e694baca3dbaa69641a67b3621aaf`. Historical v11 coverage produced zero eligible samples, so v11 remains shadow and probability is null |
 | 13. Packaging/E2E/security | completed for repository candidate | Authenticated RU/EN/mobile/degraded Playwright E2E; CI installs Chromium; overall coverage 80.20%; computational core 90.31%, runtime 90.09%, PostgreSQL memory 96.83%; self-host doctor, source contracts, guarded update/rollback, encrypted off-host backup and isolated restore drill are tested |
-| 14. Rollout/canary | in progress on target server | Release `7c87903` deployed with an immutable manifest after verified backup, restore drill and shadow migration; live DB migrated v20→v23, API/bot active, external temporary HTTPS health is green and all 12 official news channels pass from the server. Radar-specific systemd canary started `2026-08-11T19:24:02Z` and cannot complete before `2026-08-25T19:24:02Z`. Permanent HTTPS and a real encrypted off-host mount remain external blockers |
+| 14. Rollout/canary | in progress on target server | Initial release `7c87903` safely migrated the live DB v20→v23. Active immutable hotfix release `715384d` deduplicates persistent canary incidents; API/bot are active, external temporary HTTPS health is green and all 12 official news channels pass from the server. A fresh radar-specific systemd canary for the active release started `2026-08-11T20:08:48Z` and cannot complete before `2026-08-25T20:08:48Z`. Permanent HTTPS and a real encrypted off-host mount remain external blockers |
 
 ## Неподвижные ограничения
 
@@ -65,6 +65,8 @@
   (https://github.com/Bastard989/trading-assistant-bot/actions/runs/31520769781).
 - GitHub Actions CI for documentation commit `7c87903`: passed
   (https://github.com/Bastard989/trading-assistant-bot/actions/runs/31521008770).
+- GitHub Actions CI for canary incident-lifecycle hotfix `715384d`: passed
+  (https://github.com/Bastard989/trading-assistant-bot/actions/runs/31530885555).
 - Targeted replay/scoring/validation: `19 passed`.
 - Targeted UI/i18n/canary: `12 passed`.
 - Authenticated Playwright browser E2E: `1 passed` (RU/EN, six analysis tabs,
@@ -98,30 +100,39 @@
 
 ## Production rollout evidence (2026-08-11)
 
-- Target release: `7c87903`, source commit
-  `7c879039aefce8d43416067ff7e035b7e6fc9912`; fresh server venv points to the
-  same release instead of an older copied venv. The release tree is root-owned
-  and read-only to the service account; API and bot restart successfully from it.
-- Pre-update online backup:
+- Initial schema-migration release: `7c87903`, source commit
+  `7c879039aefce8d43416067ff7e035b7e6fc9912`. Active release: `715384d`, source
+  commit `715384d4bcf652cbb5744b2b9dd9e1122cfe1b72`. Both releases were built with
+  fresh venvs pointing to their own immutable release trees instead of an older
+  copied venv. The active tree is root-owned and read-only to the service
+  account; API and bot restart successfully from it.
+- Initial pre-update online backup used for the v20→v23 migration:
   `pre-update-7c87903-20260811T1910Z.sqlite3`, SHA-256
   `454e5abe65da3c204595e7da639c6b36f98d4abc1f7ab364486f46da118838a4`.
   Integrity `ok`, FK violations `0`, schema `20`, observations `58 628`, trades
+  `0`; isolated restore preserved all table counts.
+- Pre-update online backup for the active hotfix:
+  `pre-update-715384d-20260811T2007Z.sqlite3`, SHA-256
+  `1e6be2468137592c92c453a148d1980caa7b84e21b125ece39995c7c46f45134`.
+  Integrity `ok`, FK violations `0`, schema `23`, observations `59 690`, trades
   `0`; isolated restore preserved all table counts.
 - Shadow migration reached schema `23`, integrity `ok`, FK violations `0` and
   did not change the working database. The controlled live cutover then migrated
   v20→v23 and started API before the bot; `/health/live` and `/health/ready`
   returned success.
 - Post-cutover DB: schema `23`, integrity `ok`, FK violations `0`; API and bot
-  processes run from release `7c87903`.
+  processes run from release `715384d`.
 - Server-side live news verification: 12/12 official channels passed. The first
   v11 snapshot after sync has news coverage `1.0000/healthy`, stage `warning`,
   intensity `58.49`, breadth `56.40`; these values are observations, not a
   calibrated crisis probability.
-- Persistent `trading-assistant-canary.timer` samples every 15 minutes. Manifest
-  start: `2026-08-11T19:24:02.947243Z`; earliest end:
-  `2026-08-25T19:24:02.947243Z`; initial critical incidents: `0`. A failed GDELT
-  discovery request is retained as a warning and does not masquerade as healthy
-  official-news coverage.
+- Persistent `trading-assistant-canary.timer` samples every 15 minutes. Because
+  the monitored executable changed, the active release received a fresh honest
+  calendar window: start `2026-08-11T20:08:48.360198Z`; earliest end
+  `2026-08-25T20:08:48.360198Z`. The first two live samples have `0` critical
+  incidents. One persistent GDELT discovery warning produced one incident, not
+  two: live deduplication is therefore verified. The warning does not masquerade
+  as healthy official-news coverage and remains visible until it resolves.
 - Server doctor now passes token/owner, DB, schema, release, local verified
   backup and installed `age` checks. It correctly remains red for permanent
   HTTPS, an externally retained age recipient/private identity and a separately
@@ -138,4 +149,4 @@
    сервере.
 3. Canary должен реально проработать 14 календарных дней; текущий release начал
    новый период 11 августа и не может пройти этот gate раньше 25 августа 2026
-   года, 19:24 UTC. Этот статус не симулируется тестами.
+   года, 20:08 UTC. Этот статус не симулируется тестами.

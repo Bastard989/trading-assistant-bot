@@ -67,14 +67,24 @@ def test_documentation_does_not_claim_v11_probability_or_primary_promotion() -> 
 def test_server_rollout_evidence_is_sanitized_and_keeps_external_gates_open() -> None:
     evidence = json.loads(ROLLOUT_EVIDENCE_PATH.read_text(encoding="utf-8"))
 
+    assert evidence["version"] == 2
+    assert evidence["release"]["id"] == "715384d"
+    assert evidence["release"]["source_commit"].startswith("715384d")
     assert evidence["release"]["schema_version"] == 23
     assert evidence["release"]["immutable_read_only_for_service"] is True
+    assert evidence["initial_schema_migration_backup"]["schema"] == 20
+    assert evidence["initial_schema_migration_backup"]["restore_table_counts_match"] is True
+    assert evidence["pre_update_backup"]["schema"] == 23
     assert evidence["pre_update_backup"]["restore_table_counts_match"] is True
     assert evidence["migration"]["working_database_changed_during_shadow"] is False
     assert evidence["runtime"]["official_news_contracts_passed"] == 12
     assert evidence["first_v11_snapshot"]["probability"] is None
     assert evidence["canary"]["status"] == "in_progress"
-    assert evidence["canary"]["initial_critical_incidents"] == 0
+    assert evidence["canary"]["release"] == evidence["release"]["id"]
+    assert evidence["canary"]["critical_incident_count"] == 0
+    assert evidence["canary"]["incident_deduplication_live_verified"] is True
+    assert evidence["ci"]["head_sha"] == evidence["release"]["source_commit"]
+    assert evidence["ci"]["conclusion"] == "success"
     assert "fourteen_calendar_day_canary" in evidence["external_blockers"]
     assert evidence["server_doctor"]["age_binary_available"] is True
     assert evidence["server_doctor"]["required_failed"] == [

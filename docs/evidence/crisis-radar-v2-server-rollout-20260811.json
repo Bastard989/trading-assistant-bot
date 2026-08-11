@@ -1,14 +1,31 @@
 {
-  "version": 1,
-  "recorded_at": "2026-08-11T19:24:03.438846+00:00",
+  "version": 2,
+  "recorded_at": "2026-08-11T20:15:09+00:00",
   "release": {
-    "id": "7c87903",
-    "source_commit": "7c879039aefce8d43416067ff7e035b7e6fc9912",
+    "id": "715384d",
+    "source_commit": "715384d4bcf652cbb5744b2b9dd9e1122cfe1b72",
+    "source_archive_sha256": "3ce5bfae19ca7853961dd18bd148254dd34c577802970950fcb40976e261b557",
     "schema_version": 23,
     "fresh_venv_bound_to_release": true,
     "immutable_read_only_for_service": true
   },
-  "pre_update_backup": {
+  "rollout_history": [
+    {
+      "release": "7c87903",
+      "source_commit": "7c879039aefce8d43416067ff7e035b7e6fc9912",
+      "source_archive_sha256": "7a198d526b7987c34d35562b24a47944506635bae437d8e4f6ab349681c3dc69",
+      "role": "initial_schema_20_to_23_rollout",
+      "activated_at": "2026-08-11T19:24:02.947243+00:00"
+    },
+    {
+      "release": "715384d",
+      "source_commit": "715384d4bcf652cbb5744b2b9dd9e1122cfe1b72",
+      "source_archive_sha256": "3ce5bfae19ca7853961dd18bd148254dd34c577802970950fcb40976e261b557",
+      "role": "canary_incident_deduplication_hotfix",
+      "activated_at": "2026-08-11T20:08:48.360198+00:00"
+    }
+  ],
+  "initial_schema_migration_backup": {
     "filename": "pre-update-7c87903-20260811T1910Z.sqlite3",
     "sha256": "454e5abe65da3c204595e7da639c6b36f98d4abc1f7ab364486f46da118838a4",
     "schema": 20,
@@ -18,11 +35,23 @@
     "trades": 0,
     "restore_table_counts_match": true
   },
+  "pre_update_backup": {
+    "filename": "pre-update-715384d-20260811T2007Z.sqlite3",
+    "sha256": "1e6be2468137592c92c453a148d1980caa7b84e21b125ece39995c7c46f45134",
+    "schema": 23,
+    "integrity": "ok",
+    "foreign_key_violations": 0,
+    "observations": 59690,
+    "trades": 0,
+    "restore_table_counts_match": true
+  },
   "migration": {
     "shadow_ok": true,
     "working_database_changed_during_shadow": false,
-    "schema_before": 20,
-    "schema_after": 23,
+    "initial_schema_before": 20,
+    "initial_schema_after": 23,
+    "hotfix_schema_before": 23,
+    "hotfix_schema_after": 23,
     "post_cutover_integrity": "ok",
     "post_cutover_foreign_key_violations": 0
   },
@@ -47,16 +76,26 @@
   },
   "canary": {
     "unit": "trading-assistant-canary.timer",
+    "release": "715384d",
     "status": "in_progress",
-    "started_at": "2026-08-11T19:24:02.947243+00:00",
-    "expected_end_at": "2026-08-25T19:24:02.947243+00:00",
+    "started_at": "2026-08-11T20:08:48.360198+00:00",
+    "expected_end_at": "2026-08-25T20:08:48.360198+00:00",
     "interval_minutes": 15,
     "minimum_samples": 1210,
-    "initial_sample_count": 2,
-    "initial_critical_incidents": 0,
-    "initial_warnings": [
+    "observed_sample_count": 2,
+    "incident_count": 1,
+    "active_incident_count": 1,
+    "critical_incident_count": 0,
+    "incident_deduplication_live_verified": true,
+    "active_warnings": [
       "gdelt_discovery_latest_run_failed"
     ]
+  },
+  "ci": {
+    "head_sha": "715384d4bcf652cbb5744b2b9dd9e1122cfe1b72",
+    "run_id": 31530885555,
+    "conclusion": "success",
+    "url": "https://github.com/Bastard989/trading-assistant-bot/actions/runs/31530885555"
   },
   "external_blockers": [
     "permanent_https_firewall_ingress_80_443",

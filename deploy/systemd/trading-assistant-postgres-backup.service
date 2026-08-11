@@ -1,0 +1,16 @@
+[Unit]
+Description=Trading Assistant verified PostgreSQL evidence-memory backup
+
+[Service]
+Type=oneshot
+User=trading-assistant
+Group=trading-assistant
+WorkingDirectory=/opt/trading-assistant/current
+EnvironmentFile=/etc/trading-assistant.env
+ExecStart=/opt/trading-assistant/current/.venv/bin/python scripts/backup_postgres_daily.py --directory ${BACKUP_DIRECTORY}/postgres --age-recipient ${BACKUP_AGE_RECIPIENT} --off-host-directory ${OFF_HOST_BACKUP_DIRECTORY}/postgres --apply-retention --daily 7 --weekly 4
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/trading-assistant
+UMask=0077

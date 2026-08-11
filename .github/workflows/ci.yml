@@ -30,9 +30,11 @@ jobs:
           node-version: "22"
       - run: python -m pip install --upgrade pip
       - run: pip install -r requirements-dev.txt
+      - run: python -m playwright install --with-deps chromium
       - run: ruff check .
       - run: node --check mini_app/app.js
-      - run: python -m pytest -q --cov=trading_bot --cov-report=term --cov-fail-under=30
+      - run: python -m pytest -q --cov=trading_bot --cov-report=term --cov-report=json:coverage.json --cov-fail-under=80
+      - run: python -m scripts.check_coverage_gates coverage.json
       - run: pip-audit -r requirements.txt -r requirements-dev.txt
       - run: |
           python -m scripts.migrate /tmp/empty.sqlite3

@@ -1,0 +1,17 @@
+[Unit]
+Description=Trading Assistant Crisis Radar v2 canary sample
+After=trading-assistant-api.service
+
+[Service]
+Type=oneshot
+User=trading-assistant
+Group=trading-assistant
+WorkingDirectory=/opt/trading-assistant/current
+EnvironmentFile=/etc/trading-assistant.env
+ExecStart=/opt/trading-assistant/current/.venv/bin/python scripts/radar_canary.py --database ${DATABASE_PATH} --backup-directory /var/lib/trading-assistant/backups --manifest /var/lib/trading-assistant/canary/crisis-radar-v2.json --base-url http://127.0.0.1:8080 --release ${TRADING_ASSISTANT_RELEASE}
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/trading-assistant
+UMask=0077

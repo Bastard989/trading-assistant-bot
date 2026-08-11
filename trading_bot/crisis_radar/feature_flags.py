@@ -22,6 +22,7 @@ class CrisisRadarFeatureFlags:
     evidence_memory_v2: bool = False
     trend_engine_v2: bool = False
     scenario_fusion_v2: bool = False
+    scoring_v11: bool = False
 
     @classmethod
     def from_environment(cls) -> "CrisisRadarFeatureFlags":
@@ -34,6 +35,7 @@ class CrisisRadarFeatureFlags:
             evidence_memory_v2=_enabled("CRISIS_RADAR_EVIDENCE_MEMORY_V2_ENABLED", default=master),
             trend_engine_v2=_enabled("CRISIS_RADAR_TREND_ENGINE_V2_ENABLED", default=master),
             scenario_fusion_v2=_enabled("CRISIS_RADAR_SCENARIO_FUSION_V2_ENABLED", default=master),
+            scoring_v11=_enabled("CRISIS_RADAR_SCORING_V11_ENABLED", default=master),
         )
 
     def as_dict(self) -> dict[str, bool]:
@@ -45,4 +47,5 @@ class CrisisRadarFeatureFlags:
             "evidence_memory_v2": self.evidence_memory_v2,
             "trend_engine_v2": self.trend_engine_v2,
             "scenario_fusion_v2": self.scenario_fusion_v2,
+            "scoring_v11": self.scoring_v11,
         }

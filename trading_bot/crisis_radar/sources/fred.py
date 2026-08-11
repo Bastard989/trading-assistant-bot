@@ -107,6 +107,10 @@ class FredTransformAdapter:
             return self._change(raw, request, window=timedelta(days=90))
         if transform == "change_30d":
             return self._change(raw, request, window=timedelta(days=30))
+        if transform == "change_180d":
+            return self._change(raw, request, window=timedelta(days=180))
+        if transform == "difference_1_period":
+            return self._difference_one_period(raw, request)
         raise SourcePayloadError(f"unsupported FRED transform: {transform}")
 
     @staticmethod
@@ -170,3 +174,16 @@ class FredTransformAdapter:
         if not result:
             raise SourcePayloadError("FRED response has insufficient history for change")
         return result
+
+    def _difference_one_period(
+        self,
+        raw: list[Observation],
+        request: SeriesRequest,
+    ) -> list[Observation]:
+        if len(raw) < 2:
+            raise SourcePayloadError("FRED response has insufficient history for difference")
+        return [
+            self._derived(item, request, item.value - raw[index - 1].value)
+            for index, item in enumerate(raw)
+            if index > 0
+        ]

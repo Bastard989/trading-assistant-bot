@@ -7,28 +7,36 @@ from decimal import Decimal, InvalidOperation
 from trading_bot.crisis_radar.catalog import (
     BYBIT_INDICATORS,
     BYBIT_RESEARCH_INDICATORS,
+    BYBIT_SIGNED_V11_INDICATORS,
     FRED_INDICATORS,
     FRED_GLOBAL_V2_INDICATORS,
+    FRED_V11_DEPTH_INDICATORS,
     METHODOLOGY_CODE,
     METHODOLOGY_GLOBAL_V2_VERSION,
     METHODOLOGY_VERSION,
     METHODOLOGY_V2_VERSION,
+    METHODOLOGY_V11_VERSION,
     STARTER_INDICATORS,
     GLOBAL_V2_INDICATORS,
+    V11_INDICATORS,
+    V11_SCENARIOS,
     V2_INDICATORS,
     bootstrap_global_v2_catalog,
     bootstrap_starter_catalog,
     bootstrap_v2_catalog,
+    bootstrap_v11_catalog,
 )
 from trading_bot.crisis_radar.coverage import (
     DEFAULT_REQUIRED_REGIONS,
     GLOBAL_V2_REQUIRED_REGIONS,
+    V11_REQUIRED_GROUPS,
     ExpectedIndicator,
     assess_coverage,
 )
 from trading_bot.crisis_radar.feature_flags import CrisisRadarFeatureFlags
 from trading_bot.crisis_radar.news import NEWS_RULE_VERSION, RssAdapter, classify_news
 from trading_bot.crisis_radar.event_pipeline import extract_event_candidate
+from trading_bot.crisis_radar.evidence_pipeline import EvidencePipeline
 from trading_bot.crisis_radar.official_catalogs import bootstrap_official_event_catalogs
 from trading_bot.crisis_radar.domain import MarketOverview
 from trading_bot.crisis_radar.derived_labels import (
@@ -36,6 +44,7 @@ from trading_bot.crisis_radar.derived_labels import (
     generate_crypto_leverage_unwind_labels,
 )
 from trading_bot.crisis_radar.event_catalog import EventCatalogVersion
+from trading_bot.crisis_radar.exposure import build_exposure_overlay
 from trading_bot.crisis_radar.opportunities import (
     MarketQuote,
     MarketStage as OpportunityMarketStage,
@@ -46,6 +55,8 @@ from trading_bot.crisis_radar.opportunities import (
 from trading_bot.crisis_radar.repositories import CrisisRadarRepository
 from trading_bot.crisis_radar.scenarios import SCENARIOS, V2_SCENARIOS, build_scenario_states
 from trading_bot.crisis_radar.scenario_fusion import fuse_scenarios
+from trading_bot.crisis_radar.scoring_v2 import score_indicator_v2
+from trading_bot.crisis_radar.scenario_v2 import calculate_scenario_v2
 from trading_bot.crisis_radar.sources.base import SeriesRequest
 from trading_bot.crisis_radar.sources.base import SourcePayloadError
 from trading_bot.crisis_radar.sources.bea import BeaAdapter
@@ -73,6 +84,7 @@ from trading_bot.crisis_radar.sources.news_clients import (
 from trading_bot.crisis_radar.sources.official_clients import BeaClient, EiaClient, OfficialSourceError
 from trading_bot.crisis_radar.stability import STABILITY_POLICY, stabilize_indicator_state
 from trading_bot.crisis_radar.states import build_indicator_state, build_market_overview
+from trading_bot.crisis_radar.stage_v2 import calculate_stage_v2, dependency_for
 from trading_bot.crisis_radar.trends import calculate_contagion, calculate_indicator_features
 from trading_bot.crisis_radar.validation import evaluate_stored_calibration_gate
 
@@ -83,9 +95,11 @@ class CrisisRadarService:
         repository: CrisisRadarRepository,
         *,
         feature_flags: CrisisRadarFeatureFlags | None = None,
+        evidence_pipeline: EvidencePipeline | None = None,
     ) -> None:
         self.repository = repository
         self.feature_flags = feature_flags or CrisisRadarFeatureFlags.from_environment()
+        self.evidence_pipeline = evidence_pipeline
         if self.feature_flags.global_sources_v2:
             self.methodology_version = METHODOLOGY_GLOBAL_V2_VERSION
             self.indicators = GLOBAL_V2_INDICATORS
@@ -106,6 +120,8 @@ class CrisisRadarService:
         elif self.feature_flags.thresholds_v2:
             result = bootstrap_v2_catalog(self.repository)
         result["event_catalog_count"] = len(bootstrap_official_event_catalogs(self.repository))
+        if self.feature_flags.scoring_v11:
+            result["shadow_v11"] = bootstrap_v11_catalog(self.repository)
         return result
 
     def derive_crypto_event_catalog(
@@ -194,7 +210,9 @@ class CrisisRadarService:
         rows_written = 0
         errors: list[str] = []
         fred_seeds = (
-            FRED_INDICATORS + FRED_GLOBAL_V2_INDICATORS
+            FRED_INDICATORS + FRED_GLOBAL_V2_INDICATORS + (
+                FRED_V11_DEPTH_INDICATORS if self.feature_flags.scoring_v11 else ()
+            )
             if self.feature_flags.global_sources_v2
             else FRED_INDICATORS
         )
@@ -268,7 +286,9 @@ class CrisisRadarService:
         rows_written = 0
         errors: list[str] = []
         fred_seeds = (
-            FRED_INDICATORS + FRED_GLOBAL_V2_INDICATORS
+            FRED_INDICATORS + FRED_GLOBAL_V2_INDICATORS + (
+                FRED_V11_DEPTH_INDICATORS if self.feature_flags.scoring_v11 else ()
+            )
             if self.feature_flags.global_sources_v2
             else FRED_INDICATORS
         )
@@ -730,6 +750,7 @@ class CrisisRadarService:
         client: RssClient,
         *,
         fetched_at: datetime | None = None,
+        recompute_after: bool = True,
     ) -> dict[str, int | str]:
         self.bootstrap()
         now = fetched_at or datetime.now(timezone.utc)
@@ -741,6 +762,8 @@ class CrisisRadarService:
         rows_written = 0
         evidence_written = 0
         events_written = 0
+        memory_ingested = 0
+        memory_errors = 0
         error = ""
         try:
             payload = await client.fetch()
@@ -749,6 +772,12 @@ class CrisisRadarService:
             for item in items:
                 saved = self.repository.save_news_item(item, sync_run_id=sync_run_id)
                 rows_written += int(saved.inserted)
+                if self.evidence_pipeline is not None and (saved.inserted or saved.updated):
+                    try:
+                        await self.evidence_pipeline.ingest_news(saved.news_item_id, item)
+                        memory_ingested += 1
+                    except Exception:
+                        memory_errors += 1
                 for evidence in classify_news(item):
                     evidence_written += int(
                         self.repository.save_news_evidence(
@@ -776,6 +805,13 @@ class CrisisRadarService:
             error_code="source_error" if error else "",
             error_detail=error,
         )
+        recomputed = False
+        if (
+            not error
+            and recompute_after
+            and (self.feature_flags.news_events_v2 or self.feature_flags.scoring_v11)
+        ):
+            recomputed = self.recompute(snapshot_at=now) is not None
         return {
             "sync_run_id": sync_run_id,
             "status": status,
@@ -783,6 +819,9 @@ class CrisisRadarService:
             "rows_written": rows_written,
             "evidence_written": evidence_written,
             "events_written": events_written,
+            "fusion_recomputed": recomputed,
+            "memory_ingested": memory_ingested,
+            "memory_errors": memory_errors,
         }
 
     async def sync_gdelt_discovery(
@@ -797,7 +836,7 @@ class CrisisRadarService:
         if now.tzinfo is None or now.utcoffset() is None:
             raise ValueError("fetched_at must be timezone-aware")
         sync_run_id = self.repository.start_sync_run("gdelt_discovery", started_at=now)
-        rows_fetched = rows_written = events_written = 0
+        rows_fetched = rows_written = events_written = memory_ingested = memory_errors = 0
         error = ""
         try:
             payload = await client.fetch(timespan=timespan)
@@ -806,6 +845,12 @@ class CrisisRadarService:
             for item in items:
                 saved = self.repository.save_news_item(item, sync_run_id=sync_run_id)
                 rows_written += int(saved.inserted)
+                if self.evidence_pipeline is not None and (saved.inserted or saved.updated):
+                    try:
+                        await self.evidence_pipeline.ingest_news(saved.news_item_id, item)
+                        memory_ingested += 1
+                    except Exception:
+                        memory_errors += 1
                 candidate = extract_event_candidate(item)
                 if candidate is not None:
                     self.repository.save_event_candidate(saved.news_item_id, candidate)
@@ -828,6 +873,8 @@ class CrisisRadarService:
             "rows_fetched": rows_fetched,
             "rows_written": rows_written,
             "events_written": events_written,
+            "memory_ingested": memory_ingested,
+            "memory_errors": memory_errors,
         }
 
     async def sync_bybit(
@@ -848,15 +895,31 @@ class CrisisRadarService:
         errors = []
         for symbol in ("BTCUSDT", "ETHUSDT"):
             try:
+                funding_payload = await client.fetch_funding(symbol)
+                oi_payload = await client.fetch_open_interest(symbol)
+                kline_payload = await client.fetch_daily_klines(symbol)
                 payloads = (
-                    (await client.fetch_funding(symbol), adapter.normalize_funding),
-                    (await client.fetch_open_interest(symbol), adapter.normalize_oi_change),
-                    (await client.fetch_daily_klines(symbol), adapter.normalize_drawdown),
+                    (funding_payload, adapter.normalize_funding),
+                    (oi_payload, adapter.normalize_oi_change),
+                    (kline_payload, adapter.normalize_drawdown),
                 )
                 for payload, normalize in payloads:
                     observations = normalize(payload, symbol=symbol, fetched_at=now)
                     rows_fetched += len(observations)
                     for observation in observations:
+                        rows_written += int(
+                            self.repository.save_observation(
+                                observation, sync_run_id=sync_run_id
+                            ).inserted
+                        )
+                if self.feature_flags.scoring_v11:
+                    signed = adapter.normalize_signed_oi_changes(
+                        oi_payload,
+                        symbol=symbol,
+                        fetched_at=now,
+                    )
+                    rows_fetched += len(signed)
+                    for observation in signed:
                         rows_written += int(
                             self.repository.save_observation(
                                 observation, sync_run_id=sync_run_id
@@ -904,7 +967,10 @@ class CrisisRadarService:
             raise ValueError("fetched_at must be timezone-aware")
         if ended_on > now.date():
             raise ValueError("Bybit backfill cannot request future dates")
-        known_codes = {item.code for item in BYBIT_INDICATORS + BYBIT_RESEARCH_INDICATORS}
+        known_codes = {
+            item.code
+            for item in BYBIT_INDICATORS + BYBIT_RESEARCH_INDICATORS + BYBIT_SIGNED_V11_INDICATORS
+        }
         if indicator_codes is not None and (not indicator_codes or not indicator_codes <= known_codes):
             raise ValueError("indicator_codes must contain known Bybit indicator codes")
 
@@ -972,6 +1038,19 @@ class CrisisRadarService:
                             fetched_at=now,
                             started_at=started_at,
                             ended_at=ended_at,
+                        )
+                        + (
+                            [
+                                item
+                                for item in adapter.normalize_signed_oi_changes(
+                                    payload,
+                                    symbol=symbol,
+                                    fetched_at=now,
+                                )
+                                if started_at <= item.observed_at <= ended_at
+                            ]
+                            if self.feature_flags.scoring_v11
+                            else []
                         )
                     ),
                 ),
@@ -1119,7 +1198,7 @@ class CrisisRadarService:
             )
         trend_features = []
         contagion = None
-        if self.feature_flags.trend_engine_v2:
+        if self.feature_flags.trend_engine_v2 or self.feature_flags.scoring_v11:
             trend_series = {}
             for item in inputs:
                 code = item.observation.indicator_code
@@ -1184,7 +1263,204 @@ class CrisisRadarService:
             methodology_id=methodology_id,
             snapshot_at=now,
         )
+        if self.feature_flags.scoring_v11:
+            self._recompute_v11_shadow(
+                snapshot_at=now,
+                baseline_overview=overview,
+                baseline_methodology_id=methodology_id,
+                coverage=coverage,
+            )
         return overview
+
+    def _recompute_v11_shadow(
+        self,
+        *,
+        snapshot_at: datetime,
+        baseline_overview: MarketOverview,
+        baseline_methodology_id: int,
+        coverage,
+    ) -> None:
+        bootstrap_v11_catalog(self.repository)
+        inputs = self.repository.analysis_inputs_as_of(
+            METHODOLOGY_CODE,
+            METHODOLOGY_V11_VERSION,
+            as_of=snapshot_at,
+        )
+        if not inputs:
+            return
+        candidate_methodology_ids = {item.methodology_id for item in inputs}
+        if len(candidate_methodology_ids) != 1:
+            raise RuntimeError("v11 analysis inputs contain mixed methodologies")
+        candidate_methodology_id = candidate_methodology_ids.pop()
+        scores = []
+        candidate_states = []
+        assignments = {}
+        for item in inputs:
+            base_state = build_indicator_state(
+                item.observation,
+                group_code=item.group_code,
+                thresholds=item.thresholds,
+                max_staleness_seconds=item.max_staleness_seconds,
+                snapshot_at=snapshot_at,
+            )
+            candidate_states.append(base_state)
+            points = self.repository.indicator_points_as_of(
+                item.observation.indicator_code,
+                as_of=snapshot_at,
+            )
+            if not points:
+                continue
+            features = calculate_indicator_features(
+                item.observation.indicator_code,
+                points,
+                snapshot_at=snapshot_at,
+                direction=item.thresholds.direction,
+            )
+            score = score_indicator_v2(
+                indicator_code=item.observation.indicator_code,
+                frequency=item.frequency,
+                direction=item.thresholds.direction,
+                economic_score=base_state.stress_score,
+                features=features,
+                history_count=len(points),
+                freshness=base_state.freshness,
+                data_quality={
+                    "fresh": Decimal("1"),
+                    "delayed": Decimal(".70"),
+                    "stale": Decimal("0"),
+                    "missing": Decimal("0"),
+                }[base_state.freshness.value],
+            )
+            scores.append(score)
+            seed = next(
+                seed
+                for seed in V11_INDICATORS
+                if seed.code == item.observation.indicator_code
+            )
+            assignments[seed.code] = dependency_for(
+                code=seed.code,
+                group_code=seed.group_code,
+                region_code=seed.region_code,
+            )
+        candidate_coverage = assess_coverage(
+            candidate_states,
+            expected=tuple(
+                ExpectedIndicator(
+                    code=seed.code,
+                    group_code=seed.group_code,
+                    region_code=seed.region_code,
+                )
+                for seed in V11_INDICATORS
+            ),
+            required_groups=V11_REQUIRED_GROUPS,
+            required_regions=GLOBAL_V2_REQUIRED_REGIONS,
+        )
+        previous_stage, peak = self.repository.latest_v2_stage_context(
+            methodology_id=candidate_methodology_id
+        )
+        stage = calculate_stage_v2(
+            tuple(scores),
+            assignments,
+            coverage_status=candidate_coverage.status,
+            previous_stage=previous_stage,
+            previous_peak_intensity=peak,
+        )
+        news_coverage = self.repository.save_news_coverage_snapshot(
+            methodology_id=candidate_methodology_id,
+            snapshot_at=snapshot_at,
+        )
+        self.repository.save_v2_shadow_snapshot(
+            tuple(scores),
+            stage,
+            snapshot_at=snapshot_at,
+            candidate_methodology_id=candidate_methodology_id,
+            baseline_methodology_id=baseline_methodology_id,
+            baseline_stage=baseline_overview.stage.value,
+            coverage_status=candidate_coverage.status,
+        )
+        events = tuple(self.repository.events_payload(days=90, limit=100, as_of=snapshot_at).get("items") or ())
+        previous_scenarios = self.repository.latest_scenario_v2_context(
+            methodology_id=candidate_methodology_id
+        )
+        scenario_states = []
+        for definition in V11_SCENARIOS:
+            event_ids = tuple(
+                int(event["id"])
+                for event in events
+                if event.get("taxonomy") in definition.event_taxonomies
+                and Decimal(str(event.get("event_score") or 0)) > Decimal(".10")
+            )[:20]
+            previous = previous_scenarios.get(definition.code)
+            scenario_states.append(
+                calculate_scenario_v2(
+                    definition,
+                    stage.groups,
+                    evidence_ids=event_ids,
+                    numeric_coverage=candidate_coverage.ratio,
+                    news_coverage=Decimal(str(news_coverage["ratio"])),
+                    previous_status=None if previous is None else previous[0],
+                    previous_strength=None if previous is None else previous[1],
+                )
+            )
+        self.repository.save_scenario_states_v2(
+            tuple(scenario_states),
+            methodology_id=candidate_methodology_id,
+            snapshot_at=snapshot_at,
+            baseline_stage=baseline_overview.stage.value,
+        )
+        self.repository.resolve_signal_scorecards(
+            methodology_version=METHODOLOGY_V11_VERSION,
+            as_of=snapshot_at,
+        )
+
+    def v2_shadow(self, *, locale: str = "ru") -> dict:
+        return self.repository.latest_v2_overview_payload(
+            methodology_version=METHODOLOGY_V11_VERSION,
+            locale=locale,
+        )
+
+    def scenario_v2(self, *, locale: str = "ru") -> dict:
+        return self.repository.scenario_v2_payload(
+            methodology_version=METHODOLOGY_V11_VERSION,
+            locale=locale,
+        )
+
+    def exposure_overlay(self, *, user_id: int, locale: str = "ru") -> dict:
+        scenarios = self.scenario_v2(locale=locale)
+        return build_exposure_overlay(
+            self.repository.open_trade_exposure_inputs(user_id=user_id),
+            tuple(scenarios.get("items") or ()),
+        )
+
+    def signal_scorecards(self, *, limit: int = 100) -> dict:
+        return self.repository.signal_scorecards_payload(
+            methodology_version=METHODOLOGY_V11_VERSION,
+            limit=limit,
+        )
+
+    def search_evidence(
+        self,
+        query: str,
+        *,
+        limit: int = 20,
+        published_after: datetime | None = None,
+        source_codes: tuple[str, ...] = (),
+    ) -> dict:
+        if self.evidence_pipeline is not None and not source_codes:
+            return self.evidence_pipeline.search(
+                query, limit=limit, published_after=published_after
+            )
+        return self.repository.search_evidence_basic(
+            query,
+            limit=limit,
+            published_after=published_after,
+            source_codes=source_codes,
+        )
+
+    def evidence_memory_health(self) -> dict:
+        if self.evidence_pipeline is None:
+            return {"ready": True, "profile": "basic-local", "embeddings": False}
+        return self.evidence_pipeline.health()
 
     def overview(self, *, locale: str = "ru", owner_user_id: int = 0) -> dict:
         return self.repository.latest_overview_payload(

@@ -165,7 +165,7 @@ def test_world_and_source_health_endpoints_require_owner_auth(monkeypatch, tmp_p
     assert world.status_code == 200
     assert [item["code"] for item in world.json()["regions"]] == ["US", "EU", "CHINA", "GLOBAL"]
     assert health.status_code == 200
-    assert health.json()["summary"]["source_count"] == 17
+    assert health.json()["summary"]["source_count"] == 20
     assert client.get(
         "/api/crisis-radar/world?locale=de", headers=auth_header(42)
     ).status_code == 422

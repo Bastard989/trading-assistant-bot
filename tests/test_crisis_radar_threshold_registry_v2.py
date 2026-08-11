@@ -115,6 +115,37 @@ def test_threshold_metadata_is_immutable_inside_methodology(tmp_path) -> None:
         )
 
 
+def test_bootstrap_backfills_only_blank_metadata_from_legacy_schema(tmp_path) -> None:
+    repository = CrisisRadarRepository(Database(tmp_path / "legacy-metadata.sqlite3"))
+    result = bootstrap_v2_catalog(repository)
+    with repository.db.connect() as connection:
+        connection.execute(
+            """
+            UPDATE cr_threshold_sets
+            SET basis='legacy', promotion_status='active', rationale_payload='{}',
+                source_url='', operational_role='', profile='',
+                promotion_evidence_payload='{}', introduced_at='',
+                metadata_checksum=''
+            WHERE methodology_id=?
+            """,
+            (int(result["methodology_id"]),),
+        )
+
+    bootstrap_v2_catalog(repository)
+
+    with repository.db.connect() as connection:
+        restored = connection.execute(
+            """
+            SELECT basis, promotion_status, metadata_checksum
+            FROM cr_threshold_sets WHERE methodology_id=? LIMIT 1
+            """,
+            (int(result["methodology_id"]),),
+        ).fetchone()
+    assert restored["basis"] == "hybrid"
+    assert restored["promotion_status"] == "candidate"
+    assert len(restored["metadata_checksum"]) == 64
+
+
 def test_global_sources_use_a_new_immutable_methodology(tmp_path) -> None:
     service = CrisisRadarService(
         CrisisRadarRepository(Database(tmp_path / "global-v2.sqlite3")),

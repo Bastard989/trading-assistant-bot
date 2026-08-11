@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Iterator
 
 
-CURRENT_SCHEMA_VERSION = 20
+CURRENT_SCHEMA_VERSION = 23
 
 
 SCHEMA = """
@@ -588,6 +588,201 @@ CREATE TABLE IF NOT EXISTS cr_backtest_provenance (
     FOREIGN KEY(event_catalog_id) REFERENCES cr_event_catalog_versions(id)
 );
 
+CREATE TABLE IF NOT EXISTS cr_entity_metadata (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    entity_type TEXT NOT NULL CHECK(entity_type IN ('indicator', 'group', 'scenario', 'status', 'section')),
+    entity_code TEXT NOT NULL,
+    metadata_version TEXT NOT NULL,
+    name_ru TEXT NOT NULL,
+    name_en TEXT NOT NULL,
+    short_name_ru TEXT NOT NULL,
+    short_name_en TEXT NOT NULL,
+    description_ru TEXT NOT NULL,
+    description_en TEXT NOT NULL,
+    why_it_matters_ru TEXT NOT NULL,
+    why_it_matters_en TEXT NOT NULL,
+    worse_when_ru TEXT NOT NULL,
+    worse_when_en TEXT NOT NULL,
+    calculation_ru TEXT NOT NULL,
+    calculation_en TEXT NOT NULL,
+    limitations_ru TEXT NOT NULL,
+    limitations_en TEXT NOT NULL,
+    source_name TEXT NOT NULL DEFAULT '',
+    technical_code TEXT NOT NULL,
+    checksum TEXT NOT NULL CHECK(length(checksum) = 64),
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(entity_type, entity_code, metadata_version)
+);
+
+CREATE TABLE IF NOT EXISTS cr_dependency_assignments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    methodology_id INTEGER NOT NULL,
+    indicator_id INTEGER NOT NULL,
+    graph_version TEXT NOT NULL,
+    subchannel_code TEXT NOT NULL,
+    group_code TEXT NOT NULL,
+    cluster_code TEXT NOT NULL,
+    region_code TEXT NOT NULL,
+    anchor_class TEXT,
+    checksum TEXT NOT NULL CHECK(length(checksum) = 64),
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(methodology_id, indicator_id, graph_version),
+    FOREIGN KEY(methodology_id) REFERENCES cr_methodology_versions(id),
+    FOREIGN KEY(indicator_id) REFERENCES cr_indicator_definitions(id)
+);
+
+CREATE TABLE IF NOT EXISTS cr_indicator_scores_v2 (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    indicator_id INTEGER NOT NULL,
+    methodology_id INTEGER NOT NULL,
+    snapshot_at TEXT NOT NULL,
+    scoring_version TEXT NOT NULL,
+    profile TEXT NOT NULL,
+    economic_score_text TEXT NOT NULL,
+    economic_band TEXT NOT NULL CHECK(economic_band IN ('normal', 'warning', 'danger', 'critical')),
+    historical_score_text TEXT,
+    historical_band TEXT CHECK(historical_band IS NULL OR historical_band IN ('normal', 'warning', 'danger', 'critical')),
+    trend_score_text TEXT NOT NULL,
+    acceleration_score_text TEXT NOT NULL,
+    persistence_score_text TEXT NOT NULL,
+    regime_score_text TEXT NOT NULL,
+    data_quality_text TEXT NOT NULL,
+    availability_text TEXT NOT NULL,
+    effective_score_text TEXT,
+    effective_band TEXT CHECK(effective_band IS NULL OR effective_band IN ('normal', 'warning', 'danger', 'critical')),
+    agreement TEXT NOT NULL CHECK(agreement IN ('confirmed_stress', 'early_anomaly', 'high_level_stabilizing', 'mixed', 'insufficient_history', 'insufficient_data')),
+    history_count INTEGER NOT NULL CHECK(history_count >= 0),
+    lineage_payload TEXT NOT NULL,
+    input_checksum TEXT NOT NULL CHECK(length(input_checksum) = 64),
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(indicator_id, methodology_id, snapshot_at, scoring_version),
+    FOREIGN KEY(indicator_id) REFERENCES cr_indicator_definitions(id),
+    FOREIGN KEY(methodology_id) REFERENCES cr_methodology_versions(id)
+);
+
+CREATE TABLE IF NOT EXISTS cr_group_states_v2 (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    methodology_id INTEGER NOT NULL,
+    snapshot_at TEXT NOT NULL,
+    stage_version TEXT NOT NULL,
+    group_code TEXT NOT NULL,
+    cluster_code TEXT NOT NULL,
+    score_text TEXT NOT NULL,
+    band TEXT NOT NULL CHECK(band IN ('normal', 'warning', 'danger', 'critical')),
+    subchannel_count INTEGER NOT NULL CHECK(subchannel_count >= 0),
+    active_subchannel_count INTEGER NOT NULL CHECK(active_subchannel_count >= 0),
+    thin_group INTEGER NOT NULL CHECK(thin_group IN (0, 1)),
+    contributors_payload TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(methodology_id, snapshot_at, stage_version, group_code),
+    FOREIGN KEY(methodology_id) REFERENCES cr_methodology_versions(id)
+);
+
+CREATE TABLE IF NOT EXISTS cr_market_snapshots_v2 (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    methodology_id INTEGER NOT NULL,
+    snapshot_at TEXT NOT NULL,
+    stage_version TEXT NOT NULL,
+    stage TEXT NOT NULL CHECK(stage IN ('insufficient_data', 'stable', 'tension', 'warning', 'confirmation', 'crisis', 'recovery')),
+    calculated_stage TEXT NOT NULL CHECK(calculated_stage IN ('stable', 'tension', 'warning', 'confirmation', 'crisis', 'recovery')),
+    stress_intensity_text TEXT NOT NULL,
+    systemic_breadth_text TEXT NOT NULL,
+    active_independent_clusters INTEGER NOT NULL CHECK(active_independent_clusters >= 0),
+    active_regions INTEGER NOT NULL CHECK(active_regions >= 0),
+    anchor_confirmation INTEGER NOT NULL CHECK(anchor_confirmation IN (0, 1)),
+    critical_anchor INTEGER NOT NULL CHECK(critical_anchor IN (0, 1)),
+    coverage_status TEXT NOT NULL CHECK(coverage_status IN ('not_evaluated', 'healthy', 'degraded', 'insufficient_data')),
+    reasons_payload TEXT NOT NULL,
+    input_checksum TEXT NOT NULL CHECK(length(input_checksum) = 64),
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(methodology_id, snapshot_at, stage_version),
+    FOREIGN KEY(methodology_id) REFERENCES cr_methodology_versions(id)
+);
+
+CREATE TABLE IF NOT EXISTS cr_shadow_comparisons (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    snapshot_at TEXT NOT NULL,
+    baseline_methodology_id INTEGER NOT NULL,
+    candidate_methodology_id INTEGER NOT NULL,
+    baseline_stage TEXT NOT NULL,
+    candidate_stage TEXT NOT NULL,
+    intensity_text TEXT NOT NULL,
+    breadth_text TEXT NOT NULL,
+    diff_payload TEXT NOT NULL,
+    input_checksum TEXT NOT NULL CHECK(length(input_checksum) = 64),
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(snapshot_at, baseline_methodology_id, candidate_methodology_id),
+    FOREIGN KEY(baseline_methodology_id) REFERENCES cr_methodology_versions(id),
+    FOREIGN KEY(candidate_methodology_id) REFERENCES cr_methodology_versions(id)
+);
+
+CREATE TABLE IF NOT EXISTS cr_news_coverage_snapshots (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    methodology_id INTEGER NOT NULL,
+    snapshot_at TEXT NOT NULL,
+    status TEXT NOT NULL CHECK(status IN ('healthy', 'degraded', 'insufficient_data')),
+    ratio_text TEXT NOT NULL,
+    expected_source_count INTEGER NOT NULL CHECK(expected_source_count >= 0),
+    healthy_source_count INTEGER NOT NULL CHECK(healthy_source_count >= 0),
+    degraded_source_count INTEGER NOT NULL CHECK(degraded_source_count >= 0),
+    failed_source_count INTEGER NOT NULL CHECK(failed_source_count >= 0),
+    missing_regions_payload TEXT NOT NULL,
+    source_payload TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(methodology_id, snapshot_at),
+    FOREIGN KEY(methodology_id) REFERENCES cr_methodology_versions(id)
+);
+
+CREATE TABLE IF NOT EXISTS cr_scenario_states_v2 (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    methodology_id INTEGER NOT NULL,
+    snapshot_at TEXT NOT NULL,
+    playbook_version TEXT NOT NULL,
+    scenario_code TEXT NOT NULL,
+    status TEXT NOT NULL CHECK(status IN (
+        'unknown', 'inactive', 'watch', 'elevated', 'confirmed',
+        'recovery_watch', 'recovery_confirmed'
+    )),
+    strength_text TEXT NOT NULL,
+    reliability_text TEXT NOT NULL,
+    active_independent_clusters INTEGER NOT NULL CHECK(active_independent_clusters >= 0),
+    current_chain_step INTEGER NOT NULL CHECK(current_chain_step >= 0),
+    confirmed_groups_payload TEXT NOT NULL,
+    missing_anchors_payload TEXT NOT NULL,
+    next_confirmations_payload TEXT NOT NULL,
+    recovery_confirmations_payload TEXT NOT NULL,
+    evidence_ids_payload TEXT NOT NULL,
+    reasons_payload TEXT NOT NULL,
+    causal_diff_payload TEXT NOT NULL,
+    input_checksum TEXT NOT NULL CHECK(length(input_checksum) = 64),
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(methodology_id, snapshot_at, playbook_version, scenario_code),
+    FOREIGN KEY(methodology_id) REFERENCES cr_methodology_versions(id)
+);
+
+CREATE TABLE IF NOT EXISTS cr_signal_scorecards (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    methodology_id INTEGER NOT NULL,
+    scenario_code TEXT NOT NULL,
+    signal_key TEXT NOT NULL,
+    first_detected_at TEXT NOT NULL,
+    first_elevated_at TEXT,
+    first_confirmed_at TEXT,
+    last_seen_at TEXT NOT NULL,
+    invalidated_at TEXT,
+    outcome_status TEXT NOT NULL DEFAULT 'open' CHECK(outcome_status IN (
+        'open', 'resolved', 'false_alert', 'invalidated'
+    )),
+    peak_strength_text TEXT NOT NULL,
+    baseline_stage TEXT NOT NULL DEFAULT '',
+    reaction_payload TEXT NOT NULL DEFAULT '{}',
+    attribution_payload TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(methodology_id, scenario_code, signal_key),
+    FOREIGN KEY(methodology_id) REFERENCES cr_methodology_versions(id)
+);
+
 CREATE INDEX IF NOT EXISTS idx_cr_sync_runs_source_started
     ON cr_sync_runs(source_id, started_at DESC);
 CREATE INDEX IF NOT EXISTS idx_cr_observations_indicator_observed
@@ -640,6 +835,14 @@ CREATE INDEX IF NOT EXISTS idx_cr_replay_runs_scenario_completed
     ON cr_replay_runs(scenario_code, completed_at DESC, id DESC);
 CREATE INDEX IF NOT EXISTS idx_cr_replay_signals_run_time
     ON cr_replay_signals(run_id, signal_at);
+CREATE INDEX IF NOT EXISTS idx_cr_indicator_scores_v2_snapshot
+    ON cr_indicator_scores_v2(snapshot_at DESC, methodology_id, indicator_id);
+CREATE INDEX IF NOT EXISTS idx_cr_market_snapshots_v2_snapshot
+    ON cr_market_snapshots_v2(snapshot_at DESC, methodology_id);
+CREATE INDEX IF NOT EXISTS idx_cr_scenario_states_v2_snapshot
+    ON cr_scenario_states_v2(snapshot_at DESC, methodology_id, scenario_code);
+CREATE INDEX IF NOT EXISTS idx_cr_signal_scorecards_status
+    ON cr_signal_scorecards(outcome_status, scenario_code, last_seen_at DESC);
 
 CREATE TABLE IF NOT EXISTS idempotency_keys (
     user_id INTEGER NOT NULL,
@@ -979,6 +1182,16 @@ class Database:
                 "TEXT NOT NULL DEFAULT '{}'",
             )
             for column, definition in (
+                ("source_url", "TEXT NOT NULL DEFAULT ''"),
+                ("operational_role", "TEXT NOT NULL DEFAULT ''"),
+                ("profile", "TEXT NOT NULL DEFAULT ''"),
+                ("promotion_evidence_payload", "TEXT NOT NULL DEFAULT '{}'"),
+                ("introduced_at", "TEXT NOT NULL DEFAULT ''"),
+                ("retired_at", "TEXT"),
+                ("metadata_checksum", "TEXT NOT NULL DEFAULT ''"),
+            ):
+                self._add_column(connection, "cr_threshold_sets", column, definition)
+            for column, definition in (
                 ("publisher", "TEXT NOT NULL DEFAULT ''"),
                 ("original_language", "TEXT NOT NULL DEFAULT 'en'"),
                 ("normalized_title", "TEXT NOT NULL DEFAULT ''"),
@@ -988,6 +1201,37 @@ class Database:
                 ("raw_payload_hash", "TEXT NOT NULL DEFAULT ''"),
             ):
                 self._add_column(connection, "cr_news_items", column, definition)
+            fts_migration = connection.execute(
+                "SELECT 1 FROM schema_migrations WHERE version = 22"
+            ).fetchone()
+            connection.execute(
+                """
+                CREATE VIRTUAL TABLE IF NOT EXISTS cr_news_fts USING fts5(
+                    title, summary, content='cr_news_items', content_rowid='id',
+                    tokenize='unicode61 remove_diacritics 2'
+                )
+                """
+            )
+            connection.executescript(
+                """
+                CREATE TRIGGER IF NOT EXISTS cr_news_fts_ai AFTER INSERT ON cr_news_items BEGIN
+                    INSERT INTO cr_news_fts(rowid, title, summary)
+                    VALUES (new.id, new.title, new.summary);
+                END;
+                CREATE TRIGGER IF NOT EXISTS cr_news_fts_ad AFTER DELETE ON cr_news_items BEGIN
+                    INSERT INTO cr_news_fts(cr_news_fts, rowid, title, summary)
+                    VALUES ('delete', old.id, old.title, old.summary);
+                END;
+                CREATE TRIGGER IF NOT EXISTS cr_news_fts_au AFTER UPDATE OF title, summary ON cr_news_items BEGIN
+                    INSERT INTO cr_news_fts(cr_news_fts, rowid, title, summary)
+                    VALUES ('delete', old.id, old.title, old.summary);
+                    INSERT INTO cr_news_fts(rowid, title, summary)
+                    VALUES (new.id, new.title, new.summary);
+                END;
+                """
+            )
+            if fts_migration is None:
+                connection.execute("INSERT INTO cr_news_fts(cr_news_fts) VALUES('rebuild')")
             connection.execute(
                 "CREATE INDEX IF NOT EXISTS idx_trades_user_session_status "
                 "ON trades(user_id, session_id, status)"
@@ -1012,6 +1256,9 @@ class Database:
             self._record_migration(connection, 18, "crisis-radar-trend-regime-v18")
             self._record_migration(connection, 19, "crisis-radar-scenario-fusion-v19")
             self._record_migration(connection, 20, "crisis-radar-data-health-alerts-v20")
+            self._record_migration(connection, 21, "crisis-radar-v11-shadow-core-v21")
+            self._record_migration(connection, 22, "crisis-radar-basic-evidence-fts-v22")
+            self._record_migration(connection, 23, "crisis-radar-playbooks-scorecards-v23")
             connection.commit()
         except Exception:
             connection.rollback()

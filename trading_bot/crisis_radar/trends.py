@@ -183,7 +183,7 @@ def _state_machine(code: str, points: tuple[TimePoint, ...]) -> str | None:
             return "emergency_liquidity_reaction"
         return "liquidity_contraction" if latest <= -3 else "normal"
     if code.endswith("oi_7d_change"):
-        return "leverage_unwind" if latest <= -25 else "leverage_build" if latest >= 25 else "normal"
+        return "liquidation_unwind" if latest <= -25 else "leverage_build" if latest >= 25 else "normal"
     return None
 
 

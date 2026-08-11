@@ -7,6 +7,7 @@ from telegram.ext import ApplicationBuilder
 
 from trading_bot.config import load_settings
 from trading_bot.crisis_radar.jobs import CrisisRadarJobs
+from trading_bot.crisis_radar.evidence_pipeline import build_evidence_pipeline_from_environment
 from trading_bot.crisis_radar.repositories import CrisisRadarRepository
 from trading_bot.crisis_radar.service import CrisisRadarService
 from trading_bot.db import Database
@@ -85,7 +86,10 @@ def main() -> None:
 
     if os.getenv("CRISIS_RADAR_ENABLED", "false").strip().lower() == "true":
         CrisisRadarJobs(
-            CrisisRadarService(CrisisRadarRepository(db)),
+            CrisisRadarService(
+                CrisisRadarRepository(db),
+                evidence_pipeline=build_evidence_pipeline_from_environment(),
+            ),
             fred_api_key=os.getenv("FRED_API_KEY", ""),
             bea_api_key=os.getenv("BEA_API_KEY", ""),
             eia_api_key=os.getenv("EIA_API_KEY", ""),

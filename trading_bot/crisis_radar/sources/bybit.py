@@ -407,6 +407,46 @@ class BybitAdapter:
             raise SourcePayloadError("Bybit open-interest response has insufficient history")
         return observations
 
+    def normalize_signed_oi_changes(
+        self,
+        payload: bytes,
+        *,
+        symbol: str,
+        fetched_at: datetime,
+    ) -> list[Observation]:
+        """Calculate signed 1/7/30-day changes without using future OI values."""
+        result, content_hash = self._document(payload, symbol)
+        prefix = symbol.removesuffix("USDT").lower()
+        values: dict[datetime, Decimal] = {}
+        for row in result.get("list", []):
+            try:
+                observed_at = datetime.fromtimestamp(int(row["timestamp"]) / 1000, timezone.utc)
+                value = Decimal(str(row["openInterest"]))
+            except (InvalidOperation, KeyError, TypeError, ValueError) as exc:
+                raise SourcePayloadError("invalid Bybit open-interest row") from exc
+            if not value.is_finite() or value <= 0:
+                raise SourcePayloadError("Bybit open interest must be finite and positive")
+            values[observed_at] = value
+        dates = sorted(values)
+        observations: list[Observation] = []
+        for observed_at in dates:
+            for days in (1, 7, 30):
+                prior_index = bisect_right(dates, observed_at - timedelta(days=days)) - 1
+                if prior_index < 0:
+                    continue
+                change = (values[observed_at] / values[dates[prior_index]] - 1) * 100
+                observations.append(
+                    self._observation(
+                        code=f"{prefix}_oi_{days}d_change",
+                        value=change,
+                        observed_at=observed_at,
+                        fetched_at=fetched_at,
+                        content_hash=content_hash,
+                    )
+                )
+        if not observations:
+            raise SourcePayloadError("Bybit signed open-interest response has insufficient history")
+        return observations
     def normalize_drawdown(self, payload: bytes, *, symbol: str, fetched_at: datetime) -> list[Observation]:
         result, content_hash = self._document(payload, symbol)
         prefix = symbol.removesuffix("USDT").lower()
@@ -616,3 +656,31 @@ class BybitAdapter:
         if not observations:
             raise SourcePayloadError("Bybit price research history is empty")
         return observations
+
+
+def classify_signed_oi_state(
+    *,
+    oi_change: Decimal,
+    price_change: Decimal,
+    funding_rate: Decimal | None = None,
+) -> str:
+    """Explain leverage build/unwind; it is analytical and never creates an order."""
+    if not oi_change.is_finite() or not price_change.is_finite():
+        raise ValueError("OI and price changes must be finite")
+    if funding_rate is not None and not funding_rate.is_finite():
+        raise ValueError("funding rate must be finite")
+    if oi_change <= Decimal("-25") and price_change <= Decimal("-10"):
+        return "liquidation_unwind"
+    if oi_change < Decimal("-5"):
+        return "orderly_deleveraging"
+    if oi_change >= Decimal("25"):
+        if price_change < 0 or (funding_rate is not None and funding_rate < 0):
+            return "leverage_build_short"
+        return "leverage_build_long"
+    if price_change < 0 and oi_change > 0:
+        return "price_down_oi_up"
+    if price_change < 0 and oi_change <= 0:
+        return "price_down_oi_down"
+    if price_change >= 0 and oi_change > 0:
+        return "price_up_oi_up"
+    return "price_up_oi_down"

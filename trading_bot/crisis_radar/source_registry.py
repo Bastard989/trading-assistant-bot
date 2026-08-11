@@ -68,6 +68,15 @@ SOURCE_POLICIES = (
         "crypto market, price and leverage",
     ),
     SourcePolicy(
+        "fed_news", "A", "https://www.federalreserve.gov/feeds.htm", "official-rss", "intraday",
+        "publication time", "bounded polling", None, "active", "US monetary and banking events",
+    ),
+    SourcePolicy(
+        "ecb_news", "A", "https://www.ecb.europa.eu/services/copyright/html/index.en.html",
+        "official-rss", "intraday", "publication time", "bounded polling", None, "active",
+        "euro-area monetary and financial-stability events",
+    ),
+    SourcePolicy(
         "sec_news", "A", "https://www.sec.gov/about/rss-feeds", "official-rss", "intraday",
         "publication time", "bounded polling", None, "candidate", "US securities regulation and failures",
     ),
@@ -88,6 +97,18 @@ SOURCE_POLICIES = (
         "publication time", "bounded polling", None, "candidate", "India monetary and financial stability",
     ),
     SourcePolicy(
+        "boe_news", "A", "https://www.bankofengland.co.uk/legal/terms", "official-rss", "intraday",
+        "publication time", "bounded polling", None, "candidate", "UK monetary and financial stability",
+    ),
+    SourcePolicy(
+        "boc_news", "A", "https://www.bankofcanada.ca/terms/", "official-rss", "intraday",
+        "publication time", "bounded polling", None, "candidate", "Canada monetary and financial stability",
+    ),
+    SourcePolicy(
+        "fdic_news", "A", "https://www.fdic.gov/policies", "official-rss", "intraday",
+        "publication time", "bounded polling", None, "candidate", "US bank failures and resolutions",
+    ),
+    SourcePolicy(
         "gdelt_discovery", "C", "https://www.gdeltproject.org/about.html", "public-discovery-api", "intraday",
         "discovery lag", "one bounded query per interval", None, "discovery_only",
         "multilingual event discovery; cannot confirm an event alone",
@@ -97,7 +118,7 @@ SOURCE_POLICIES = (
 
 def source_registry_payload() -> dict:
     return {
-        "version": "2026-08-04",
+        "version": "2026-08-11",
         "sources": [asdict(item) for item in SOURCE_POLICIES],
         "rules": {
             "official_first": True,

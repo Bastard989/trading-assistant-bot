@@ -1176,6 +1176,15 @@ pre {
 .crisis-today-result-card.is-critical { border-left-color: var(--red); }
 .crisis-today-action { margin-top: auto; color: var(--cyan); font-size: 11px; font-weight: 900; }
 .crisis-detail-section[hidden] { display: none; }
+.crisis-analysis-nav {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 2px 2px 10px;
+  scrollbar-width: thin;
+}
+.crisis-analysis-nav[hidden] { display: none; }
+.crisis-analysis-nav .mini-action { flex: 0 0 auto; }
 
 .crisis-help-dialog {
   width: min(620px, calc(100vw - 24px));
@@ -1716,12 +1725,88 @@ pre {
   color: var(--text);
 }
 
+.journal-subnav {
+  margin-top: -8px;
+  border-color: rgba(86, 214, 255, .18);
+  background: rgba(5, 11, 22, .72);
+}
+
+.journal-subnav[hidden] { display: none !important; }
+
+.journal-tab {
+  min-height: 34px;
+  border: 1px solid rgba(177, 191, 222, .14);
+  border-radius: 8px;
+  background: rgba(8, 13, 24, .76);
+  color: var(--muted);
+  padding: 7px 12px;
+  cursor: pointer;
+}
+
+.journal-tab.active {
+  border-color: rgba(86, 214, 255, .55);
+  color: var(--cyan);
+  background: rgba(86, 214, 255, .1);
+}
+
+.crisis-v2-shadow {
+  border-color: rgba(178, 91, 255, .38);
+  background: linear-gradient(135deg, rgba(178, 91, 255, .09), rgba(8, 13, 24, .88) 55%);
+}
+
+.crisis-v2-summary,
+.crisis-exposure-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.crisis-v2-summary article,
+.crisis-exposure-card {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+  border: 1px solid rgba(177, 191, 222, .16);
+  border-radius: 10px;
+  background: rgba(5, 10, 20, .74);
+  padding: 12px;
+}
+
+.crisis-v2-summary small,
+.crisis-exposure-card span,
+.crisis-exposure-card small { color: var(--muted); }
+.crisis-v2-summary strong { font-size: 20px; }
+.crisis-exposure-card > div { display: flex; justify-content: space-between; gap: 10px; }
+.crisis-exposure-card p { margin: 0; }
+.exposure-conflict { border-left: 3px solid var(--red); }
+.exposure-aligned { border-left: 3px solid var(--green); }
+.exposure-unclassified { border-left: 3px solid var(--muted); }
+
+.crisis-explainer {
+  margin-top: 10px;
+  border-top: 1px solid rgba(177, 191, 222, .14);
+  padding-top: 9px;
+  color: var(--muted);
+}
+
+.crisis-explainer summary {
+  color: var(--cyan);
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.crisis-explainer h4 { margin: 12px 0 4px; color: var(--text); }
+.crisis-explainer p { margin: 4px 0; line-height: 1.5; }
+.crisis-explainer small { display: block; margin-top: 10px; overflow-wrap: anywhere; }
+.crisis-band-comparison { display: grid; gap: 5px; margin-top: 10px; color: var(--muted); font-size: 12px; }
+.crisis-band-comparison b { color: var(--text); }
+
 @media (max-width: 860px) {
   .app { padding: 12px; }
   .topbar { min-height: 140px; padding: 16px; align-items: flex-end; }
   .section-head { align-items: flex-start; flex-direction: column; }
   .head-actions { justify-content: flex-start; }
-  .metrics, .form-grid, .compact-grid, .analytics-grid, .session-form, .model-provider-grid, .model-task-list, .crisis-summary-grid, .crisis-group-grid, .crisis-scenario-grid, .crisis-opportunity-grid, .crisis-world-grid, .crisis-change-grid, .crisis-top-signals, .crisis-trend-grid, .crisis-event-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .metrics, .form-grid, .compact-grid, .analytics-grid, .session-form, .model-provider-grid, .model-task-list, .crisis-summary-grid, .crisis-group-grid, .crisis-scenario-grid, .crisis-opportunity-grid, .crisis-world-grid, .crisis-change-grid, .crisis-top-signals, .crisis-trend-grid, .crisis-event-grid, .crisis-v2-summary, .crisis-exposure-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .price-tape, .market-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .row, .trade-main, .trade-details, .journal-card, .edit-grid { grid-template-columns: 1fr 1fr; }
   .space-backdrop img { top: -36px; width: 190vw; opacity: 0.56; }
@@ -1731,7 +1816,7 @@ pre {
   .app { padding: 10px; }
   .topbar { min-height: 132px; }
   .topbar-actions { align-items: flex-end; flex-direction: column-reverse; }
-  .metrics, .form-grid, .compact-grid, .analytics-grid, .price-tape, .market-grid, .session-form, .session-card, .model-status-grid, .model-provider-grid, .model-form, .model-task-list, .crisis-summary-grid, .crisis-group-grid, .crisis-scenario-grid, .crisis-opportunity-grid, .crisis-world-grid, .crisis-change-grid, .crisis-today-grid, .crisis-top-signals, .crisis-trend-grid, .crisis-event-grid { grid-template-columns: 1fr; }
+  .metrics, .form-grid, .compact-grid, .analytics-grid, .price-tape, .market-grid, .session-form, .session-card, .model-status-grid, .model-provider-grid, .model-form, .model-task-list, .crisis-summary-grid, .crisis-group-grid, .crisis-scenario-grid, .crisis-opportunity-grid, .crisis-world-grid, .crisis-change-grid, .crisis-today-grid, .crisis-top-signals, .crisis-trend-grid, .crisis-event-grid, .crisis-v2-summary, .crisis-exposure-grid { grid-template-columns: 1fr; }
   .crisis-top-signals-card { grid-column: auto; }
   .row, .trade-main, .trade-details, .journal-card, .edit-grid { grid-template-columns: 1fr; }
   .photo-picker { grid-column: 1; }

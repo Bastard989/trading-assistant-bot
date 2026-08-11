@@ -41,6 +41,20 @@ EXPECTED_TABLES = {
     "cr_scenario_fusion_states",
     "cr_data_health_events",
     "cr_data_health_deliveries",
+    "cr_entity_metadata",
+    "cr_dependency_assignments",
+    "cr_indicator_scores_v2",
+    "cr_group_states_v2",
+    "cr_market_snapshots_v2",
+    "cr_shadow_comparisons",
+    "cr_news_coverage_snapshots",
+    "cr_news_fts",
+    "cr_news_fts_data",
+    "cr_news_fts_idx",
+    "cr_news_fts_docsize",
+    "cr_news_fts_config",
+    "cr_scenario_states_v2",
+    "cr_signal_scorecards",
 }
 
 

@@ -102,6 +102,20 @@ def test_crisis_radar_operations_requires_auth_and_exposes_no_secrets(monkeypatc
     assert "api_key" not in response.text.casefold()
 
 
+def test_basic_evidence_search_requires_auth(monkeypatch, tmp_path) -> None:
+    module = load_test_app(monkeypatch, tmp_path)
+    module.crisis_radar.bootstrap()
+    client = TestClient(module.app)
+
+    assert client.get("/api/crisis-radar/evidence/search?q=stress").status_code == 401
+    response = client.get(
+        "/api/crisis-radar/evidence/search?q=stress",
+        headers=auth_header(42),
+    )
+    assert response.status_code == 200
+    assert response.json() == {"profile": "basic-local", "query": "stress", "items": []}
+
+
 def test_personal_thresholds_are_owner_scoped_and_do_not_replace_system_values(
     monkeypatch, tmp_path
 ) -> None:

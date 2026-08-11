@@ -1,4 +1,5 @@
 import asyncio
+from types import SimpleNamespace
 
 from trading_bot.crisis_radar.jobs import CrisisRadarJobs
 from trading_bot.crisis_radar.repositories import AlertDelivery, DataHealthDelivery, ReportDelivery
@@ -68,6 +69,10 @@ class FakeService:
     def recompute(self):
         self.calls.append("market")
         return None
+
+    async def sync_gdelt_discovery(self, client) -> dict:
+        self.calls.append("gdelt_discovery")
+        return {"status": "succeeded"}
 
 
 class FakeQueue:
@@ -282,3 +287,99 @@ def test_data_outage_is_delivered_separately_from_market_alert() -> None:
     assert service.repository.sent == [11]
     assert "СОСТОЯНИЕ ДАННЫХ" in bot.messages[0]["text"]
     assert "не рыночный сигнал" in bot.messages[0]["text"]
+
+
+def test_scheduler_rejects_too_frequent_interval() -> None:
+    jobs = CrisisRadarJobs(FakeService(), fred_api_key="")
+
+    try:
+        jobs.register(FakeApplication(), interval_seconds=299)
+    except ValueError as exc:
+        assert "at least 300" in str(exc)
+    else:  # pragma: no cover - assertion guard
+        raise AssertionError("unsafe interval must be rejected")
+
+
+def test_locked_jobs_skip_without_starting_parallel_sync() -> None:
+    service = FakeService()
+    jobs = CrisisRadarJobs(service, fred_api_key="")
+
+    async def scenario() -> None:
+        await jobs._sync_lock.acquire()
+        try:
+            await jobs.sync(None)
+            await jobs.sync_global(None)
+            await jobs.sync_news_feeds(None)
+        finally:
+            jobs._sync_lock.release()
+
+    asyncio.run(scenario())
+    assert service.calls == []
+
+
+class SchedulingRepository:
+    def __init__(self) -> None:
+        self.enqueued_alerts = []
+        self.enqueued_health = []
+        self.enqueued_reports = []
+
+    def enqueue_alert_deliveries(self, user_ids):
+        self.enqueued_alerts.append(tuple(user_ids))
+
+    def enqueue_data_health_deliveries(self, user_ids):
+        self.enqueued_health.append(tuple(user_ids))
+
+    def enqueue_report_deliveries(self, **kwargs):
+        self.enqueued_reports.append(kwargs)
+
+    def pending_alert_deliveries(self):
+        return []
+
+    def pending_data_health_deliveries(self):
+        return []
+
+    def pending_report_deliveries(self):
+        return []
+
+
+def test_sync_enqueues_owner_deliveries_and_news_v2_uses_full_registry() -> None:
+    service = FakeService()
+    service.repository = SchedulingRepository()
+    service.feature_flags = SimpleNamespace(news_events_v2=True)
+    jobs = CrisisRadarJobs(service, fred_api_key="", alert_user_ids=(42, 42, -1))
+    context = SimpleNamespace(bot=FakeBot())
+
+    asyncio.run(jobs.sync(context))
+    asyncio.run(jobs.sync_global(context))
+    asyncio.run(jobs.sync_news_feeds(context))
+
+    assert jobs.alert_user_ids == (42,)
+    assert service.repository.enqueued_alerts == [(42,), (42,)]
+    assert service.repository.enqueued_health == [(42,), (42,)]
+    assert "gdelt_discovery" in service.calls
+    assert "fdic_news" in service.calls
+
+
+def test_summary_persists_report_payload_and_rejects_unknown_type() -> None:
+    service = FakeService()
+    service.repository = SchedulingRepository()
+    service.overview = lambda **_kwargs: {
+        "stage": "warning",
+        "as_of": "2026-08-11T00:00:00Z",
+        "explanation": "Ухудшаются независимые каналы.",
+        "breadth": {"active": 2},
+        "scenarios": [{"code": "financial_stress", "status": "watch"}],
+    }
+    service.calendar = lambda **_kwargs: {"events": [{"release_name": "CPI"}]}
+    service.news = lambda **_kwargs: {"items": [{"title": "Official release"}]}
+    jobs = CrisisRadarJobs(service, fred_api_key="", alert_user_ids=(42,))
+    context = SimpleNamespace(job=SimpleNamespace(data={"report_type": "weekend"}), bot=FakeBot())
+
+    asyncio.run(jobs.summary(context))
+    invalid = SimpleNamespace(job=SimpleNamespace(data={"report_type": "daily"}), bot=FakeBot())
+    asyncio.run(jobs.summary(invalid))
+
+    report = service.repository.enqueued_reports[0]
+    assert report["report_type"] == "weekend"
+    assert report["user_ids"] == (42,)
+    assert report["payload"]["calendar"][0]["release_name"] == "CPI"

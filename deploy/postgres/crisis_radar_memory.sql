@@ -65,6 +65,18 @@ CREATE TABLE IF NOT EXISTS crisis_radar_memory.edges (
     UNIQUE(from_kind, from_id, relation, to_kind, to_id, evidence_document_id)
 );
 
+CREATE TABLE IF NOT EXISTS crisis_radar_memory.embedding_queue (
+    document_id BIGINT PRIMARY KEY REFERENCES crisis_radar_memory.documents(id) ON DELETE CASCADE,
+    status TEXT NOT NULL CHECK (status IN ('pending', 'running', 'retry', 'completed', 'failed')),
+    attempts INTEGER NOT NULL DEFAULT 0 CHECK (attempts >= 0),
+    last_error TEXT NOT NULL DEFAULT '',
+    available_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    locked_at TIMESTAMPTZ,
+    completed_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 CREATE TABLE IF NOT EXISTS crisis_radar_memory.shadow_rows (
     table_name TEXT NOT NULL,
     row_key TEXT NOT NULL,
@@ -96,3 +108,5 @@ CREATE INDEX IF NOT EXISTS cr_memory_events_time
     ON crisis_radar_memory.events(last_seen_at DESC, taxonomy, status);
 CREATE INDEX IF NOT EXISTS cr_memory_edges_from
     ON crisis_radar_memory.edges(from_kind, from_id, relation);
+CREATE INDEX IF NOT EXISTS cr_memory_embedding_queue_ready
+    ON crisis_radar_memory.embedding_queue(status, available_at);

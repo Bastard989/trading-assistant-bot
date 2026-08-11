@@ -7,7 +7,13 @@ from decimal import Decimal
 
 from trading_bot.crisis_radar.domain import IndicatorThresholds, RiskDirection
 from trading_bot.crisis_radar.repositories import CrisisRadarRepository
+from trading_bot.crisis_radar.scoring_v2 import PROFILES, profile_for
 from trading_bot.crisis_radar.scenarios import SCENARIOS, V2_SCENARIOS, ScenarioDefinition
+from trading_bot.crisis_radar.stage_v2 import (
+    DEPENDENCY_GRAPH_VERSION,
+    STAGE_VERSION,
+    dependency_for,
+)
 from trading_bot.crisis_radar.stability import STABILITY_POLICY
 
 
@@ -15,6 +21,7 @@ METHODOLOGY_CODE = "crisis-radar"
 METHODOLOGY_VERSION = "starter-v8"
 METHODOLOGY_V2_VERSION = "candidate-v9"
 METHODOLOGY_GLOBAL_V2_VERSION = "candidate-v10"
+METHODOLOGY_V11_VERSION = "candidate-v11"
 
 
 @dataclass(frozen=True)
@@ -190,6 +197,24 @@ NEWS_SOURCES = (
         terms_url="https://www.rbi.org.in/Scripts/rss.aspx",
     ),
     NewsSourceSeed(
+        code="boe_news",
+        name="Bank of England News RSS",
+        base_url="https://www.bankofengland.co.uk/rss/news",
+        terms_url="https://www.bankofengland.co.uk/rss",
+    ),
+    NewsSourceSeed(
+        code="boc_news",
+        name="Bank of Canada Press Releases RSS",
+        base_url="https://www.bankofcanada.ca/content_type/press-releases/feed/",
+        terms_url="https://www.bankofcanada.ca/rss-feeds/",
+    ),
+    NewsSourceSeed(
+        code="fdic_news",
+        name="FDIC Press Releases RSS",
+        base_url="https://public.govdelivery.com/topics/USFDIC_26/feed.rss",
+        terms_url="https://www.fdic.gov/news/press-releases",
+    ),
+    NewsSourceSeed(
         code="gdelt_discovery",
         name="GDELT DOC 2.0 Discovery",
         base_url="https://api.gdeltproject.org/api/v2/doc/doc",
@@ -354,6 +379,210 @@ FRED_GLOBAL_V2_INDICATORS = tuple(
         ("brazil", "BRA", "DEXBZUS", "Brazilian real", "бразильский реал"),
         ("mexico", "MEX", "DEXMXUS", "Mexican peso", "мексиканский песо"),
     )
+)
+
+FRED_V11_DEPTH_INDICATORS = (
+    IndicatorSeed(
+        code="us_continuing_claims",
+        provider_series_id="CCSA",
+        name="US Continuing Unemployment Claims",
+        name_ru="Повторные заявки на пособие по безработице в США",
+        group_code="labor",
+        region_code="US",
+        unit="persons",
+        frequency="weekly",
+        max_staleness_seconds=14 * 86400,
+        thresholds=IndicatorThresholds(
+            warning=Decimal("1900000"), danger=Decimal("2500000"), critical=Decimal("4000000"),
+            direction=RiskDirection.HIGHER_IS_WORSE,
+        ),
+    ),
+    IndicatorSeed(
+        code="us_payrolls_monthly_change",
+        provider_series_id="PAYEMS",
+        name="US Nonfarm Payrolls Monthly Change",
+        name_ru="Изменение занятости вне сельского хозяйства США за месяц",
+        group_code="labor",
+        region_code="US",
+        unit="thousand_persons",
+        frequency="monthly",
+        max_staleness_seconds=45 * 86400,
+        thresholds=IndicatorThresholds(
+            warning=Decimal("100"), danger=Decimal("0"), critical=Decimal("-300"),
+            direction=RiskDirection.LOWER_IS_WORSE,
+        ),
+        transform="difference_1_period",
+    ),
+    IndicatorSeed(
+        code="us_job_openings_90d_change",
+        provider_series_id="JTSJOL",
+        name="US Job Openings 90-Day Change",
+        name_ru="Изменение числа вакансий в США за 90 дней",
+        group_code="labor",
+        region_code="US",
+        unit="percent",
+        frequency="monthly",
+        max_staleness_seconds=60 * 86400,
+        thresholds=IndicatorThresholds(
+            warning=Decimal("-5"), danger=Decimal("-10"), critical=Decimal("-20"),
+            direction=RiskDirection.LOWER_IS_WORSE,
+        ),
+        transform="change_90d",
+    ),
+    IndicatorSeed(
+        code="us_quits_rate",
+        provider_series_id="JTSQUR",
+        name="US Quits Rate",
+        name_ru="Доля добровольных увольнений в США",
+        group_code="labor",
+        region_code="US",
+        unit="percent",
+        frequency="monthly",
+        max_staleness_seconds=60 * 86400,
+        thresholds=IndicatorThresholds(
+            warning=Decimal("2.0"), danger=Decimal("1.6"), critical=Decimal("1.2"),
+            direction=RiskDirection.LOWER_IS_WORSE,
+        ),
+    ),
+    IndicatorSeed(
+        code="us_temporary_employment_90d_change",
+        provider_series_id="TEMPHELPS",
+        name="US Temporary Help Employment 90-Day Change",
+        name_ru="Изменение временной занятости в США за 90 дней",
+        group_code="labor",
+        region_code="US",
+        unit="percent",
+        frequency="monthly",
+        max_staleness_seconds=45 * 86400,
+        thresholds=IndicatorThresholds(
+            warning=Decimal("-2"), danger=Decimal("-5"), critical=Decimal("-10"),
+            direction=RiskDirection.LOWER_IS_WORSE,
+        ),
+        transform="change_90d",
+    ),
+    IndicatorSeed(
+        code="us_manufacturing_weekly_hours",
+        provider_series_id="AWHMAN",
+        name="US Manufacturing Average Weekly Hours",
+        name_ru="Средняя рабочая неделя в промышленности США",
+        group_code="labor",
+        region_code="US",
+        unit="hours",
+        frequency="monthly",
+        max_staleness_seconds=45 * 86400,
+        thresholds=IndicatorThresholds(
+            warning=Decimal("40.5"), danger=Decimal("40.0"), critical=Decimal("39.0"),
+            direction=RiskDirection.LOWER_IS_WORSE,
+        ),
+    ),
+    IndicatorSeed(
+        code="us_ig_oas",
+        provider_series_id="BAMLC0A0CM",
+        name="US Investment-Grade Corporate Option-Adjusted Spread",
+        name_ru="Спред корпоративных облигаций инвестиционного уровня США",
+        group_code="credit",
+        region_code="US",
+        unit="percent",
+        frequency="daily",
+        max_staleness_seconds=4 * 86400,
+        thresholds=IndicatorThresholds(
+            warning=Decimal("2"), danger=Decimal("3"), critical=Decimal("5"),
+            direction=RiskDirection.HIGHER_IS_WORSE,
+        ),
+    ),
+    IndicatorSeed(
+        code="us_bank_deposits_90d_change",
+        provider_series_id="DPSACBW027SBOG",
+        name="US Commercial Bank Deposits 90-Day Change",
+        name_ru="Изменение депозитов коммерческих банков США за 90 дней",
+        group_code="banking_stress",
+        region_code="US",
+        unit="percent",
+        frequency="weekly",
+        max_staleness_seconds=14 * 86400,
+        thresholds=IndicatorThresholds(
+            warning=Decimal("-1"), danger=Decimal("-3"), critical=Decimal("-6"),
+            direction=RiskDirection.LOWER_IS_WORSE,
+        ),
+        transform="change_90d",
+    ),
+    IndicatorSeed(
+        code="us_primary_credit_borrowing",
+        provider_series_id="WLCFLPCL",
+        name="Federal Reserve Primary Credit Borrowing",
+        name_ru="Заимствования банков через primary credit ФРС",
+        group_code="banking_stress",
+        region_code="US",
+        unit="million_usd",
+        frequency="weekly",
+        max_staleness_seconds=14 * 86400,
+        thresholds=IndicatorThresholds(
+            warning=Decimal("1000"), danger=Decimal("10000"), critical=Decimal("50000"),
+            direction=RiskDirection.HIGHER_IS_WORSE,
+        ),
+    ),
+    IndicatorSeed(
+        code="us_housing_permits_90d_change",
+        provider_series_id="PERMIT",
+        name="US Housing Permits 90-Day Change",
+        name_ru="Изменение разрешений на строительство жилья в США за 90 дней",
+        group_code="housing_cre",
+        region_code="US",
+        unit="percent",
+        frequency="monthly",
+        max_staleness_seconds=45 * 86400,
+        thresholds=IndicatorThresholds(
+            warning=Decimal("-5"), danger=Decimal("-15"), critical=Decimal("-30"),
+            direction=RiskDirection.LOWER_IS_WORSE,
+        ),
+        transform="change_90d",
+    ),
+    IndicatorSeed(
+        code="us_financial_stress_index",
+        provider_series_id="STLFSI4",
+        name="St. Louis Fed Financial Stress Index",
+        name_ru="Индекс финансового стресса ФРБ Сент-Луиса",
+        group_code="market_stress",
+        region_code="US",
+        unit="index",
+        frequency="weekly",
+        max_staleness_seconds=14 * 86400,
+        thresholds=IndicatorThresholds(
+            warning=Decimal("0"), danger=Decimal("1"), critical=Decimal("2.5"),
+            direction=RiskDirection.HIGHER_IS_WORSE,
+        ),
+    ),
+    IndicatorSeed(
+        code="us_10y_real_yield",
+        provider_series_id="DFII10",
+        name="US 10-Year Real Treasury Yield",
+        name_ru="Реальная доходность 10-летних облигаций США",
+        group_code="rates_liquidity",
+        region_code="US",
+        unit="percent",
+        frequency="daily",
+        max_staleness_seconds=4 * 86400,
+        thresholds=IndicatorThresholds(
+            warning=Decimal("2"), danger=Decimal("2.75"), critical=Decimal("3.5"),
+            direction=RiskDirection.HIGHER_IS_WORSE,
+        ),
+    ),
+    IndicatorSeed(
+        code="broad_usd_30d_change",
+        provider_series_id="DTWEXBGS",
+        name="Broad US Dollar Index 30-Day Change",
+        name_ru="Изменение широкого индекса доллара США за 30 дней",
+        group_code="dollar_liquidity",
+        region_code="GLOBAL",
+        unit="percent",
+        frequency="daily",
+        max_staleness_seconds=4 * 86400,
+        thresholds=IndicatorThresholds(
+            warning=Decimal("3"), danger=Decimal("6"), critical=Decimal("10"),
+            direction=RiskDirection.HIGHER_IS_WORSE,
+        ),
+        transform="change_30d",
+    ),
 )
 
 BEA_INDICATORS = (
@@ -745,6 +974,58 @@ BYBIT_RESEARCH_INDICATORS = tuple(
     )
 )
 
+BYBIT_SIGNED_V11_INDICATORS = tuple(
+    indicator
+    for symbol, label in (("btc", "Bitcoin"), ("eth", "Ethereum"))
+    for indicator in (
+        IndicatorSeed(
+            code=f"{symbol}_oi_1d_change",
+            provider_series_id=f"{symbol.upper()}USDT:oi:1d_change",
+            name=f"{label} Open Interest 1-Day Signed Change",
+            name_ru=f"Изменение OI {symbol.upper()} за 1 день со знаком",
+            group_code="crypto_leverage",
+            region_code="CRYPTO",
+            unit="percent",
+            frequency="daily",
+            max_staleness_seconds=2 * 86400,
+            thresholds=IndicatorThresholds(
+                warning=Decimal("5"), danger=Decimal("10"), critical=Decimal("20"),
+                direction=RiskDirection.TWO_SIDED,
+            ),
+        ),
+        IndicatorSeed(
+            code=f"{symbol}_oi_7d_change",
+            provider_series_id=f"{symbol.upper()}USDT:oi:7d_change",
+            name=f"{label} Open Interest 7-Day Signed Change",
+            name_ru=f"Изменение OI {symbol.upper()} за 7 дней со знаком",
+            group_code="crypto_leverage",
+            region_code="CRYPTO",
+            unit="percent",
+            frequency="daily",
+            max_staleness_seconds=2 * 86400,
+            thresholds=IndicatorThresholds(
+                warning=Decimal("15"), danger=Decimal("25"), critical=Decimal("40"),
+                direction=RiskDirection.TWO_SIDED,
+            ),
+        ),
+        IndicatorSeed(
+            code=f"{symbol}_oi_30d_change",
+            provider_series_id=f"{symbol.upper()}USDT:oi:30d_change",
+            name=f"{label} Open Interest 30-Day Signed Change",
+            name_ru=f"Изменение OI {symbol.upper()} за 30 дней со знаком",
+            group_code="crypto_leverage",
+            region_code="CRYPTO",
+            unit="percent",
+            frequency="daily",
+            max_staleness_seconds=2 * 86400,
+            thresholds=IndicatorThresholds(
+                warning=Decimal("25"), danger=Decimal("50"), critical=Decimal("80"),
+                direction=RiskDirection.TWO_SIDED,
+            ),
+        ),
+    )
+)
+
 STARTER_INDICATORS = (
     FRED_INDICATORS
     + BEA_INDICATORS
@@ -800,6 +1081,31 @@ GLOBAL_V2_INDICATORS = (
     + WORLD_BANK_GLOBAL_V2_INDICATORS
     + BIS_GLOBAL_V2_INDICATORS
     + OECD_GLOBAL_V2_INDICATORS
+)
+
+V11_INDICATORS = tuple(
+    item for item in GLOBAL_V2_INDICATORS if not item.code.endswith("_oi_7d_abs_change")
+) + FRED_V11_DEPTH_INDICATORS + BYBIT_SIGNED_V11_INDICATORS
+
+_V11_SCENARIO_EXTRA_GROUPS = {
+    "global_recession": ("housing_cre",),
+    "financial_stress": ("banking_stress", "dollar_liquidity"),
+    "regional_recession": ("housing_cre",),
+    "banking_crisis": ("banking_stress", "dollar_liquidity"),
+    "sovereign_currency_crisis": ("dollar_liquidity",),
+    "tech_ai_repricing": ("dollar_liquidity",),
+}
+V11_SCENARIOS = tuple(
+    replace(
+        scenario,
+        group_codes=scenario.group_codes + _V11_SCENARIO_EXTRA_GROUPS.get(scenario.code, ()),
+        anchor_groups=(
+            scenario.anchor_groups + ("banking_stress",)
+            if scenario.code == "banking_crisis"
+            else scenario.anchor_groups
+        ),
+    )
+    for scenario in V2_SCENARIOS
 )
 
 _V2_THRESHOLD_RATIONALE = {
@@ -875,6 +1181,13 @@ def methodology_checksum(
             "recovery_fraction": str(STABILITY_POLICY.recovery_fraction),
         },
     }
+    if version == METHODOLOGY_V11_VERSION:
+        payload["indicator_scoring"] = {
+            code: {key: str(value) for key, value in asdict(profile).items()}
+            for code, profile in PROFILES.items()
+        }
+        payload["dependency_graph_version"] = DEPENDENCY_GRAPH_VERSION
+        payload["stage_version"] = STAGE_VERSION
     encoded = json.dumps(payload, ensure_ascii=True, sort_keys=True, separators=(",", ":")).encode()
     return hashlib.sha256(encoded).hexdigest()
 
@@ -883,6 +1196,7 @@ def _source_code_for_indicator(code: str) -> str:
     for source, indicators in (
         (FRED, FRED_INDICATORS),
         (FRED, FRED_GLOBAL_V2_INDICATORS),
+        (FRED, FRED_V11_DEPTH_INDICATORS),
         (BEA, BEA_INDICATORS),
         (EIA, EIA_INDICATORS),
         (ECB, ECB_INDICATORS),
@@ -891,6 +1205,7 @@ def _source_code_for_indicator(code: str) -> str:
         (BIS, BIS_INDICATORS),
         (OECD, OECD_INDICATORS),
         (BYBIT, BYBIT_INDICATORS),
+        (BYBIT, BYBIT_SIGNED_V11_INDICATORS),
         (WORLD_BANK, WORLD_BANK_GLOBAL_V2_INDICATORS),
         (BIS, BIS_GLOBAL_V2_INDICATORS),
         (OECD, OECD_GLOBAL_V2_INDICATORS),
@@ -917,6 +1232,9 @@ def _bootstrap_catalog(
             scenarios=scenarios,
         ),
         effective_from=(
+            "2026-08-05T12:53:16+00:00"
+            if version == METHODOLOGY_V11_VERSION
+            else
             "2026-08-04T12:00:00+00:00"
             if version == METHODOLOGY_GLOBAL_V2_VERSION
             else "2026-08-04T00:00:00+00:00"
@@ -966,15 +1284,70 @@ def _bootstrap_catalog(
                 "operational_role": "candidate_signal",
             },
         )
+        is_v11 = version == METHODOLOGY_V11_VERSION
+        profile = profile_for(
+            frequency=item.frequency,
+            direction=item.thresholds.direction,
+            code=item.code,
+        )
+        source = next(
+            source
+            for source in (FRED, BEA, EIA, ECB, EUROSTAT, WORLD_BANK, BIS, OECD, BYBIT)
+            if source.code == source_code
+        )
         repository.register_thresholds(
             indicator_id,
             methodology_id,
             item.thresholds,
-            basis="hybrid" if version == METHODOLOGY_V2_VERSION else "legacy",
+            basis="hybrid" if version in {METHODOLOGY_V2_VERSION, METHODOLOGY_V11_VERSION} else "legacy",
             promotion_status=promotion_status,
-            rationale=rationale if version == METHODOLOGY_V2_VERSION else {},
+            rationale=rationale if version in {METHODOLOGY_V2_VERSION, METHODOLOGY_V11_VERSION} else {},
+            source_url=(
+                rationale.get("source_url")
+                or (
+                    f"https://fred.stlouisfed.org/series/{item.provider_series_id}"
+                    if source_code == FRED.code and ":" not in item.provider_series_id
+                    else source.base_url
+                )
+            ) if is_v11 else "",
+            operational_role=str(rationale.get("operational_role") or "candidate_signal") if is_v11 else "",
+            profile=profile.code if is_v11 else "",
+            promotion_evidence={
+                "status": "not_promoted",
+                "required": ["causal_replay", "sensitivity", "live_canary"],
+            } if is_v11 else {},
+            introduced_at="2026-08-05T12:53:16+00:00" if is_v11 else "",
         )
+        if is_v11:
+            from trading_bot.crisis_radar.metadata_v11 import (
+                group_metadata,
+                indicator_metadata,
+            )
+
+            repository.register_entity_metadata(
+                entity_type="indicator",
+                entity_code=item.code,
+                metadata_version="v11",
+                payload=indicator_metadata(item, source_name=source.name),
+            )
+            repository.register_dependency_assignment(
+                methodology_id=methodology_id,
+                assignment=dependency_for(
+                    code=item.code,
+                    group_code=item.group_code,
+                    region_code=item.region_code,
+                ),
+                graph_version=DEPENDENCY_GRAPH_VERSION,
+            )
+            repository.register_entity_metadata(
+                entity_type="group",
+                entity_code=item.group_code,
+                metadata_version="v11",
+                payload=group_metadata(item.group_code),
+            )
     for item in BYBIT_RESEARCH_INDICATORS:
+        if item.code in {indicator.code for indicator in indicators}:
+            continue
         repository.register_indicator(
             item.code,
             item.name,
@@ -999,6 +1372,15 @@ def _bootstrap_catalog(
             group_codes=scenario.group_codes,
             anchor_groups=scenario.anchor_groups,
         )
+        if version == METHODOLOGY_V11_VERSION:
+            from trading_bot.crisis_radar.metadata_v11 import scenario_metadata
+
+            repository.register_entity_metadata(
+                entity_type="scenario",
+                entity_code=scenario.code,
+                metadata_version="v11",
+                payload=scenario_metadata(scenario),
+            )
     return {
         "methodology_id": methodology_id,
         "methodology_version": version,
@@ -1034,5 +1416,15 @@ def bootstrap_global_v2_catalog(repository: CrisisRadarRepository) -> dict[str, 
         version=METHODOLOGY_GLOBAL_V2_VERSION,
         indicators=GLOBAL_V2_INDICATORS,
         scenarios=V2_SCENARIOS,
+        promotion_status="candidate",
+    )
+
+
+def bootstrap_v11_catalog(repository: CrisisRadarRepository) -> dict[str, int | str]:
+    return _bootstrap_catalog(
+        repository,
+        version=METHODOLOGY_V11_VERSION,
+        indicators=V11_INDICATORS,
+        scenarios=V11_SCENARIOS,
         promotion_status="candidate",
     )

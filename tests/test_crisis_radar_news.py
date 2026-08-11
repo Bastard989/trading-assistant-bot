@@ -8,6 +8,7 @@ import pytest
 from trading_bot.crisis_radar.news import RssAdapter, classify_news
 from trading_bot.crisis_radar.repositories import CrisisRadarRepository
 from trading_bot.crisis_radar.service import CrisisRadarService
+from trading_bot.crisis_radar.feature_flags import CrisisRadarFeatureFlags
 from trading_bot.crisis_radar.sources.base import SourcePayloadError
 from trading_bot.crisis_radar.sources.news_clients import NewsSourceError, RssClient
 from trading_bot.db import Database
@@ -42,6 +43,26 @@ def test_ecb_double_slash_url_is_canonical_and_digital_euro_is_not_crypto_stress
         "financial_stress",
     }
     assert classify_news(items[0]) == ()
+
+
+@pytest.mark.parametrize(
+    ("source_code", "fixture", "expected_host"),
+    (
+        ("boe_news", "boe_news.xml", "www.bankofengland.co.uk"),
+        ("boc_news", "boc_news.xml", "www.bankofcanada.ca"),
+        ("fdic_news", "fdic_news.xml", "content.govdelivery.com"),
+    ),
+)
+def test_new_official_feeds_have_offline_contract_fixtures(
+    source_code: str, fixture: str, expected_host: str
+) -> None:
+    items = RssAdapter(source_code).normalize(
+        (FIXTURES / fixture).read_bytes(), fetched_at=NOW
+    )
+
+    assert len(items) == 1
+    assert expected_host in items[0].url
+    assert items[0].source_tier == "A"
 
 
 def test_rss_rejects_entities_and_untrusted_item_links() -> None:
@@ -121,3 +142,31 @@ def test_news_sync_is_idempotent_and_does_not_change_market_stage(tmp_path) -> N
     )
     with repository.db.connect() as connection:
         assert connection.execute("SELECT count(*) FROM cr_market_snapshots").fetchone()[0] == 0
+
+
+def test_news_coverage_is_separate_from_numeric_coverage_and_fails_closed(tmp_path) -> None:
+    repository = CrisisRadarRepository(Database(tmp_path / "coverage.sqlite3"))
+    service = CrisisRadarService(
+        repository,
+        feature_flags=CrisisRadarFeatureFlags(scoring_v11=True),
+    )
+    bootstrap = service.bootstrap()
+    methodology_id = int(bootstrap["shadow_v11"]["methodology_id"])
+    run_id = repository.start_sync_run("fed_news", started_at=NOW)
+    repository.finish_sync_run(
+        run_id,
+        finished_at=NOW,
+        status="succeeded",
+        rows_fetched=1,
+        rows_written=1,
+    )
+
+    coverage = repository.save_news_coverage_snapshot(
+        methodology_id=methodology_id,
+        snapshot_at=NOW,
+    )
+
+    assert coverage["status"] == "insufficient_data"
+    assert coverage["expected_source_count"] == 10
+    assert coverage["healthy_source_count"] == 1
+    assert "EU" in coverage["missing_regions"]

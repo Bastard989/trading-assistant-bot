@@ -77,6 +77,14 @@ def main() -> None:
             "news",
             "fed_news",
             "ecb_news",
+            "sec_news",
+            "cftc_news",
+            "bis_news",
+            "boj_news",
+            "rbi_news",
+            "boe_news",
+            "boc_news",
+            "fdic_news",
             "bybit",
         ),
         default="all",
@@ -151,10 +159,21 @@ def main() -> None:
                 results["oecd"] = await service.sync_oecd(
                     OecdClient(), recompute_after=not combined
                 )
-            if args.source in {"all", "news", "fed_news"}:
-                results["fed_news"] = await service.sync_news(RssClient("fed_news"))
-            if args.source in {"all", "news", "ecb_news"}:
-                results["ecb_news"] = await service.sync_news(RssClient("ecb_news"))
+            news_source_codes = (
+                "fed_news",
+                "ecb_news",
+                "sec_news",
+                "cftc_news",
+                "bis_news",
+                "boj_news",
+                "rbi_news",
+                "boe_news",
+                "boc_news",
+                "fdic_news",
+            )
+            for source_code in news_source_codes:
+                if args.source in {"all", "news", source_code}:
+                    results[source_code] = await service.sync_news(RssClient(source_code))
             if args.source in {"all", "bybit"}:
                 results["bybit"] = await service.sync_bybit(
                     BybitClient(), recompute_after=not combined

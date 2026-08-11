@@ -106,6 +106,13 @@ class RssAdapter:
         "bis_news": ("www.bis.org",),
         "boj_news": ("www.boj.or.jp",),
         "rbi_news": ("rbi.org.in", "www.rbi.org.in"),
+        "boe_news": ("www.bankofengland.co.uk",),
+        "boc_news": ("www.bankofcanada.ca",),
+        "rba_news": ("www.rba.gov.au",),
+        "fdic_news": (
+            "www.fdic.gov", "fdic.gov", "public.govdelivery.com",
+            "content.govdelivery.com",
+        ),
     }
 
     _PUBLISHERS = {
@@ -116,6 +123,10 @@ class RssAdapter:
         "bis_news": "Bank for International Settlements",
         "boj_news": "Bank of Japan",
         "rbi_news": "Reserve Bank of India",
+        "boe_news": "Bank of England",
+        "boc_news": "Bank of Canada",
+        "rba_news": "Reserve Bank of Australia",
+        "fdic_news": "Federal Deposit Insurance Corporation",
     }
 
     def __init__(self, source_code: str) -> None:

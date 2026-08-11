@@ -36,6 +36,12 @@ DEFAULT_REQUIRED_GROUPS = (
     "inflation_commodities",
     "crypto_price_stress",
 )
+V11_REQUIRED_GROUPS = DEFAULT_REQUIRED_GROUPS + (
+    "labor",
+    "banking_stress",
+    "dollar_liquidity",
+    "housing_cre",
+)
 
 DEFAULT_REQUIRED_REGIONS = ("US", "EU", "CHINA", "GLOBAL", "CRYPTO")
 GLOBAL_V2_REQUIRED_REGIONS = (

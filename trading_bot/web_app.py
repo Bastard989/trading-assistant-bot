@@ -7,7 +7,7 @@ import os
 import re
 import sqlite3
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Annotated
@@ -32,6 +32,7 @@ from trading_bot.crisis_radar.agent import (
     OpenAICompatibleAgentClient,
 )
 from trading_bot.crisis_radar.repositories import CrisisRadarRepository
+from trading_bot.crisis_radar.evidence_pipeline import build_evidence_pipeline_from_environment
 from trading_bot.crisis_radar.opportunities import AssetClass, MarketQuote
 from trading_bot.crisis_radar.bybit_options import build_defined_risk_put_spread
 from trading_bot.crisis_radar.service import CrisisRadarService
@@ -73,7 +74,10 @@ TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 
 db = Database(DATABASE_PATH, auto_migrate=os.getenv("AUTO_MIGRATE", "false").lower() == "true")
 crisis_radar_enabled = os.getenv("CRISIS_RADAR_ENABLED", "false").strip().lower() == "true"
-crisis_radar = CrisisRadarService(CrisisRadarRepository(db))
+crisis_radar = CrisisRadarService(
+    CrisisRadarRepository(db),
+    evidence_pipeline=build_evidence_pipeline_from_environment(),
+)
 crisis_agent_enabled = os.getenv("CRISIS_AGENT_ENABLED", "false").strip().lower() == "true"
 bybit_option_client = BybitClient(attempts=2, timeout_seconds=5)
 _bybit_option_lock = asyncio.Lock()
@@ -571,6 +575,34 @@ def crisis_radar_events(
     return crisis_radar.events(days=days, limit=limit)
 
 
+@app.get("/api/crisis-radar/evidence/search")
+def crisis_radar_evidence_search(
+    user_id: AuthenticatedUser,
+    q: str = Query(min_length=1, max_length=300),
+    limit: int = Query(default=20, ge=1, le=50),
+    days: int | None = Query(default=90, ge=1, le=3650),
+    source: list[str] = Query(default=[]),
+) -> dict:
+    if not crisis_radar_enabled:
+        raise HTTPException(status_code=503, detail="Crisis Radar is disabled")
+    published_after = (
+        None if days is None else datetime.now(timezone.utc) - timedelta(days=days)
+    )
+    return crisis_radar.search_evidence(
+        q,
+        limit=limit,
+        published_after=published_after,
+        source_codes=tuple(source),
+    )
+
+
+@app.get("/api/crisis-radar/evidence/health")
+def crisis_radar_evidence_health(user_id: AuthenticatedUser) -> dict:
+    if not crisis_radar_enabled:
+        raise HTTPException(status_code=503, detail="Crisis Radar is disabled")
+    return crisis_radar.evidence_memory_health()
+
+
 @app.get("/api/crisis-radar/trends")
 def crisis_radar_trends(user_id: AuthenticatedUser) -> dict:
     if not crisis_radar_enabled:
@@ -593,6 +625,46 @@ def crisis_radar_operations(user_id: AuthenticatedUser) -> dict:
     if not crisis_radar_enabled:
         raise HTTPException(status_code=503, detail="Crisis Radar is disabled")
     return crisis_radar.operational_metrics()
+
+
+@app.get("/api/crisis-radar/v2/shadow")
+def crisis_radar_v2_shadow(
+    user_id: AuthenticatedUser,
+    locale: str = Query("ru", pattern="^(ru|en)$"),
+) -> dict:
+    if not crisis_radar_enabled:
+        raise HTTPException(status_code=404, detail="Crisis Radar is disabled")
+    return crisis_radar.v2_shadow(locale=locale)
+
+
+@app.get("/api/crisis-radar/v2/scenarios")
+def crisis_radar_v2_scenarios(
+    user_id: AuthenticatedUser,
+    locale: str = Query("ru", pattern="^(ru|en)$"),
+) -> dict:
+    if not crisis_radar_enabled:
+        raise HTTPException(status_code=404, detail="Crisis Radar is disabled")
+    return crisis_radar.scenario_v2(locale=locale)
+
+
+@app.get("/api/crisis-radar/v2/exposure")
+def crisis_radar_v2_exposure(
+    user_id: AuthenticatedUser,
+    locale: str = Query("ru", pattern="^(ru|en)$"),
+) -> dict:
+    if not crisis_radar_enabled:
+        raise HTTPException(status_code=404, detail="Crisis Radar is disabled")
+    return crisis_radar.exposure_overlay(user_id=user_id, locale=locale)
+
+
+@app.get("/api/crisis-radar/v2/scorecards")
+def crisis_radar_v2_scorecards(
+    user_id: AuthenticatedUser,
+    limit: int = Query(100, ge=1, le=500),
+) -> dict:
+    if not crisis_radar_enabled:
+        raise HTTPException(status_code=404, detail="Crisis Radar is disabled")
+    return crisis_radar.signal_scorecards(limit=limit)
 
 
 @app.get("/api/crisis-radar/indicators/{code}/history")

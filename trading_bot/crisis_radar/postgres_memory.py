@@ -86,6 +86,53 @@ class PostgresEvidenceMemory:
                     written += 1
         return written
 
+    def enqueue_embedding(self, document_id: int, *, error_code: str = "") -> None:
+        with self._connect(self.dsn) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    INSERT INTO crisis_radar_memory.embedding_queue(
+                        document_id, status, attempts, last_error, available_at
+                    ) VALUES (%s, 'pending', 0, %s, now())
+                    ON CONFLICT(document_id) DO UPDATE SET
+                        status='pending', last_error=excluded.last_error,
+                        available_at=LEAST(
+                            crisis_radar_memory.embedding_queue.available_at,
+                            excluded.available_at
+                        ), updated_at=now()
+                    """,
+                    (document_id, error_code[:120]),
+                )
+
+    def health(self) -> dict:
+        with self._connect(self.dsn) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT
+                      (SELECT count(*) FROM crisis_radar_memory.documents),
+                      (SELECT count(*) FROM crisis_radar_memory.chunks),
+                      (SELECT count(*) FROM crisis_radar_memory.chunks
+                       WHERE embedding IS NOT NULL),
+                      (SELECT count(*) FROM crisis_radar_memory.embedding_queue
+                       WHERE status IN ('pending', 'retry')),
+                      (SELECT max(fetched_at) FROM crisis_radar_memory.documents)
+                    """
+                )
+                row = cursor.fetchone()
+        documents = int(row[0])
+        chunks = int(row[1])
+        embedded = int(row[2])
+        return {
+            "ready": True,
+            "documents": documents,
+            "chunks": chunks,
+            "embedded_chunks": embedded,
+            "embedding_coverage": 0 if chunks == 0 else embedded / chunks,
+            "embedding_queue_depth": int(row[3]),
+            "last_document_at": None if row[4] is None else row[4].isoformat(),
+        }
+
     def hybrid_search(
         self,
         query: str,

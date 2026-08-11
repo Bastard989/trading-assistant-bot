@@ -19,6 +19,9 @@ def test_crisis_radar_is_a_first_class_mini_app_tab() -> None:
     assert "/api/crisis-radar/events" in APP_JS
     assert "/api/crisis-radar/scenarios/fusion" in APP_JS
     assert "/api/crisis-radar/trends" in APP_JS
+    assert "/api/crisis-radar/v2/shadow" in APP_JS
+    assert "/api/crisis-radar/v2/scenarios" in APP_JS
+    assert "/api/crisis-radar/v2/exposure" in APP_JS
     assert "/api/crisis-radar/agent/status" in APP_JS
     assert "/api/crisis-radar/agent/chat" in APP_JS
     assert 'id="crisisAgentForm"' in INDEX_HTML
@@ -34,7 +37,10 @@ def test_crisis_radar_supports_ru_en_and_progressive_disclosure() -> None:
     assert 'data-app-locale="en"' in INDEX_HTML
     assert "let crisisLocale = appLocale" in APP_JS
     assert 'id="crisisTechnical"' in INDEX_HTML
-    assert 'data-crisis-level="analysis" hidden' in INDEX_HTML
+    assert 'id="crisisAnalysisNav"' in INDEX_HTML
+    assert 'data-crisis-level="analysis" data-crisis-panel="signals" hidden' in INDEX_HTML
+    for panel in ("signals", "events", "regions", "scenarios", "opportunities", "sources"):
+        assert f'data-panel="{panel}"' in INDEX_HTML
     assert 'data-crisis-level="methodology" hidden' in INDEX_HTML
     assert 'id="crisisTopSignals"' in INDEX_HTML
     assert 'id="crisisNextEvent"' in INDEX_HTML
@@ -53,7 +59,10 @@ def test_crisis_radar_supports_ru_en_and_progressive_disclosure() -> None:
 
 
 def test_crisis_radar_renders_threshold_context_and_mobile_layout() -> None:
-    assert "distance_to_next_text" in APP_JS
+    assert "economic_band" in APP_JS
+    assert "historical_band" in APP_JS
+    assert "effective_band" in APP_JS
+    assert "crisisAgreementLabels" in APP_JS
     assert "item.thresholds" in APP_JS
     assert ".crisis-thresholds" in STYLES
     assert "@media (max-width: 860px)" in STYLES
@@ -71,6 +80,17 @@ def test_crisis_radar_renders_threshold_context_and_mobile_layout() -> None:
     assert "const explanation = [...new Set(" in APP_JS
     assert "g20_cli_6m_change" in APP_JS
     assert "china_cli_6m_change" in APP_JS
+
+
+def test_v11_is_explicitly_shadow_and_every_deep_card_can_explain_itself() -> None:
+    assert 'id="crisisV2Summary"' in INDEX_HTML
+    assert 'class="band crisis-detail-section crisis-v2-shadow"' in INDEX_HTML
+    assert "не основной сигнал" in APP_JS
+    assert "crisisInfoDetails" in APP_JS
+    assert "crisis-explainer" in APP_JS
+    assert ".crisis-explainer" in STYLES
+    assert 'id="crisisExposure"' in INDEX_HTML
+    assert "trade_mutations" not in INDEX_HTML
 
 
 def test_crisis_radar_does_not_present_a_magic_crash_probability() -> None:

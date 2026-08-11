@@ -22,6 +22,10 @@ class RssClient:
         "bis_news": "https://www.bis.org/doclist/all_pressrels.rss",
         "boj_news": "https://www.boj.or.jp/en/rss/whatsnew.xml",
         "rbi_news": "https://rbi.org.in/pressreleases_rss.xml",
+        "boe_news": "https://www.bankofengland.co.uk/rss/news",
+        "boc_news": "https://www.bankofcanada.ca/content_type/press-releases/feed/",
+        "rba_news": "https://www.rba.gov.au/rss/rss-cb-media-releases.xml",
+        "fdic_news": "https://public.govdelivery.com/topics/USFDIC_26/feed.rss",
     }
 
     def __init__(

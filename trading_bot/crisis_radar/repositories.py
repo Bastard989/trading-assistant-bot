@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from dataclasses import dataclass
@@ -9,6 +10,7 @@ from decimal import Decimal
 
 from trading_bot.crisis_radar.backtest import BacktestResult, ScenarioEvent, SignalPoint
 from trading_bot.crisis_radar.domain import (
+    CoverageStatus,
     DataFreshness,
     IndicatorBand,
     IndicatorState,
@@ -32,6 +34,17 @@ from trading_bot.crisis_radar.scenario_fusion import (
     FUSION_VERSION,
     ScenarioFusionState,
     fusion_payload,
+)
+from trading_bot.crisis_radar.scoring_v2 import SCORING_VERSION, IndicatorScoreV2
+from trading_bot.crisis_radar.scenario_v2 import (
+    PLAYBOOK_VERSION,
+    ScenarioStateV2,
+    playbook_for,
+)
+from trading_bot.crisis_radar.stage_v2 import (
+    STAGE_VERSION,
+    DependencyAssignment,
+    MarketStageV2,
 )
 from trading_bot.crisis_radar.trends import (
     FEATURE_VERSION,
@@ -423,6 +436,13 @@ class CrisisRadarRepository:
         basis: str = "legacy",
         promotion_status: str = "active",
         rationale: dict | None = None,
+        source_url: str = "",
+        operational_role: str = "",
+        profile: str = "",
+        promotion_evidence: dict | None = None,
+        introduced_at: str = "",
+        retired_at: str | None = None,
+        metadata_checksum: str | None = None,
     ) -> int:
         if basis not in {"legacy", "official", "empirical", "heuristic", "hybrid"}:
             raise ValueError("unknown threshold basis")
@@ -431,6 +451,25 @@ class CrisisRadarRepository:
         rationale_payload = json.dumps(
             rationale or {}, ensure_ascii=False, separators=(",", ":"), sort_keys=True
         )
+        promotion_evidence_payload = json.dumps(
+            promotion_evidence or {}, ensure_ascii=False, separators=(",", ":"), sort_keys=True
+        )
+        metadata = {
+            "basis": basis,
+            "promotion_status": promotion_status,
+            "rationale": json.loads(rationale_payload),
+            "source_url": source_url,
+            "operational_role": operational_role,
+            "profile": profile,
+            "promotion_evidence": json.loads(promotion_evidence_payload),
+            "introduced_at": introduced_at,
+            "retired_at": retired_at,
+        }
+        resolved_checksum = metadata_checksum or hashlib.sha256(
+            json.dumps(metadata, ensure_ascii=True, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest()
+        if len(resolved_checksum) != 64:
+            raise ValueError("threshold metadata checksum must contain 64 characters")
         values = (
             format(thresholds.warning, "f"),
             format(thresholds.danger, "f"),
@@ -441,7 +480,9 @@ class CrisisRadarRepository:
             existing = connection.execute(
                 """
                 SELECT id, warning_value, danger_value, critical_value, reference_value,
-                       basis, promotion_status, rationale_payload
+                       basis, promotion_status, rationale_payload, source_url,
+                       operational_role, profile, promotion_evidence_payload,
+                       introduced_at, retired_at, metadata_checksum
                 FROM cr_threshold_sets
                 WHERE indicator_id = ? AND methodology_id = ? AND scope = ? AND owner_user_id = ?
                 """,
@@ -449,21 +490,46 @@ class CrisisRadarRepository:
             ).fetchone()
             if existing is not None:
                 existing_values = tuple(existing[index] for index in range(1, 5))
-                existing_metadata = tuple(existing[index] for index in range(5, 8))
-                if existing_values != values or existing_metadata != (
+                existing_metadata = tuple(existing[index] for index in range(5, 15))
+                expected_metadata = (
                     basis,
                     promotion_status,
                     rationale_payload,
-                ):
+                    source_url,
+                    operational_role,
+                    profile,
+                    promotion_evidence_payload,
+                    introduced_at,
+                    retired_at,
+                    resolved_checksum,
+                )
+                if existing_values != values:
                     raise RuntimeError("threshold values changed inside an immutable methodology")
+                if existing_metadata != expected_metadata:
+                    if existing[14] != "":
+                        raise RuntimeError(
+                            "threshold metadata changed inside an immutable methodology"
+                        )
+                    connection.execute(
+                        """
+                        UPDATE cr_threshold_sets
+                        SET basis=?, promotion_status=?, rationale_payload=?, source_url=?,
+                            operational_role=?, profile=?, promotion_evidence_payload=?,
+                            introduced_at=?, retired_at=?, metadata_checksum=?
+                        WHERE id=?
+                        """,
+                        (*expected_metadata, int(existing[0])),
+                    )
                 return int(existing[0])
             cursor = connection.execute(
                 """
                 INSERT INTO cr_threshold_sets(
                     indicator_id, methodology_id, scope, owner_user_id,
                     warning_value, danger_value, critical_value, reference_value,
-                    basis, promotion_status, rationale_payload
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    basis, promotion_status, rationale_payload, source_url,
+                    operational_role, profile, promotion_evidence_payload,
+                    introduced_at, retired_at, metadata_checksum
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     indicator_id,
@@ -474,6 +540,113 @@ class CrisisRadarRepository:
                     basis,
                     promotion_status,
                     rationale_payload,
+                    source_url,
+                    operational_role,
+                    profile,
+                    promotion_evidence_payload,
+                    introduced_at,
+                    retired_at,
+                    resolved_checksum,
+                ),
+            )
+            return int(cursor.lastrowid)
+
+    def register_entity_metadata(
+        self,
+        *,
+        entity_type: str,
+        entity_code: str,
+        metadata_version: str,
+        payload: dict,
+    ) -> int:
+        required = (
+            "name_ru", "name_en", "short_name_ru", "short_name_en",
+            "description_ru", "description_en", "why_it_matters_ru",
+            "why_it_matters_en", "worse_when_ru", "worse_when_en",
+            "calculation_ru", "calculation_en", "limitations_ru",
+            "limitations_en", "source_name", "technical_code",
+        )
+        if entity_type not in {"indicator", "group", "scenario", "status", "section"}:
+            raise ValueError("unknown metadata entity type")
+        if any(not str(payload.get(key, "")).strip() for key in required if key != "source_name"):
+            raise ValueError("entity metadata is incomplete")
+        values = tuple(str(payload.get(key, "")) for key in required)
+        checksum = hashlib.sha256(
+            json.dumps(
+                {"entity_type": entity_type, "entity_code": entity_code,
+                 "metadata_version": metadata_version, "payload": dict(zip(required, values))},
+                ensure_ascii=True, sort_keys=True, separators=(",", ":"),
+            ).encode()
+        ).hexdigest()
+        with self.db.connect() as connection:
+            existing = connection.execute(
+                """
+                SELECT id, checksum FROM cr_entity_metadata
+                WHERE entity_type=? AND entity_code=? AND metadata_version=?
+                """,
+                (entity_type, entity_code, metadata_version),
+            ).fetchone()
+            if existing is not None:
+                if existing["checksum"] != checksum:
+                    raise RuntimeError("entity metadata changed inside an immutable version")
+                return int(existing["id"])
+            cursor = connection.execute(
+                """
+                INSERT INTO cr_entity_metadata(
+                    entity_type, entity_code, metadata_version,
+                    name_ru, name_en, short_name_ru, short_name_en,
+                    description_ru, description_en, why_it_matters_ru,
+                    why_it_matters_en, worse_when_ru, worse_when_en,
+                    calculation_ru, calculation_en, limitations_ru,
+                    limitations_en, source_name, technical_code, checksum
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (entity_type, entity_code, metadata_version, *values, checksum),
+            )
+            return int(cursor.lastrowid)
+
+    def register_dependency_assignment(
+        self,
+        *,
+        methodology_id: int,
+        assignment: DependencyAssignment,
+        graph_version: str,
+    ) -> int:
+        canonical = json.dumps(
+            {**assignment.__dict__, "graph_version": graph_version},
+            sort_keys=True, separators=(",", ":"),
+        )
+        checksum = hashlib.sha256(canonical.encode()).hexdigest()
+        with self.db.connect() as connection:
+            indicator = connection.execute(
+                "SELECT id FROM cr_indicator_definitions WHERE code=?",
+                (assignment.indicator_code,),
+            ).fetchone()
+            if indicator is None:
+                raise ValueError("unknown dependency indicator")
+            existing = connection.execute(
+                """
+                SELECT id, checksum FROM cr_dependency_assignments
+                WHERE methodology_id=? AND indicator_id=? AND graph_version=?
+                """,
+                (methodology_id, indicator["id"], graph_version),
+            ).fetchone()
+            if existing is not None:
+                if existing["checksum"] != checksum:
+                    raise RuntimeError("dependency assignment changed inside immutable graph")
+                return int(existing["id"])
+            cursor = connection.execute(
+                """
+                INSERT INTO cr_dependency_assignments(
+                    methodology_id, indicator_id, graph_version, subchannel_code,
+                    group_code, cluster_code, region_code, anchor_class, checksum
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    methodology_id, indicator["id"], graph_version,
+                    assignment.subchannel_code, assignment.group_code,
+                    assignment.cluster_code, assignment.region_code,
+                    assignment.anchor_class, checksum,
                 ),
             )
             return int(cursor.lastrowid)
@@ -725,6 +898,64 @@ class CrisisRadarRepository:
                 (source[0], item.provider_item_id, *values),
             )
             return SavedNewsItem(int(cursor.lastrowid), True, False)
+
+    def search_evidence_basic(
+        self,
+        query: str,
+        *,
+        limit: int = 20,
+        published_after: datetime | None = None,
+        source_codes: tuple[str, ...] = (),
+    ) -> dict:
+        normalized = " ".join(query.split())
+        if not normalized or len(normalized) > 300 or not 1 <= limit <= 50:
+            raise ValueError("invalid evidence search query")
+        filters = ["cr_news_fts MATCH ?"]
+        parameters: list[object] = [normalized]
+        if published_after is not None:
+            if published_after.tzinfo is None or published_after.utcoffset() is None:
+                raise ValueError("published_after must be timezone-aware")
+            filters.append("item.published_at >= ?")
+            parameters.append(_utc_text(published_after))
+        if source_codes:
+            if any(not code.strip() for code in source_codes) or len(source_codes) > 20:
+                raise ValueError("invalid evidence source filter")
+            filters.append(f"source.code IN ({','.join('?' for _ in source_codes)})")
+            parameters.extend(source_codes)
+        parameters.append(limit)
+        with self.db.connect() as connection:
+            rows = connection.execute(
+                f"""
+                SELECT item.id, source.code AS source_code, item.title, item.summary,
+                       item.url, item.published_at, item.original_language,
+                       item.source_tier, bm25(cr_news_fts) AS rank
+                FROM cr_news_fts
+                JOIN cr_news_items AS item ON item.id=cr_news_fts.rowid
+                JOIN cr_sources AS source ON source.id=item.source_id
+                WHERE {' AND '.join(filters)}
+                ORDER BY rank, item.published_at DESC
+                LIMIT ?
+                """,
+                parameters,
+            ).fetchall()
+        return {
+            "profile": "basic-local",
+            "query": normalized,
+            "items": [
+                {
+                    "evidence_id": int(row["id"]),
+                    "source_code": row["source_code"],
+                    "title": row["title"],
+                    "excerpt": row["summary"] or row["title"],
+                    "url": row["url"],
+                    "published_at": row["published_at"],
+                    "original_language": row["original_language"],
+                    "source_tier": row["source_tier"],
+                    "lexical_rank": float(row["rank"]),
+                }
+                for row in rows
+            ],
+        }
 
     def save_event_candidate(self, news_item_id: int, candidate: EventCandidate) -> dict:
         if news_item_id < 1:
@@ -1047,6 +1278,7 @@ class CrisisRadarRepository:
                     "severity": row["severity_score_text"],
                     "confidence": row["confidence_score_text"],
                     "event_score": row["event_score_text"],
+                    "raw_event_score": row["event_score_text"],
                     "source_count": int(row["source_count"]),
                     "official_source_count": int(row["official_source_count"]),
                     "rule_version": row["rule_version"],
@@ -1068,7 +1300,125 @@ class CrisisRadarRepository:
                     "injection_detected": bool(row["injection_detected"]),
                 }
             )
-        return {"ready": bool(grouped), "as_of": _utc_text(now), "items": list(grouped.values())[:limit]}
+        half_lives = {
+            "bankruptcy": Decimal("720"),
+            "default": Decimal("1440"),
+            "bank_run": Decimal("72"),
+            "emergency_liquidity": Decimal("72"),
+            "sanctions": Decimal("504"),
+            "armed_conflict": Decimal("336"),
+            "supply_disruption": Decimal("240"),
+            "commodity_shock": Decimal("336"),
+            "regulatory_restriction": Decimal("504"),
+            "cyber_exchange_failure": Decimal("48"),
+            "stablecoin_failure": Decimal("48"),
+            "recession_signal": Decimal("1440"),
+        }
+        tier_rank = {"A": 0, "B": 1, "C": 2}
+        for event in grouped.values():
+            age_hours = Decimal(
+                str(max(0, (now - datetime.fromisoformat(event["last_seen_at"])).total_seconds() / 3600))
+            )
+            best_tier = min(
+                (item["source_tier"] for item in event["evidence"]),
+                key=lambda value: tier_rank[value],
+            )
+            half_life = half_lives.get(event["taxonomy"], Decimal("168"))
+            event["event_score"] = format(
+                event_score(
+                    severity=Decimal(event["severity"]),
+                    source_tier=best_tier,
+                    source_count=event["source_count"],
+                    official_source_count=event["official_source_count"],
+                    age_hours=age_hours,
+                    half_life_hours=half_life,
+                ),
+                "f",
+            )
+            event["age_hours"] = format(age_hours.quantize(Decimal(".01")), "f")
+            event["half_life_hours"] = format(half_life, "f")
+        items = sorted(
+            grouped.values(),
+            key=lambda item: (Decimal(item["event_score"]), item["last_seen_at"]),
+            reverse=True,
+        )[:limit]
+        return {"ready": bool(items), "as_of": _utc_text(now), "items": items}
+
+    def save_news_coverage_snapshot(
+        self,
+        *,
+        methodology_id: int,
+        snapshot_at: datetime,
+    ) -> dict:
+        health = self.source_health_payload(as_of=snapshot_at)
+        required = [
+            item for item in health["sources"]
+            if item["enabled"] and item["access_type"] == "rss"
+        ]
+        healthy = sum(item["status"] == "healthy" for item in required)
+        degraded = sum(item["status"] in {"degraded", "stale"} for item in required)
+        failed = len(required) - healthy - degraded
+        ratio = (
+            Decimal("0")
+            if not required
+            else (Decimal(healthy) + Decimal(".5") * Decimal(degraded)) / Decimal(len(required))
+        ).quantize(Decimal(".0001"))
+        status = "healthy" if ratio >= Decimal(".85") else "degraded" if ratio >= Decimal(".70") else "insufficient_data"
+        region_by_source = {
+            "fed_news": "US", "sec_news": "US", "cftc_news": "US",
+            "ecb_news": "EU", "boj_news": "JPN", "rbi_news": "IND",
+            "bis_news": "GLOBAL",
+            "boe_news": "GBR", "boc_news": "CAN",
+            "fdic_news": "US",
+        }
+        covered_regions = {
+            region_by_source[item["code"]]
+            for item in required
+            if item["status"] in {"healthy", "degraded", "stale"}
+            and item["code"] in region_by_source
+        }
+        expected_regions = set(region_by_source.values())
+        missing_regions = sorted(expected_regions - covered_regions)
+        payload = {
+            "status": status,
+            "ratio": format(ratio, "f"),
+            "expected_source_count": len(required),
+            "healthy_source_count": healthy,
+            "degraded_source_count": degraded,
+            "failed_source_count": failed,
+            "missing_regions": missing_regions,
+            "sources": [
+                {"code": item["code"], "status": item["status"]}
+                for item in required
+            ],
+        }
+        with self.db.connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO cr_news_coverage_snapshots(
+                    methodology_id, snapshot_at, status, ratio_text,
+                    expected_source_count, healthy_source_count,
+                    degraded_source_count, failed_source_count,
+                    missing_regions_payload, source_payload
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(methodology_id, snapshot_at) DO UPDATE SET
+                    status=excluded.status,
+                    ratio_text=excluded.ratio_text,
+                    expected_source_count=excluded.expected_source_count,
+                    healthy_source_count=excluded.healthy_source_count,
+                    degraded_source_count=excluded.degraded_source_count,
+                    failed_source_count=excluded.failed_source_count,
+                    missing_regions_payload=excluded.missing_regions_payload,
+                    source_payload=excluded.source_payload
+                """,
+                (
+                    methodology_id, _utc_text(snapshot_at), status, format(ratio, "f"),
+                    len(required), healthy, degraded, failed,
+                    json.dumps(missing_regions, separators=(",", ":")),
+                    json.dumps(payload["sources"], separators=(",", ":")),
+                ),
+            )
+        return payload
 
     def latest_analysis_inputs(self, methodology_code: str, methodology_version: str) -> list[AnalysisInput]:
         with self.db.connect() as connection:
@@ -1243,6 +1593,7 @@ class CrisisRadarRepository:
         *,
         as_of: datetime,
         limit: int = 5000,
+        exclude_retrospective_revised: bool = False,
     ) -> tuple[TimePoint, ...]:
         if limit < 2 or limit > 20000:
             raise ValueError("trend point limit must be between 2 and 20000")
@@ -1256,16 +1607,26 @@ class CrisisRadarRepository:
                 FROM cr_observations AS observation
                 JOIN cr_indicator_definitions AS indicator ON indicator.id=observation.indicator_id
                 WHERE indicator.code=? AND observation.observed_at <= ? AND observation.released_at <= ?
+                  AND (? = 0 OR observation.quality_flags NOT LIKE '%"retrospective_revised"%')
                   AND observation.id=(
                     SELECT latest.id FROM cr_observations AS latest
                     WHERE latest.indicator_id=observation.indicator_id
                       AND latest.observed_at=observation.observed_at
                       AND latest.released_at <= ?
+                      AND (? = 0 OR latest.quality_flags NOT LIKE '%"retrospective_revised"%')
                     ORDER BY latest.released_at DESC, latest.fetched_at DESC, latest.id DESC LIMIT 1
                   )
                 ORDER BY observation.observed_at DESC, observation.id DESC LIMIT ?
                 """,
-                (code, as_of_text, as_of_text, as_of_text, limit),
+                (
+                    code,
+                    as_of_text,
+                    as_of_text,
+                    int(exclude_retrospective_revised),
+                    as_of_text,
+                    int(exclude_retrospective_revised),
+                    limit,
+                ),
             ).fetchall()
         return tuple(
             reversed(
@@ -2107,6 +2468,783 @@ class CrisisRadarRepository:
                 (code, methodology_id),
             ).fetchone()
         return None if row is None else IndicatorBand(row["band"])
+
+    def latest_v2_stage_context(self, *, methodology_id: int) -> tuple[str | None, Decimal]:
+        with self.db.connect() as connection:
+            latest = connection.execute(
+                """
+                SELECT stage FROM cr_market_snapshots_v2
+                WHERE methodology_id=? ORDER BY snapshot_at DESC, id DESC LIMIT 1
+                """,
+                (methodology_id,),
+            ).fetchone()
+            peak = connection.execute(
+                """
+                SELECT max(CAST(stress_intensity_text AS REAL))
+                FROM cr_market_snapshots_v2 WHERE methodology_id=?
+                """,
+                (methodology_id,),
+            ).fetchone()[0]
+        return (
+            None if latest is None else str(latest["stage"]),
+            Decimal("0") if peak is None else Decimal(str(peak)),
+        )
+
+    def save_v2_shadow_snapshot(
+        self,
+        scores: tuple[IndicatorScoreV2, ...],
+        stage: MarketStageV2,
+        *,
+        snapshot_at: datetime,
+        candidate_methodology_id: int,
+        baseline_methodology_id: int,
+        baseline_stage: str,
+        coverage_status: CoverageStatus | None,
+    ) -> None:
+        snapshot_text = _utc_text(snapshot_at)
+        with self.db.connect() as connection:
+            indicator_ids = {
+                row["code"]: int(row["id"])
+                for row in connection.execute(
+                    "SELECT id, code FROM cr_indicator_definitions"
+                ).fetchall()
+            }
+            for score in scores:
+                indicator_id = indicator_ids.get(score.indicator_code)
+                if indicator_id is None:
+                    raise RuntimeError(f"unknown v2 score indicator: {score.indicator_code}")
+                connection.execute(
+                    """
+                    INSERT INTO cr_indicator_scores_v2(
+                        indicator_id, methodology_id, snapshot_at, scoring_version,
+                        profile, economic_score_text, economic_band,
+                        historical_score_text, historical_band, trend_score_text,
+                        acceleration_score_text, persistence_score_text,
+                        regime_score_text, data_quality_text, availability_text,
+                        effective_score_text, effective_band, agreement,
+                        history_count, lineage_payload, input_checksum
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(indicator_id, methodology_id, snapshot_at, scoring_version)
+                    DO UPDATE SET
+                        profile=excluded.profile,
+                        economic_score_text=excluded.economic_score_text,
+                        economic_band=excluded.economic_band,
+                        historical_score_text=excluded.historical_score_text,
+                        historical_band=excluded.historical_band,
+                        trend_score_text=excluded.trend_score_text,
+                        acceleration_score_text=excluded.acceleration_score_text,
+                        persistence_score_text=excluded.persistence_score_text,
+                        regime_score_text=excluded.regime_score_text,
+                        data_quality_text=excluded.data_quality_text,
+                        availability_text=excluded.availability_text,
+                        effective_score_text=excluded.effective_score_text,
+                        effective_band=excluded.effective_band,
+                        agreement=excluded.agreement,
+                        history_count=excluded.history_count,
+                        lineage_payload=excluded.lineage_payload,
+                        input_checksum=excluded.input_checksum
+                    """,
+                    (
+                        indicator_id, candidate_methodology_id, snapshot_text,
+                        SCORING_VERSION, score.profile,
+                        format(score.economic_score, "f"), score.economic_band.value,
+                        _decimal_text(score.historical_score),
+                        None if score.historical_band is None else score.historical_band.value,
+                        format(score.trend_score, "f"),
+                        format(score.acceleration_score, "f"),
+                        format(score.persistence_score, "f"),
+                        format(score.regime_score, "f"),
+                        format(score.data_quality, "f"), format(score.availability, "f"),
+                        _decimal_text(score.effective_score),
+                        None if score.effective_band is None else score.effective_band.value,
+                        score.agreement.value, score.history_count,
+                        json.dumps(score.lineage, sort_keys=True, separators=(",", ":"), default=str),
+                        score.input_checksum,
+                    ),
+                )
+            for group in stage.groups:
+                connection.execute(
+                    """
+                    INSERT INTO cr_group_states_v2(
+                        methodology_id, snapshot_at, stage_version, group_code,
+                        cluster_code, score_text, band, subchannel_count,
+                        active_subchannel_count, thin_group, contributors_payload
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(methodology_id, snapshot_at, stage_version, group_code)
+                    DO UPDATE SET
+                        cluster_code=excluded.cluster_code,
+                        score_text=excluded.score_text,
+                        band=excluded.band,
+                        subchannel_count=excluded.subchannel_count,
+                        active_subchannel_count=excluded.active_subchannel_count,
+                        thin_group=excluded.thin_group,
+                        contributors_payload=excluded.contributors_payload
+                    """,
+                    (
+                        candidate_methodology_id, snapshot_text, STAGE_VERSION,
+                        group.group_code, group.cluster_code, format(group.score, "f"),
+                        group.band.value, group.subchannel_count,
+                        group.active_subchannel_count, int(group.thin_group),
+                        json.dumps(group.contributors, separators=(",", ":")),
+                    ),
+                )
+            connection.execute(
+                """
+                INSERT INTO cr_market_snapshots_v2(
+                    methodology_id, snapshot_at, stage_version, stage,
+                    calculated_stage, stress_intensity_text,
+                    systemic_breadth_text, active_independent_clusters,
+                    active_regions, anchor_confirmation, critical_anchor,
+                    coverage_status, reasons_payload, input_checksum
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(methodology_id, snapshot_at, stage_version)
+                DO UPDATE SET
+                    stage=excluded.stage,
+                    calculated_stage=excluded.calculated_stage,
+                    stress_intensity_text=excluded.stress_intensity_text,
+                    systemic_breadth_text=excluded.systemic_breadth_text,
+                    active_independent_clusters=excluded.active_independent_clusters,
+                    active_regions=excluded.active_regions,
+                    anchor_confirmation=excluded.anchor_confirmation,
+                    critical_anchor=excluded.critical_anchor,
+                    coverage_status=excluded.coverage_status,
+                    reasons_payload=excluded.reasons_payload,
+                    input_checksum=excluded.input_checksum
+                """,
+                (
+                    candidate_methodology_id, snapshot_text, STAGE_VERSION,
+                    stage.stage, stage.calculated_stage,
+                    format(stage.stress_intensity, "f"),
+                    format(stage.systemic_breadth, "f"),
+                    stage.active_independent_clusters, stage.active_regions,
+                    int(stage.anchor_confirmation), int(stage.critical_anchor),
+                    "not_evaluated" if coverage_status is None else coverage_status.value,
+                    json.dumps(stage.reasons, separators=(",", ":")),
+                    stage.input_checksum,
+                ),
+            )
+            diff = {
+                "stage_changed": baseline_stage != stage.stage,
+                "baseline_stage": baseline_stage,
+                "candidate_stage": stage.stage,
+                "reasons": stage.reasons,
+            }
+            connection.execute(
+                """
+                INSERT INTO cr_shadow_comparisons(
+                    snapshot_at, baseline_methodology_id, candidate_methodology_id,
+                    baseline_stage, candidate_stage, intensity_text, breadth_text,
+                    diff_payload, input_checksum
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(snapshot_at, baseline_methodology_id, candidate_methodology_id)
+                DO UPDATE SET
+                    baseline_stage=excluded.baseline_stage,
+                    candidate_stage=excluded.candidate_stage,
+                    intensity_text=excluded.intensity_text,
+                    breadth_text=excluded.breadth_text,
+                    diff_payload=excluded.diff_payload,
+                    input_checksum=excluded.input_checksum
+                """,
+                (
+                    snapshot_text, baseline_methodology_id, candidate_methodology_id,
+                    baseline_stage, stage.stage, format(stage.stress_intensity, "f"),
+                    format(stage.systemic_breadth, "f"),
+                    json.dumps(diff, sort_keys=True, separators=(",", ":")),
+                    stage.input_checksum,
+                ),
+            )
+
+    def latest_scenario_v2_context(
+        self, *, methodology_id: int
+    ) -> dict[str, tuple[str, Decimal]]:
+        with self.db.connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT state.scenario_code, state.status, state.strength_text
+                FROM cr_scenario_states_v2 AS state
+                JOIN (
+                    SELECT scenario_code, max(id) AS id
+                    FROM cr_scenario_states_v2
+                    WHERE methodology_id=? AND playbook_version=?
+                    GROUP BY scenario_code
+                ) AS latest ON latest.id=state.id
+                """,
+                (methodology_id, PLAYBOOK_VERSION),
+            ).fetchall()
+        return {
+            row["scenario_code"]: (row["status"], Decimal(row["strength_text"]))
+            for row in rows
+        }
+
+    def save_scenario_states_v2(
+        self,
+        states: tuple[ScenarioStateV2, ...],
+        *,
+        methodology_id: int,
+        snapshot_at: datetime,
+        baseline_stage: str,
+    ) -> None:
+        snapshot_text = _utc_text(snapshot_at)
+        with self.db.connect() as connection:
+            for state in states:
+                previous = connection.execute(
+                    """
+                    SELECT status, strength_text, confirmed_groups_payload,
+                           evidence_ids_payload, reasons_payload
+                    FROM cr_scenario_states_v2
+                    WHERE methodology_id=? AND scenario_code=? AND playbook_version=?
+                      AND snapshot_at < ?
+                    ORDER BY snapshot_at DESC, id DESC LIMIT 1
+                    """,
+                    (methodology_id, state.code, PLAYBOOK_VERSION, snapshot_text),
+                ).fetchone()
+                previous_groups = set(
+                    json.loads(previous["confirmed_groups_payload"] or "[]")
+                    if previous is not None else ()
+                )
+                previous_evidence = set(
+                    json.loads(previous["evidence_ids_payload"] or "[]")
+                    if previous is not None else ()
+                )
+                current_groups = set(state.confirmed_groups)
+                current_evidence = set(state.evidence_ids)
+                causal_diff = {
+                    "from_status": None if previous is None else previous["status"],
+                    "to_status": state.status,
+                    "strength_change": None
+                    if previous is None
+                    else format(state.strength - Decimal(previous["strength_text"]), "f"),
+                    "added_confirmations": sorted(current_groups - previous_groups),
+                    "removed_confirmations": sorted(previous_groups - current_groups),
+                    "new_evidence_ids": sorted(current_evidence - previous_evidence),
+                    "expired_evidence_ids": sorted(previous_evidence - current_evidence),
+                    "reasons": state.reasons,
+                }
+                connection.execute(
+                    """
+                    INSERT INTO cr_scenario_states_v2(
+                        methodology_id, snapshot_at, playbook_version, scenario_code,
+                        status, strength_text, reliability_text,
+                        active_independent_clusters, current_chain_step,
+                        confirmed_groups_payload, missing_anchors_payload,
+                        next_confirmations_payload, recovery_confirmations_payload,
+                        evidence_ids_payload, reasons_payload, causal_diff_payload,
+                        input_checksum
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(methodology_id, snapshot_at, playbook_version, scenario_code)
+                    DO UPDATE SET
+                        status=excluded.status, strength_text=excluded.strength_text,
+                        reliability_text=excluded.reliability_text,
+                        active_independent_clusters=excluded.active_independent_clusters,
+                        current_chain_step=excluded.current_chain_step,
+                        confirmed_groups_payload=excluded.confirmed_groups_payload,
+                        missing_anchors_payload=excluded.missing_anchors_payload,
+                        next_confirmations_payload=excluded.next_confirmations_payload,
+                        recovery_confirmations_payload=excluded.recovery_confirmations_payload,
+                        evidence_ids_payload=excluded.evidence_ids_payload,
+                        reasons_payload=excluded.reasons_payload,
+                        causal_diff_payload=excluded.causal_diff_payload,
+                        input_checksum=excluded.input_checksum
+                    """,
+                    (
+                        methodology_id, snapshot_text, PLAYBOOK_VERSION, state.code,
+                        state.status, format(state.strength, "f"),
+                        format(state.reliability, "f"), state.active_independent_clusters,
+                        state.current_chain_step,
+                        json.dumps(state.confirmed_groups, separators=(",", ":")),
+                        json.dumps(state.missing_anchors, separators=(",", ":")),
+                        json.dumps(state.next_confirmations, separators=(",", ":")),
+                        json.dumps(state.recovery_confirmations, separators=(",", ":")),
+                        json.dumps(state.evidence_ids, separators=(",", ":")),
+                        json.dumps(state.reasons, separators=(",", ":")),
+                        json.dumps(causal_diff, sort_keys=True, separators=(",", ":")),
+                        state.input_checksum,
+                    ),
+                )
+                self._update_signal_scorecard(
+                    connection,
+                    methodology_id=methodology_id,
+                    state=state,
+                    snapshot_text=snapshot_text,
+                    baseline_stage=baseline_stage,
+                )
+
+    @staticmethod
+    def _update_signal_scorecard(
+        connection,
+        *,
+        methodology_id: int,
+        state: ScenarioStateV2,
+        snapshot_text: str,
+        baseline_stage: str,
+    ) -> None:
+        active_statuses = {"watch", "elevated", "confirmed", "recovery_watch", "recovery_confirmed"}
+        open_signal = connection.execute(
+            """
+            SELECT * FROM cr_signal_scorecards
+            WHERE methodology_id=? AND scenario_code=? AND outcome_status='open'
+            ORDER BY id DESC LIMIT 1
+            """,
+            (methodology_id, state.code),
+        ).fetchone()
+        if state.status not in active_statuses:
+            if open_signal is not None:
+                connection.execute(
+                    """
+                    UPDATE cr_signal_scorecards
+                    SET invalidated_at=?, outcome_status='invalidated',
+                        last_seen_at=?, updated_at=CURRENT_TIMESTAMP
+                    WHERE id=?
+                    """,
+                    (snapshot_text, snapshot_text, open_signal["id"]),
+                )
+            return
+        if open_signal is None:
+            signal_key = hashlib.sha256(
+                f"{state.code}|{snapshot_text}".encode()
+            ).hexdigest()
+            connection.execute(
+                """
+                INSERT INTO cr_signal_scorecards(
+                    methodology_id, scenario_code, signal_key, first_detected_at,
+                    first_elevated_at, first_confirmed_at, last_seen_at,
+                    peak_strength_text, baseline_stage, attribution_payload
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    methodology_id, state.code, signal_key, snapshot_text,
+                    snapshot_text if state.status in {"elevated", "confirmed"} else None,
+                    snapshot_text if state.status == "confirmed" else None,
+                    snapshot_text, format(state.strength, "f"), baseline_stage,
+                    json.dumps(
+                        {"confirmed_groups": state.confirmed_groups, "evidence_ids": state.evidence_ids},
+                        sort_keys=True,
+                    ),
+                ),
+            )
+            return
+        connection.execute(
+            """
+            UPDATE cr_signal_scorecards
+            SET last_seen_at=?,
+                first_elevated_at=COALESCE(first_elevated_at, ?),
+                first_confirmed_at=COALESCE(first_confirmed_at, ?),
+                peak_strength_text=CASE
+                    WHEN CAST(peak_strength_text AS REAL) < ? THEN ? ELSE peak_strength_text END,
+                attribution_payload=?, updated_at=CURRENT_TIMESTAMP
+            WHERE id=?
+            """,
+            (
+                snapshot_text,
+                snapshot_text if state.status in {"elevated", "confirmed"} else None,
+                snapshot_text if state.status == "confirmed" else None,
+                float(state.strength), format(state.strength, "f"),
+                json.dumps(
+                    {"confirmed_groups": state.confirmed_groups, "evidence_ids": state.evidence_ids},
+                    sort_keys=True,
+                ),
+                open_signal["id"],
+            ),
+        )
+
+    def scenario_v2_payload(self, *, methodology_version: str, locale: str) -> dict:
+        if locale not in {"ru", "en"}:
+            raise ValueError("locale must be ru or en")
+        with self.db.connect() as connection:
+            methodology = connection.execute(
+                "SELECT id FROM cr_methodology_versions WHERE version=?",
+                (methodology_version,),
+            ).fetchone()
+            if methodology is None:
+                return {"ready": False, "items": []}
+            snapshot = connection.execute(
+                """
+                SELECT max(snapshot_at) FROM cr_scenario_states_v2
+                WHERE methodology_id=? AND playbook_version=?
+                """,
+                (methodology["id"], PLAYBOOK_VERSION),
+            ).fetchone()[0]
+            if snapshot is None:
+                return {"ready": False, "items": []}
+            rows = connection.execute(
+                """
+                SELECT state.*, metadata.name_ru, metadata.name_en,
+                       metadata.description_ru AS registry_description_ru,
+                       metadata.description_en AS registry_description_en,
+                       metadata.calculation_ru, metadata.calculation_en,
+                       metadata.limitations_ru AS registry_limitations_ru,
+                       metadata.limitations_en AS registry_limitations_en
+                FROM cr_scenario_states_v2 AS state
+                LEFT JOIN cr_entity_metadata AS metadata
+                  ON metadata.entity_type='scenario'
+                 AND metadata.entity_code=state.scenario_code
+                 AND metadata.metadata_version='v11'
+                WHERE state.methodology_id=? AND state.playbook_version=?
+                  AND state.snapshot_at=?
+                ORDER BY CAST(state.strength_text AS REAL) DESC, state.scenario_code
+                """,
+                (methodology["id"], PLAYBOOK_VERSION, snapshot),
+            ).fetchall()
+            group_metadata_rows = connection.execute(
+                """
+                SELECT entity_code, name_ru, name_en
+                FROM cr_entity_metadata
+                WHERE entity_type='group' AND metadata_version='v11'
+                """
+            ).fetchall()
+        group_names = {
+            row["entity_code"]: row[f"name_{locale}"] or row["entity_code"]
+            for row in group_metadata_rows
+        }
+        items = []
+        for row in rows:
+            playbook = playbook_for(row["scenario_code"])
+            confirmed_groups = json.loads(row["confirmed_groups_payload"])
+            next_confirmations = json.loads(row["next_confirmations_payload"])
+            missing_anchors = json.loads(row["missing_anchors_payload"])
+            items.append(
+                {
+                    "code": row["scenario_code"], "status": row["status"],
+                    "name": row[f"name_{locale}"] or row["scenario_code"],
+                    "strength": row["strength_text"], "reliability": row["reliability_text"],
+                    "description": getattr(playbook, f"description_{locale}"),
+                    "calculation": row[f"calculation_{locale}"] or "",
+                    "causal_chain": getattr(playbook, f"causal_chain_{locale}"),
+                    "current_chain_step": int(row["current_chain_step"]),
+                    "confirmed_groups": confirmed_groups,
+                    "confirmed_group_details": [
+                        {"code": code, "name": group_names.get(code, code)}
+                        for code in confirmed_groups
+                    ],
+                    "missing_anchors": missing_anchors,
+                    "missing_anchor_details": [
+                        {"code": code, "name": group_names.get(code, code)}
+                        for code in missing_anchors
+                    ],
+                    "next_confirmations": next_confirmations,
+                    "next_confirmation_details": [
+                        {"code": code, "name": group_names.get(code, code)}
+                        for code in next_confirmations
+                    ],
+                    "invalidation": getattr(playbook, f"invalidation_{locale}"),
+                    "recovery_conditions": getattr(playbook, f"recovery_{locale}"),
+                    "recovery_confirmations": json.loads(row["recovery_confirmations_payload"]),
+                    "vulnerable_assets": playbook.vulnerable_assets,
+                    "possible_beneficiaries": playbook.possible_beneficiaries,
+                    "limitations": getattr(playbook, f"limitations_{locale}"),
+                    "evidence_ids": json.loads(row["evidence_ids_payload"]),
+                    "what_changed": json.loads(row["causal_diff_payload"]),
+                }
+            )
+        return {
+            "ready": True, "as_of": snapshot, "playbook_version": PLAYBOOK_VERSION,
+            "probability": None, "items": items,
+        }
+
+    def open_trade_exposure_inputs(self, *, user_id: int) -> tuple[dict, ...]:
+        with self.db.connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT id, symbol, side, leverage, quantity, entry_price, stop_price
+                FROM trades WHERE user_id=? AND status='open'
+                ORDER BY opened_at DESC, id DESC
+                """,
+                (user_id,),
+            ).fetchall()
+        return tuple(dict(row) for row in rows)
+
+    def latest_v2_overview_payload(self, *, methodology_version: str, locale: str) -> dict:
+        if locale not in {"ru", "en"}:
+            raise ValueError("locale must be ru or en")
+        with self.db.connect() as connection:
+            snapshot = connection.execute(
+                """
+                SELECT snapshot.*, methodology.code AS methodology_code,
+                       methodology.version AS methodology_version
+                FROM cr_market_snapshots_v2 AS snapshot
+                JOIN cr_methodology_versions AS methodology
+                  ON methodology.id=snapshot.methodology_id
+                WHERE methodology.version=?
+                ORDER BY snapshot.snapshot_at DESC, snapshot.id DESC LIMIT 1
+                """,
+                (methodology_version,),
+            ).fetchone()
+            if snapshot is None:
+                return {"ready": False, "methodology": methodology_version, "items": []}
+            rows = connection.execute(
+                """
+                SELECT score.*, indicator.code, indicator.name,
+                       indicator.unit, indicator.max_staleness_seconds,
+                       source.name AS source_name,
+                       threshold.warning_value, threshold.danger_value,
+                       threshold.critical_value, threshold.source_url,
+                       observation.value_text AS current_value_text,
+                       observation.observed_at, observation.released_at,
+                       metadata.name_ru, metadata.name_en, metadata.description_ru,
+                       metadata.description_en, metadata.why_it_matters_ru,
+                       metadata.why_it_matters_en, metadata.worse_when_ru,
+                       metadata.worse_when_en, metadata.calculation_ru,
+                       metadata.calculation_en, metadata.limitations_ru,
+                       metadata.limitations_en, metadata.technical_code
+                FROM cr_indicator_scores_v2 AS score
+                JOIN cr_indicator_definitions AS indicator ON indicator.id=score.indicator_id
+                JOIN cr_sources AS source ON source.id=indicator.source_id
+                LEFT JOIN cr_observations AS observation ON observation.id = (
+                    SELECT latest.id FROM cr_observations AS latest
+                    WHERE latest.indicator_id=indicator.id
+                      AND latest.released_at<=score.snapshot_at
+                    ORDER BY latest.observed_at DESC, latest.released_at DESC,
+                             latest.fetched_at DESC, latest.id DESC LIMIT 1
+                )
+                JOIN cr_threshold_sets AS threshold
+                  ON threshold.indicator_id=indicator.id
+                 AND threshold.methodology_id=score.methodology_id
+                 AND threshold.scope='system' AND threshold.owner_user_id=0
+                LEFT JOIN cr_entity_metadata AS metadata
+                  ON metadata.entity_type='indicator' AND metadata.entity_code=indicator.code
+                 AND metadata.metadata_version='v11'
+                WHERE score.methodology_id=? AND score.snapshot_at=?
+                ORDER BY CAST(COALESCE(score.effective_score_text, '0') AS REAL) DESC,
+                         indicator.code
+                """,
+                (snapshot["methodology_id"], snapshot["snapshot_at"]),
+            ).fetchall()
+            group_rows = connection.execute(
+                """
+                SELECT state.*, metadata.name_ru, metadata.name_en,
+                       metadata.description_ru, metadata.description_en,
+                       metadata.calculation_ru, metadata.calculation_en,
+                       metadata.limitations_ru, metadata.limitations_en
+                FROM cr_group_states_v2 AS state
+                LEFT JOIN cr_entity_metadata AS metadata
+                  ON metadata.entity_type='group' AND metadata.entity_code=state.group_code
+                 AND metadata.metadata_version='v11'
+                WHERE state.methodology_id=? AND state.snapshot_at=?
+                ORDER BY CAST(state.score_text AS REAL) DESC, state.group_code
+                """,
+                (snapshot["methodology_id"], snapshot["snapshot_at"]),
+            ).fetchall()
+            news_coverage = connection.execute(
+                """
+                SELECT * FROM cr_news_coverage_snapshots
+                WHERE methodology_id=? AND snapshot_at<=?
+                ORDER BY snapshot_at DESC, id DESC LIMIT 1
+                """,
+                (snapshot["methodology_id"], snapshot["snapshot_at"]),
+            ).fetchone()
+        suffix = "ru" if locale == "ru" else "en"
+        as_of = datetime.fromisoformat(snapshot["snapshot_at"])
+        items = []
+        for row in rows:
+            freshness, age_seconds = _freshness_from_release(
+                row["released_at"],
+                as_of=as_of,
+                max_staleness_seconds=int(row["max_staleness_seconds"]),
+            )
+            items.append(
+                {
+                    "code": row["code"],
+                    "name": row[f"name_{suffix}"] or row["name"],
+                    "english_name": row["name_en"] or row["name"],
+                    "description": row[f"description_{suffix}"] or "",
+                    "why_it_matters": row[f"why_it_matters_{suffix}"] or "",
+                    "worse_when": row[f"worse_when_{suffix}"] or "",
+                    "calculation": row[f"calculation_{suffix}"] or "",
+                    "limitations": row[f"limitations_{suffix}"] or "",
+                    "technical_code": row["technical_code"] or row["code"],
+                    "value": row["current_value_text"],
+                    "unit": row["unit"],
+                    "freshness": freshness,
+                    "age_seconds": age_seconds,
+                    "observed_at": row["observed_at"],
+                    "released_at": row["released_at"],
+                    "thresholds": {
+                        "warning": row["warning_value"],
+                        "danger": row["danger_value"],
+                        "critical": row["critical_value"],
+                    },
+                    "source_name": row["source_name"],
+                    "source_url": row["source_url"],
+                    "profile": row["profile"],
+                    "economic_band": row["economic_band"],
+                    "historical_band": row["historical_band"],
+                    "effective_band": row["effective_band"],
+                    "agreement": row["agreement"],
+                    "effective_score": row["effective_score_text"],
+                    "history_count": int(row["history_count"]),
+                }
+            )
+        news_payload = None if news_coverage is None else {
+            "status": news_coverage["status"],
+            "ratio": news_coverage["ratio_text"],
+            "expected_source_count": int(news_coverage["expected_source_count"]),
+            "healthy_source_count": int(news_coverage["healthy_source_count"]),
+            "degraded_source_count": int(news_coverage["degraded_source_count"]),
+            "failed_source_count": int(news_coverage["failed_source_count"]),
+            "missing_regions": json.loads(news_coverage["missing_regions_payload"] or "[]"),
+        }
+        return {
+            "ready": True,
+            "as_of": snapshot["snapshot_at"],
+            "methodology": {
+                "code": snapshot["methodology_code"],
+                "version": snapshot["methodology_version"],
+                "stage_version": snapshot["stage_version"],
+                "promotion_status": "shadow_candidate",
+            },
+            "stage": snapshot["stage"],
+            "calculated_stage": snapshot["calculated_stage"],
+            "stress_intensity": snapshot["stress_intensity_text"],
+            "systemic_breadth": snapshot["systemic_breadth_text"],
+            "active_independent_clusters": int(snapshot["active_independent_clusters"]),
+            "active_regions": int(snapshot["active_regions"]),
+            "coverage_status": snapshot["coverage_status"],
+            "news_coverage": news_payload,
+            "groups": [
+                {
+                    "code": row["group_code"],
+                    "name": row[f"name_{suffix}"] or row["group_code"],
+                    "english_name": row["name_en"] or row["group_code"],
+                    "description": row[f"description_{suffix}"] or "",
+                    "calculation": row[f"calculation_{suffix}"] or "",
+                    "limitations": row[f"limitations_{suffix}"] or "",
+                    "score": row["score_text"],
+                    "band": row["band"],
+                    "subchannel_count": int(row["subchannel_count"]),
+                    "active_subchannel_count": int(row["active_subchannel_count"]),
+                    "thin_group": bool(row["thin_group"]),
+                    "contributors": json.loads(row["contributors_payload"]),
+                }
+                for row in group_rows
+            ],
+            "items": items,
+        }
+
+    def resolve_signal_scorecards(
+        self,
+        *,
+        methodology_version: str,
+        as_of: datetime,
+    ) -> dict:
+        if as_of.tzinfo is None or as_of.utcoffset() is None:
+            raise ValueError("as_of must be timezone-aware")
+        horizon_days = {
+            "global_recession": 365,
+            "financial_stress": 90,
+            "oil_stagflation": 180,
+            "crypto_leverage_unwind": 30,
+            "china_hard_landing": 180,
+        }
+        resolved = false_alerts = skipped = 0
+        with self.db.connect() as connection:
+            methodology = connection.execute(
+                "SELECT id FROM cr_methodology_versions WHERE version=?",
+                (methodology_version,),
+            ).fetchone()
+            if methodology is None:
+                return {"resolved": 0, "false_alerts": 0, "skipped": 0}
+            rows = connection.execute(
+                """
+                SELECT * FROM cr_signal_scorecards
+                WHERE methodology_id=? AND outcome_status='invalidated'
+                ORDER BY id
+                """,
+                (methodology["id"],),
+            ).fetchall()
+            for row in rows:
+                days = horizon_days.get(row["scenario_code"])
+                if days is None:
+                    skipped += 1
+                    continue
+                first = datetime.fromisoformat(row["first_detected_at"])
+                deadline = first + timedelta(days=days)
+                if as_of < deadline:
+                    skipped += 1
+                    continue
+                catalog = connection.execute(
+                    """
+                    SELECT id FROM cr_event_catalog_versions
+                    WHERE scenario_code=? AND status='active'
+                    ORDER BY id DESC LIMIT 1
+                    """,
+                    (row["scenario_code"],),
+                ).fetchone()
+                if catalog is None:
+                    skipped += 1
+                    continue
+                event = connection.execute(
+                    """
+                    SELECT event_code, started_at FROM cr_event_labels
+                    WHERE catalog_id=? AND started_at > ? AND started_at <= ?
+                    ORDER BY started_at LIMIT 1
+                    """,
+                    (catalog["id"], _utc_text(first), _utc_text(deadline)),
+                ).fetchone()
+                if event is not None:
+                    event_at = datetime.fromisoformat(event["started_at"])
+                    lead_days = Decimal(
+                        str((event_at - first).total_seconds() / 86400)
+                    ).quantize(Decimal(".01"))
+                    outcome = "resolved"
+                    resolved += 1
+                elif row["first_elevated_at"] is not None or row["first_confirmed_at"] is not None:
+                    lead_days = None
+                    outcome = "false_alert"
+                    false_alerts += 1
+                else:
+                    skipped += 1
+                    continue
+                reaction = {
+                    "outcome_event_code": None if event is None else event["event_code"],
+                    "lead_days": None if lead_days is None else format(lead_days, "f"),
+                    "market_reaction_status": "unavailable_without_validated_asset_history",
+                    "mfe": None,
+                    "mae": None,
+                }
+                connection.execute(
+                    """
+                    UPDATE cr_signal_scorecards
+                    SET outcome_status=?, reaction_payload=?, updated_at=CURRENT_TIMESTAMP
+                    WHERE id=?
+                    """,
+                    (outcome, json.dumps(reaction, sort_keys=True), row["id"]),
+                )
+        return {"resolved": resolved, "false_alerts": false_alerts, "skipped": skipped}
+
+    def signal_scorecards_payload(
+        self,
+        *,
+        methodology_version: str,
+        limit: int = 100,
+    ) -> dict:
+        if limit < 1 or limit > 500:
+            raise ValueError("scorecard limit must be between 1 and 500")
+        with self.db.connect() as connection:
+            methodology = connection.execute(
+                "SELECT id FROM cr_methodology_versions WHERE version=?",
+                (methodology_version,),
+            ).fetchone()
+            if methodology is None:
+                return {"ready": False, "items": []}
+            rows = connection.execute(
+                """
+                SELECT * FROM cr_signal_scorecards WHERE methodology_id=?
+                ORDER BY first_detected_at DESC, id DESC LIMIT ?
+                """,
+                (methodology["id"], limit),
+            ).fetchall()
+        return {
+            "ready": True,
+            "methodology_version": methodology_version,
+            "items": [
+                {
+                    **dict(row),
+                    "reaction": json.loads(row["reaction_payload"] or "{}"),
+                    "attribution": json.loads(row["attribution_payload"] or "{}"),
+                }
+                for row in rows
+            ],
+        }
 
     def save_analysis_snapshot(
         self,

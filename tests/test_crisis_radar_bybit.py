@@ -12,6 +12,7 @@ from trading_bot.crisis_radar.sources.bybit import (
     BybitAdapter,
     BybitClient,
     BybitSourceError,
+    classify_signed_oi_state,
 )
 from trading_bot.crisis_radar.bybit_options import build_defined_risk_put_spread
 from trading_bot.crisis_radar.repositories import CrisisRadarRepository
@@ -40,6 +41,31 @@ def test_bybit_adapter_normalizes_funding_oi_change_and_drawdown() -> None:
     assert funding[-1].value == Decimal("-0.0700")
     assert oi[-1].value == Decimal("30.0000")
     assert drawdown[-1].value == Decimal("-25.0000")
+
+
+def test_bybit_adapter_preserves_signed_oi_and_classifies_build_and_unwind() -> None:
+    adapter = BybitAdapter()
+    signed = adapter.normalize_signed_oi_changes(
+        (FIXTURES / "bybit_open_interest.json").read_bytes(),
+        symbol="BTCUSDT",
+        fetched_at=NOW,
+    )
+
+    assert signed[-1].indicator_code == "btc_oi_7d_change"
+    assert signed[-1].value == Decimal("-30.0000")
+    assert classify_signed_oi_state(
+        oi_change=Decimal("30"),
+        price_change=Decimal("12"),
+        funding_rate=Decimal(".05"),
+    ) == "leverage_build_long"
+    assert classify_signed_oi_state(
+        oi_change=Decimal("-30"),
+        price_change=Decimal("-15"),
+    ) == "liquidation_unwind"
+    assert classify_signed_oi_state(
+        oi_change=Decimal("-8"),
+        price_change=Decimal("2"),
+    ) == "orderly_deleveraging"
 
 
 @pytest.mark.parametrize("method", ["normalize_funding", "normalize_oi_change", "normalize_drawdown"])

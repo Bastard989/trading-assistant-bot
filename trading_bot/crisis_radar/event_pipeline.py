@@ -158,10 +158,15 @@ def event_score(
     source_count: int,
     official_source_count: int,
     age_hours: Decimal = Decimal("0"),
+    half_life_hours: Decimal = Decimal("72"),
 ) -> Decimal:
+    if half_life_hours <= 0:
+        raise ValueError("event half-life must be positive")
     source_quality = {"A": Decimal("1"), "B": Decimal("0.8"), "C": Decimal("0.45")}[source_tier]
     corroboration = min(Decimal("1"), Decimal("0.45") + Decimal("0.25") * source_count)
     if official_source_count:
         corroboration = max(corroboration, Decimal("0.75"))
-    time_decay = Decimal("1") / (Decimal("1") + max(age_hours, Decimal("0")) / Decimal("72"))
+    time_decay = Decimal("1") / (
+        Decimal("1") + max(age_hours, Decimal("0")) / half_life_hours
+    )
     return (severity * source_quality * corroboration * time_decay).quantize(Decimal("0.0001"))

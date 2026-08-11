@@ -105,6 +105,27 @@ def test_discovery_event_stays_discovery_until_independent_or_official_evidence(
     assert len(payload["items"][0]["evidence"]) == 2
 
 
+def test_event_decay_is_recomputed_for_each_snapshot_without_rewriting_raw_score(tmp_path) -> None:
+    repository = CrisisRadarRepository(Database(tmp_path / "decay.sqlite3"))
+    service = CrisisRadarService(
+        repository,
+        feature_flags=CrisisRadarFeatureFlags(news_events_v2=True),
+    )
+    service.bootstrap()
+    item = _item("fed_news", "Bank run triggers emergency liquidity", tier="A")
+    saved = repository.save_news_item(item)
+    candidate = extract_event_candidate(item)
+    assert candidate is not None
+    repository.save_event_candidate(saved.news_item_id, candidate)
+
+    early = repository.events_payload(as_of=NOW + timedelta(hours=1))["items"][0]
+    late = repository.events_payload(as_of=NOW + timedelta(hours=73))["items"][0]
+
+    assert Decimal(late["event_score"]) < Decimal(early["event_score"])
+    assert late["raw_event_score"] == early["raw_event_score"]
+    assert late["half_life_hours"] == "72"
+
+
 def test_gdelt_adapter_and_client_are_bounded_discovery_only() -> None:
     payload = json.dumps(
         {

@@ -52,6 +52,9 @@
 
 ## Последнее доказательство (2026-08-11)
 
+- Repository candidate commits:
+  `9dedacb` (v11 shadow core/UI), `5bbd69e` (self-host/CI/canary),
+  `9ac3d9f` (runtime-aligned documentation).
 - Targeted replay/scoring/validation: `19 passed`.
 - Targeted UI/i18n/canary: `12 passed`.
 - Authenticated Playwright browser E2E: `1 passed` (RU/EN, six analysis tabs,

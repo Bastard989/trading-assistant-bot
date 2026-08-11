@@ -1,0 +1,164 @@
+{
+  "schema_version": 1,
+  "status": "shadow",
+  "versions": {
+    "indicator_scoring": "indicator-score-v2-seed-1",
+    "stage": "independent-stage-v2-seed-1",
+    "dependency_graph": "dependency-graph-v2-seed-1"
+  },
+  "indicator": {
+    "band_thresholds": {
+      "warning": "0.25",
+      "danger": "0.50",
+      "critical": "0.75"
+    },
+    "historical_percentile_knots": ["0.80", "0.95", "0.99"],
+    "historical_mad_z_denominator": "3",
+    "movement_percent_denominator": "20",
+    "movement_volatility_denominator": "3",
+    "persistence_observation_cap": "10",
+    "availability_factors": {
+      "fresh": "1",
+      "delayed": "0.70",
+      "stale": "0",
+      "missing": "0"
+    },
+    "profiles": {
+      "market_daily": {
+        "code": "market_daily",
+        "economic": "0.25",
+        "historical": "0.20",
+        "trend": "0.20",
+        "acceleration": "0.10",
+        "persistence": "0.10",
+        "regime": "0.15",
+        "minimum_history": 252,
+        "preferred_window": "30d"
+      },
+      "market_intraday": {
+        "code": "market_intraday",
+        "economic": "0.15",
+        "historical": "0.20",
+        "trend": "0.15",
+        "acceleration": "0.15",
+        "persistence": "0.10",
+        "regime": "0.25",
+        "minimum_history": 500,
+        "preferred_window": "7d"
+      },
+      "flow_weekly": {
+        "code": "flow_weekly",
+        "economic": "0.30",
+        "historical": "0.15",
+        "trend": "0.20",
+        "acceleration": "0.10",
+        "persistence": "0.15",
+        "regime": "0.10",
+        "minimum_history": 104,
+        "preferred_window": "90d"
+      },
+      "macro_monthly": {
+        "code": "macro_monthly",
+        "economic": "0.35",
+        "historical": "0.15",
+        "trend": "0.20",
+        "acceleration": "0.10",
+        "persistence": "0.15",
+        "regime": "0.05",
+        "minimum_history": 60,
+        "preferred_window": "6m"
+      },
+      "macro_quarterly": {
+        "code": "macro_quarterly",
+        "economic": "0.45",
+        "historical": "0.15",
+        "trend": "0.15",
+        "acceleration": "0.05",
+        "persistence": "0.15",
+        "regime": "0.05",
+        "minimum_history": 24,
+        "preferred_window": "12m"
+      },
+      "structural_annual": {
+        "code": "structural_annual",
+        "economic": "0.55",
+        "historical": "0.15",
+        "trend": "0.10",
+        "acceleration": "0.05",
+        "persistence": "0.10",
+        "regime": "0.05",
+        "minimum_history": 15,
+        "preferred_window": "12m"
+      },
+      "two_sided_leverage": {
+        "code": "two_sided_leverage",
+        "economic": "0.15",
+        "historical": "0.20",
+        "trend": "0.15",
+        "acceleration": "0.15",
+        "persistence": "0.10",
+        "regime": "0.25",
+        "minimum_history": 252,
+        "preferred_window": "30d"
+      },
+      "event_reactive": {
+        "code": "event_reactive",
+        "economic": "0.25",
+        "historical": "0.10",
+        "trend": "0.15",
+        "acceleration": "0.10",
+        "persistence": "0.10",
+        "regime": "0.30",
+        "minimum_history": 30,
+        "preferred_window": "30d"
+      }
+    }
+  },
+  "aggregation": {
+    "active_score_threshold": "0.25",
+    "group_score_weights": {
+      "central": "0.35",
+      "top_two": "0.30",
+      "breadth": "0.20",
+      "dynamics": "0.15"
+    },
+    "intensity_weights": {
+      "active_cluster_mean": "0.60",
+      "top_two_cluster_mean": "0.40"
+    },
+    "breadth_weights": {
+      "clusters": "0.50",
+      "regions": "0.25",
+      "anchors": "0.25"
+    },
+    "stage_gates": {
+      "tension": {
+        "intensity": "25",
+        "breadth": "20",
+        "clusters": 1
+      },
+      "warning": {
+        "intensity": "40",
+        "breadth": "35",
+        "clusters": 2
+      },
+      "confirmation": {
+        "intensity": "60",
+        "breadth": "50",
+        "clusters": 3,
+        "anchor_confirmation": true
+      },
+      "crisis": {
+        "intensity": "75",
+        "breadth": "65",
+        "clusters": 4,
+        "regions": 2,
+        "critical_anchor": true
+      }
+    },
+    "recovery": {
+      "minimum_intensity_drop": "15",
+      "maximum_breadth": "50"
+    }
+  }
+}

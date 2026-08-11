@@ -1,152 +1,364 @@
-# Crisis Radar: руководство пользователя и техническая методика
+# Crisis Radar: руководство владельца и техническая методика
 
-Версия документа: 2026-08-04. Методика расчёта: `candidate-v10`, fusion: `scenario-fusion-v1`.
+Версия документа: 2026-08-11.
 
-## Часть I. Если вы не разработчик
+Основной live-вывод: `candidate-v10`. Исследовательский shadow-расчёт:
+`candidate-v11`, `indicator-score-v2-seed-1`, `independent-stage-v2-seed-1`.
+Машинно проверяемая копия всех исполняемых seed-порогов и весов находится в
+`docs/crisis-radar-v2-runtime-contract.json`. CI сравнивает её непосредственно
+с константами вычислительного ядра.
+
+Этот документ описывает исполняемый код. Если документ и код расходятся,
+автоматический consistency test должен упасть, а кандидатная методика не может
+быть продвинута.
+
+## 1. Коротко для человека без технической подготовки
 
 ### Что делает радар
 
-Crisis Radar постоянно собирает официальные экономические показатели, рыночные данные и публикации регуляторов. Он ищет не «магическую цифру», а одновременное ухудшение нескольких независимых частей системы: экономики, кредита, ликвидности, рынков, сырья и криптоплечей.
+Crisis Radar собирает числовые показатели и официальные публикации, сохраняет их
+происхождение и ищет совместное ухудшение независимых частей мировой системы:
+экономики, труда, кредита, банков, ликвидности, рынков, сырья, жилья,
+суверенного риска и криптоплечей.
 
-Радар не гарантирует кризис, дату падения или прибыль. Его задача — раньше ручного просмотра заметить подтверждённое ухудшение, показать причины и не скрыть отсутствие данных.
+Радар не предсказывает точную дату кризиса и не гарантирует прибыль. Он отвечает
+на более проверяемые вопросы:
+
+- где уже есть напряжение;
+- насколько оно сильное;
+- насколько широко оно распространяется;
+- какие подтверждения появились и каких не хватает;
+- что отменит сценарий;
+- какие позиции владельца конфликтуют с ним;
+- насколько свежи и полны данные.
 
 ### Что смотреть каждый день
 
-1. **Стадия рынка.** `Стабильно → напряжение → предупреждение → подтверждение → кризис`. Если важных данных мало, вместо стадии показывается `Недостаточно данных`.
-2. **Надёжность данных.** Покрытие ниже 85% заметно помечается; ниже 70% числовая стадия скрывается.
-3. **Изменения за 24 часа, 7 и 15 дней.** Это помогает отличить новый сдвиг от давно известного состояния.
-4. **Сценарии.** У каждого есть сила 0–100 и число независимых подтверждений. Это не вероятность.
-5. **Критические события.** Официальные или подтверждённые несколькими источниками события. Один непроверенный заголовок не объявляет кризис.
-6. **Возможности.** Только условные `long / short / hedge / wait`. Без свежей котировки и минимум пяти похожих исторических эпизодов направленная идея и диапазон не показываются.
+1. **Стадия рынка.** Основная стадия v10 остаётся рабочим production-сигналом.
+2. **Сила напряжения и ширина заражения.** Это две оси v11 shadow. Они объясняют,
+   сильны ли ухудшения и сколько независимых систем они затронули.
+3. **Покрытие данных.** `Недостаточно данных` важнее красивой зелёной карточки:
+   при провале gate радар не имеет права показывать ложное `стабильно`.
+4. **Что изменилось за 24 часа, 7 и 15 дней.** Пустое значение означает, что
+   сохранённой истории пока недостаточно, а не отсутствие изменений в мире.
+5. **Сценарий и цепочка причин.** Откройте карточку: там есть подтверждения,
+   следующие звенья, инвалидация, recovery и ограничения.
+6. **События и источники.** Новость является доказательным контекстом. Один
+   заголовок не может сам объявить кризис.
+7. **Возможности и позиции.** Это read-only анализ `long/short/hedge/wait`; ордер,
+   стоп, цель и объём радар не меняет.
 
-### Как читать силу сценария
+### Как понимать числа
 
-Сила 0–100 отвечает на вопрос: «Насколько широко и сильно этот сценарий подтверждён сейчас?» Она складывается из:
+- **Сила сценария 0–100** — выраженность текущих подтверждений, не вероятность.
+- **Интенсивность 0–100** — сила стрессов в активных независимых кластерах.
+- **Системная ширина 0–100** — распространение по кластерам, регионам и anchor-классам.
+- **Вероятность** показывается только после причинной исторической калибровки.
+  Сейчас live probability равна `null`.
+- **Надёжность** описывает покрытие и качество данных, а не шанс кризиса.
 
-- числовых уровней — максимум 50;
-- трендов и смены режима — максимум 20;
-- распространения стресса между рынками — максимум 10;
-- подтверждённых событий — максимум 20.
+### Почему v10 и v11 показываются одновременно
 
-Новость не может одна дать статус `подтверждён`. Для него нужны якорный канал и минимум два независимых числовых кластера.
+v10 — более простой пороговый монитор с накопленным рабочим поведением. v11
+добавляет историческую аномальность, тренд, ускорение, persistence, режимы и
+коррекцию зависимостей. Сложность сама по себе не является преимуществом, поэтому
+v11 остаётся shadow до победы над baseline на replay и live canary.
 
-### Почему вероятность иногда отсутствует
+Реальный financial-stress replay 2026-08-05 обнаружил нулевое число v11-точек с
+достаточным историческим покрытием. Это не успех модели и не провал идеи радара:
+это честный отказ promotion gate. Нужно накопить/загрузить причинно корректную
+историю всех обязательных каналов. Процент не создаётся.
 
-Процент вероятности показывается только для конкретного сценария и горизонта после строгой исторической проверки. Нужно минимум 30 независимых событий, минимум 5 событий в holdout, результат лучше базовой частоты, ненулевой recall, приемлемые ложные тревоги и устойчивость на соседних порогах. Пока gate не пройден, значение честно остаётся `null`.
+## 2. Пороговые ориентиры
 
-### Когда нельзя доверять выводу без ручной проверки
+Экономический порог — объяснимая граница наблюдения, а не магическое
+предсказание. Значения v11 имеют metadata, rationale, source URL, profile,
+operational role, checksum и статус `candidate`. Персональные overlays не
+переписывают системную историю.
 
-- покрытие `degraded` или `insufficient_data`;
-- событие имеет статус `discovery` и только один источник;
-- сценарий имеет `watch` или низкую надёжность;
-- возможность показывает `wait`;
-- отсутствует историческая выборка реакции;
-- источник давно не обновлялся или публикация была пересмотрена.
-
-## Часть II. Пороговые ориентиры
-
-Порог — экономически понятная стартовая граница, а не предсказание. Все системные пороги версионируются; персональные накладываются отдельно и не переписывают историю.
-
-| Показатель | Warning | Danger | Critical | Важный контекст |
+| Показатель | Warning | Danger | Critical | Контекст |
 |---|---:|---:|---:|---|
-| Sahm Rule, п.п. | 0.25 | 0.50 | 1.00 | 0.50 — официальный рецессионный триггер |
-| US HY OAS, % | 4.5 | 6.0 | 8.0 | также важна скорость +100/+200/+350 б.п. за 30 дней |
-| VIX | 25 | 30 | 40 | единичный всплеск требует устойчивости |
-| S&P 500 drawdown | −10% | −20% | −30% | учитываются скорость и ширина падения |
-| 10Y–2Y | ≤0 за 20 дней | ≤−0.5 или 60 дней | нет одиночного critical | важна последовательность инверсия → распрямление |
-| NFCI | 0.0 | 0.5 | 1.0 | учитывается недельное ускорение |
-| Fed assets, 90d | −3% | −6% | −10% | рост баланса после сжатия — реакция поддержки, не улучшение |
-| US real GDP q/q annualized | 1% | 0% | −2% | запаздывающее подтверждение |
-| WTI, 90d | +20% | +35% | +60% | отдельная ветка падения −20/−35/−50% |
-| Euro CISS | 0.20 | 0.35 | 0.55 | сверяется с rolling percentiles |
-| Euro GDP q/q | 0.2% | 0% | −1.0% | запаздывающий показатель |
-| China real GDP y/y | 4% | 3% | 1% | структурный, не быстрый сигнал |
-| World real GDP y/y | 2.5% | 1.5% | 0% | не участвует в оперативной стадии |
-| BIS credit-to-GDP gap | 2 п.п. | 10 п.п. | нет одиночного critical | уязвимость, а не момент кризиса |
-| G20/China CLI 6m | −0.2 | −0.6 | −1.2 | требует направления ниже 100 и второго подтверждения |
-| BTC/ETH funding | ±0.05% | ±0.10% | ±0.20% | знак сопоставляется с ценой и OI |
-| BTC/ETH OI 7d | ±15% | ±25% | ±40% | рост плечей и ликвидационный сброс — разные состояния |
-| BTC/ETH drawdown 30d | −15% | −25% | −40% | дополняется волатильностью и ликвидациями |
+| Sahm Rule, п.п. | 0,25 | 0,50 | 1,00 | 0,50 — официальный рецессионный триггер |
+| US HY OAS, % | 4,5 | 6,0 | 8,0 | важна также скорость расширения |
+| US IG OAS, % | 2,0 | 3,0 | 5,0 | отдельный кредитный подканал |
+| VIX | 25 | 30 | 40 | одиночный всплеск не равен системному кризису |
+| S&P 500 drawdown | −10% | −20% | −30% | сравнивается с breadth/credit/liquidity |
+| 10Y–2Y | 0 | −0,5 | −1,0 | важна цепочка инверсия → распрямление |
+| NFCI | 0,0 | 0,5 | 1,0 | ужесточение финансовых условий |
+| STLFSI | 0,0 | 1,0 | 2,5 | недельный официальный stress proxy |
+| Повторные claims США | 1,9 млн | 2,5 млн | 4,0 млн | ухудшение труда |
+| Payrolls, изменение | +100 тыс. | 0 | −300 тыс. | monthly confirmation |
+| US bank deposits, 90d | −1% | −3% | −6% | устойчивость банковского фондирования |
+| Primary credit ФРС | $1 млрд | $10 млрд | $50 млрд | emergency borrowing proxy |
+| Housing permits, 90d | −5% | −15% | −30% | опережающий housing-канал |
+| Broad USD, 30d | +3% | +6% | +10% | глобальное долларовое давление |
+| Euro CISS | 0,20 | 0,35 | 0,55 | системный стресс еврозоны |
+| G20/China CLI, 6m | −0,2 | −0,6 | −1,2 | направление важнее уровня 100 |
+| Funding BTC/ETH | ±0,05% | ±0,10% | ±0,20% | знак сопоставляется с ценой и OI |
+| Signed OI BTC/ETH, 7d | 20% | 35% | 60% | различает build и unwind в v11 |
+| BTC/ETH drawdown, 30d | −15% | −25% | −40% | дополняется OI, funding и volatility |
 
-Дополнительно используются динамические границы: неблагоприятный percentile 80/95/99% и robust `|z|` 1/2/3. Они подтверждают или снижают надёжность экономического порога, но не заменяют его.
+Полный набор точных порогов доступен в UI «Методика» и в immutable registry. В
+таблице выше приведены ориентиры, а не замена реестра.
 
-## Часть III. Техническая методика
+## 3. Причинность и происхождение данных
 
-### Причинность данных
-
-Исторический расчёт использует только наблюдения, у которых `observed_at <= cutoff` и `released_at <= cutoff`. Пересмотренные значения хранятся как отдельные vintages. Просроченные значения исключаются или понижают покрытие; последнее известное значение не маскируется под свежее.
-
-### Индикатор
-
-Кандидатная формула:
+Для snapshot с временем `cutoff` допускаются только строки:
 
 ```text
-indicator_score = availability_gate × (
-    0.45 × absolute_level_score
-  + 0.25 × trend_score
-  + 0.15 × anomaly_score
-  + 0.15 × persistence_score
+observed_at <= cutoff
+released_at <= cutoff
+```
+
+Replay исключает `retrospective_revised`. Каждая точка хранит source, vintage,
+observed/released/fetched time и quality flags. Будущий релиз не может изменить
+прошлый replay-сигнал — это покрыто regression test.
+
+Просроченное значение не становится нейтральным: availability обнуляет его вклад,
+а coverage gate может вернуть `insufficient_data`.
+
+## 4. Основная методика v10
+
+v10 переводит свежий уровень между `reference → warning → danger → critical` в
+`stress_score 0..1` линейной интерполяцией. Полосы:
+
+```text
+normal    0,00 <= score < 0,25
+warning   0,25 <= score < 0,50
+danger    0,50 <= score < 0,75
+critical  0,75 <= score <= 1,00
+```
+
+После raw band применяются confirmation points и recovery margin. Critical не
+задерживается. Monthly/quarterly/annual ряды подтверждаются одной новой точкой;
+более быстрые не-критические переходы требуют устойчивости.
+
+Группа v10:
+
+```text
+group_score = 0,70 × strongest_indicator_score
+            + 0,30 × mean_indicator_score
+```
+
+Стадия v10:
+
+```text
+crisis       critical groups >= 3
+confirmation critical groups >= 2 OR danger groups >= 3
+warning      danger groups >= 2 OR warning groups >= 3
+tension      warning groups >= 1
+stable       иначе
+```
+
+При провале coverage вычисленная стадия сохраняется для аудита, но пользователю
+показывается `insufficient_data`.
+
+## 5. Indicator score v2 (candidate-v11 shadow)
+
+Для каждого индикатора отдельно сохраняются:
+
+```text
+economic_score / economic_band
+historical_score / historical_band
+trend_score
+acceleration_score
+persistence_score
+regime_score
+data_quality
+availability
+effective_score / effective_band
+agreement
+history_count
+lineage + input_checksum
+```
+
+Общий контракт:
+
+```text
+effective = availability × data_quality × weighted_profile(
+    economic, historical, trend, acceleration, persistence, regime
 )
 ```
 
-Trend engine сохраняет изменения 1d/7d/15d/30d/90d/6m/12m, Theil–Sen slope, ускорение, percentile, MAD z-score, volatility regime, causal CUSUM и persistence. Для кривой доходности, кредитного цикла, баланса ФРС и OI используются отдельные state machines.
+Доступность умножает результат на `1,00` для fresh и на `0,70` для delayed.
+Для stale/missing итоговый score отсутствует. Полосы score заданы точно:
+`normal < 0,25`, `warning ≥ 0,25`, `danger ≥ 0,50`,
+`critical ≥ 0,75`.
 
-### Группа
+Профили и seed-веса:
+
+| Profile | Econ | Hist | Trend | Accel | Persist | Regime | Min history |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| market_daily | .25 | .20 | .20 | .10 | .10 | .15 | 252 |
+| market_intraday | .15 | .20 | .15 | .15 | .10 | .25 | 500 |
+| flow_weekly | .30 | .15 | .20 | .10 | .15 | .10 | 104 |
+| macro_monthly | .35 | .15 | .20 | .10 | .15 | .05 | 60 |
+| macro_quarterly | .45 | .15 | .15 | .05 | .15 | .05 | 24 |
+| structural_annual | .55 | .15 | .10 | .05 | .10 | .05 | 15 |
+| two_sided_leverage | .15 | .20 | .15 | .15 | .10 | .25 | 252 |
+| event_reactive | .25 | .10 | .15 | .10 | .10 | .30 | 30 |
+
+Если history gate не пройден, historical component отсутствует и разрешённая
+ренормализация фиксируется в lineage. Critical economic level не понижается
+только из-за спокойной короткой истории.
+
+Historical anomaly использует кусочно-линейные узлы adverse percentile
+`0,80 / 0,95 / 0,99`. Направленный robust MAD z-score преобразуется точно как
+`clamp(oriented_mad_z / 3, 0, 1)`; итог исторической аномалии — максимум
+percentile- и z-компонентов. При отсутствии надёжной volatility trend для
+процентного изменения нормируется на `20`; при наличии volatility изменение
+нормируется на `volatility × √observations × 3`. Acceleration нормируется на
+`volatility × 3`, persistence — на 10 последовательных наблюдений. Regime
+берёт максимум из change point, state machine и volatility state.
+
+Agreement:
+
+- `confirmed_stress` — economic и historical подтверждают ухудшение;
+- `early_anomaly` — уровень ещё нормальный, но аномалия/динамика необычны;
+- `high_level_stabilizing` — уровень плохой, но динамика успокаивается;
+- `mixed` — компоненты расходятся;
+- `insufficient_history` / `insufficient_data` — честная нехватка входов.
+
+## 6. Dependency graph, группы и стадия v11
+
+Индикаторы объединяются в независимые subchannels, группы и кластеры. Один ряд не
+может дважды занять top-two. Коррелированные группы внутри кластера дают один
+cluster score.
 
 ```text
-group_score =
-    0.45 × weighted_mean
-  + 0.25 × mean_of_top_two
-  + 0.20 × breadth
-  + 0.10 × acceleration
+group_raw = 0,35 × central tendency
+          + 0,30 × mean(top two independent subchannels)
+          + 0,20 × stressed subchannel breadth
+          + 0,15 × dynamics
 ```
 
-Связанные группы объединяются в `dependency_cluster`; максимум внутри кластера считается одним независимым подтверждением. Это уменьшает двойной учёт VIX, equity drawdown и credit spreads.
+Текущий исполняемый seed пока не применяет отдельные multiplicative
+quality/dependency penalties внутри group formula: качество уже входит в
+indicator effective score, а dependency correction выполняется через subchannel
+и cluster dedup. Это кандидатное ограничение явно проверяется ablation.
 
-### Событие
+Интенсивность:
 
 ```text
-event_score = severity × source_quality × corroboration
-            × novelty × market_relevance × time_decay
+0,60 × mean(active cluster scores)
++ 0,40 × mean(top two active cluster scores)
 ```
 
-Реляционные записи содержат URL, издателя, original language, publication/fetch time, excerpt, hashes, source tier и evidence IDs. Near-duplicates сливаются в event cluster. Tier C/GDELT — только discovery. Prompt-like инструкции из текста помечаются и не исполняются.
-
-### Scenario fusion
+Ширина:
 
 ```text
-strength = numeric_level[0..50]
-         + trend[0..20]
-         + contagion[0..10]
-         + corroborated_events[0..20]
+100 × (
+  0,50 × active clusters / eligible clusters
+  + 0,25 × active regions / eligible regions
+  + 0,25 × active anchor classes / 3
+)
 ```
 
-`confirmed` требует силы ≥65, активного anchor, числового вклада ≥18 и минимум двух независимых числовых кластеров. `elevated` требует силы ≥40 и двух кластеров. Неподтверждённая новость ограничена `watch`. При недостаточном покрытии статус `unknown`.
+Seed-матрица: tension от 25/20, warning от 40/35 и двух кластеров,
+confirmation от 60/50 и трёх кластеров с anchor, crisis от 75/65, четырёх
+кластеров, двух регионов и critical anchor. Recovery требует снижения интенсивности
+минимум на 15 от подтверждённого пика и breadth ниже 50.
 
-### Coverage gate
+## 7. Signed OI
 
-- ≥85% + обязательные каналы: `healthy`;
-- 70–85%: `degraded`;
-- <70%: `insufficient_data`;
-- пропажа anchor делает конкретный сценарий `unknown`;
-- пропажа двух ключевых регионов/глобальных каналов скрывает общую стадию.
+v10 сохраняет абсолютное 7d-изменение для воспроизводимости. v11 использует signed
+1d/7d/30d и сопоставляет знак с ценой, funding и volatility. State machine
+различает leverage build, orderly deleveraging, price/OI quadrants и liquidation
+unwind. Отсутствующая проверяемая liquidation feed не имитируется.
 
-Coverage и рыночный риск хранятся отдельно. Векторная память не участвует в этом gate.
+## 8. Новости, события и память доказательств
 
-### Evidence memory
+Official-first feeds: Fed, ECB, SEC, CFTC, BIS, BOJ, RBI, BoE, BoC и FDIC. GDELT
+используется только для discovery. Оригинальный язык и текст сохраняются; перевод
+производный. Dedupe, URL allowlist, bounded payload, XML hardening и prompt-like
+text defence применяются до извлечения событий.
 
-PostgreSQL хранит документы, события, chunks, связи и shadow parity; `pgvector` — перестраиваемый индекс. Поиск объединяет metadata, full-text и 768-мерный embedding через reciprocal-rank fusion. Любой ответ агента обязан вернуть реальные evidence IDs; без них он отклоняется или помечается требующим ручной проверки.
+```text
+current_event_score = severity × source_quality × corroboration
+                    × novelty × relevance × time_decay
+```
 
-### Возможности
+Decay пересчитывается относительно каждого snapshot; half-life зависит от
+taxonomy. После news sync fusion пересчитывается сразу. News coverage и numeric
+coverage независимы: news blackout не превращает числовую стадию в `stable`, но
+понижает event reliability и создаёт operational incident.
 
-Идея создаётся только при свежей проверяемой котировке, достаточном качестве и активном сценарии. Исторический диапазон содержит `n`, медиану и квантили; при `n < 5` диапазон и перенос в калькулятор недоступны. Торговый ордер никогда не создаётся.
+Basic profile использует SQLite FTS и relational evidence IDs. Advanced profile
+добавляет PostgreSQL/pgvector, continuous ingestion, embedding queue и hybrid
+search. Vector match без relational evidence ID не считается фактом.
 
-### Калибровка
+## 9. Сценарии, recovery, exposure и scorecard
 
-Используются walk-forward, right censoring и запрет обучения на ещё не разрешившихся горизонтах. Promotion gate: ≥30 событий, ≥5 holdout, Brier лучше base rate, recall ≥0.20, false-alert rate ≤0.50, coverage ≥0.50, sensitivity stability, region holdout и crisis holdout. Неудачный backtest сохраняется для аудита, но live probability остаётся `null`.
+У каждого v11-сценария есть Crisis Playbook: causal chain, anchors, подтверждения,
+missing confirmations, invalidation, recovery, уязвимые классы, возможные
+beneficiaries, ограничения и evidence IDs.
 
-## Источники и ограничения
+Exposure overlay читает открытые сделки и показывает conflict/alignment,
+концентрацию и leverage vulnerability. Он не имеет методов изменения сделки.
 
-Приоритет: официальные API/RSS (Tier A), публичные биржевые API (Tier B), discovery-агрегаторы (Tier C). Доступны FRED, BEA, EIA, ECB, Eurostat, World Bank, BIS, OECD, Bybit и официальные RSS Fed/ECB/SEC/CFTC/BIS/BOJ/RBI. GDELT может отвечать rate-limit и тогда честно отключается. Нестабильный HTML scraping не используется.
+Live scorecard сохраняет first detected/elevated/confirmed, peak strength,
+invalidation и attribution. `resolved`/`false_alert` выставляется только для
+сценариев с versioned event catalog и после полного горизонта. MFE/MAE остаются
+`null`, пока нет валидированной исторической цены соответствующего asset class.
 
-Радар не может гарантировать кризис. Редкие события дают мало независимых обучающих примеров; структурные макроданные выходят с задержкой и пересмотрами; бесплатные источники не обеспечивают полный tick-level охват всех активов и TradFi-опционов. Поэтому текущая сила сценария — аудируемый ранний сигнал, а статистическая прогностическая сила остаётся экспериментальной до прохождения promotion gate и live track record.
+## 10. Replay, ablation и вероятность
+
+Сравниваются v10, economic-only, historical-only, full, without trend, without
+events, without contagion, without dependency correction и expanding-window base
+rate. Events и contagion сейчас не входят в числовой indicator/stage score, поэтому
+их ожидаемый числовой ablation delta равен нулю; manifest фиксирует это явно.
+
+Promotion требует минимум 30 независимых positive episodes, 5 holdout events,
+ненулевой recall, приемлемый false-alert rate, Brier лучше base rate, sensitivity,
+region/crisis holdout, coverage safety и отсутствие false stable.
+
+Текущий статус:
+
+```text
+candidate-v11: shadow
+eligible historical financial-stress samples: 0
+promotion: failed (insufficient_resolved_samples)
+live_probability: null
+```
+
+Manifest: `data/reports/crisis-radar-v11-financial-stress-manifest.json`.
+
+## 11. Установка и эксплуатация
+
+Профили: `basic-local`, `advanced-local`, `server`.
+
+```bash
+python -m scripts.self_host bootstrap --profile basic-local
+python -m scripts.self_host doctor --profile basic-local
+python -m scripts.self_host migrate-dry-run
+python -m scripts.self_host backup-verify --backup data/backups/manual.sqlite3
+python -m scripts.self_host restore-drill --backup data/backups/manual.sqlite3
+python -m scripts.self_host source-check
+python -m scripts.crisis_radar sync --source all
+python -m scripts.replay_crisis_radar_v11 --scenario financial_stress \
+  --from 1998-08-26 --through 2016-09-01 --cadence-days 90 --horizon-days 90
+```
+
+Server profile использует immutable release directories, systemd, Caddy
+или named Cloudflare Tunnel, verified age-encrypted off-host backups и
+persistent radar canary. Quick tunnel не является production URL. Точные
+команды обновления, rollback и restore drill описаны в
+`docs/deployment.md` и `docs/backup-and-restore.md`.
+
+Canary должен набрать минимум 1210 успешных пятнадцатиминутных samples за 14
+календарных дней. Он проверяет HTTP, snapshot lag, false stable, numeric/news
+coverage, source failures, delivery queues, backup checksum/age и disk size.
+
+## 12. Ограничения
+
+- Редкие кризисы дают мало независимых примеров.
+- Макроданные выходят с задержкой и пересмотрами.
+- Глобальное покрытие широко, но глубина по регионам неодинакова.
+- Бесплатного подтверждённого TradFi-options feed нет.
+- Bybit options может не найти две ликвидные ноги; тогда идея отсутствует.
+- Annual structural context не является быстрым market anchor.
+- Кризис может возникнуть из канала, которого нет в бесплатном контуре.
+- Даже прошедший replay не гарантирует будущую прибыль.
+
+Радар — система наблюдения и проверки гипотез. Решение о сделке остаётся за
+владельцем.

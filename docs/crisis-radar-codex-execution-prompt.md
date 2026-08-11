@@ -1,4 +1,8 @@
-# Готовый промпт для полной реализации Crisis Radar
+# Архивный промпт первой production-итерации Crisis Radar
+
+> Этот промпт сохранён для истории и больше не должен запускаться. Используйте
+> [`crisis-radar-v2-codex-execution-prompt.md`](crisis-radar-v2-codex-execution-prompt.md)
+> вместе с [`crisis-radar-v2-production-plan.md`](crisis-radar-v2-production-plan.md).
 
 Скопируй текст ниже целиком в Codex вместе с файлом `docs/crisis-radar-production-plan.md` или укажи его путь в текущем репозитории.
 

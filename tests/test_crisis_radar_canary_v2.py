@@ -124,6 +124,7 @@ def test_canary_detects_false_stable_and_persists_fourteen_day_manifest(tmp_path
     )
     assert completed["status"] == "passed"
     assert completed["sample_count"] >= completed["minimum_sample_count"]
+    assert completed["active_incidents"] == []
     assert len(completed["checksum"]) == 64
     with pytest.raises(RuntimeError, match="release/methodology changed"):
         update_canary_manifest(
@@ -134,3 +135,57 @@ def test_canary_detects_false_stable_and_persists_fourteen_day_manifest(tmp_path
             metrics=_healthy_metrics(),
             http_health={"live": True, "ready": True},
         )
+
+
+def test_canary_deduplicates_active_incidents_and_records_resolution(tmp_path) -> None:
+    path = tmp_path / "canary.json"
+    warning = _healthy_metrics()
+    warning["source_failures"] = 1
+
+    first = update_canary_manifest(
+        path,
+        sample_at=NOW,
+        release="release-1",
+        methodology="candidate-v11",
+        metrics=warning,
+        http_health={"live": True, "ready": True},
+    )
+    second = update_canary_manifest(
+        path,
+        sample_at=NOW + timedelta(minutes=15),
+        release="release-1",
+        methodology="candidate-v11",
+        metrics=warning,
+        http_health={"live": True, "ready": True},
+    )
+
+    assert first["incident_count"] == 1
+    assert second["incident_count"] == 1
+    assert len(second["incidents"]) == 1
+    assert second["active_incidents"][0]["code"] == "source_failures"
+    assert second["active_incidents"][0]["opened_at"] == NOW.isoformat()
+
+    resolved = update_canary_manifest(
+        path,
+        sample_at=NOW + timedelta(minutes=30),
+        release="release-1",
+        methodology="candidate-v11",
+        metrics=_healthy_metrics(),
+        http_health={"live": True, "ready": True},
+    )
+    assert resolved["active_incidents"] == []
+    assert resolved["resolution_count"] == 1
+    assert resolved["resolved_incidents"][0]["resolved_at"] == (
+        NOW + timedelta(minutes=30)
+    ).isoformat()
+
+    reopened = update_canary_manifest(
+        path,
+        sample_at=NOW + timedelta(minutes=45),
+        release="release-1",
+        methodology="candidate-v11",
+        metrics=warning,
+        http_health={"live": True, "ready": True},
+    )
+    assert reopened["incident_count"] == 2
+    assert len(reopened["incidents"]) == 2

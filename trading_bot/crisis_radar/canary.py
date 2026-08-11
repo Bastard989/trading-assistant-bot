@@ -199,6 +199,9 @@ def update_canary_manifest(
             "sample_count": 0,
             "incident_count": 0,
             "critical_incident_count": 0,
+            "resolution_count": 0,
+            "active_incidents": [],
+            "resolved_incidents": [],
             "restart_intervals": [],
             "incidents": [],
         }
@@ -208,20 +211,63 @@ def update_canary_manifest(
         manifest["restart_intervals"].append(
             {"from": previous_at.isoformat(), "to": sample_at.isoformat()}
         )
-    for incident in incidents:
-        manifest["incidents"].append({"at": sample_at.isoformat(), **incident})
+    previous_active = {
+        item["code"]: item
+        for item in manifest.get("active_incidents", [])
+        if isinstance(item, dict) and item.get("code")
+    }
+    current_by_code = {item["code"]: item for item in incidents}
+    opened = []
+    active = []
+    for code, incident in sorted(current_by_code.items()):
+        previous = previous_active.get(code)
+        opened_at = (
+            sample_at.isoformat()
+            if previous is None
+            else str(previous.get("opened_at") or sample_at.isoformat())
+        )
+        if previous is None:
+            record = {"at": sample_at.isoformat(), **incident}
+            manifest["incidents"].append(record)
+            opened.append(incident)
+        active.append(
+            {
+                **incident,
+                "opened_at": opened_at,
+                "last_seen_at": sample_at.isoformat(),
+            }
+        )
+    resolved = []
+    for code, previous in sorted(previous_active.items()):
+        if code in current_by_code:
+            continue
+        record = {
+            "code": code,
+            "severity": previous.get("severity", "warning"),
+            "detail": previous.get("detail", ""),
+            "opened_at": previous.get("opened_at"),
+            "resolved_at": sample_at.isoformat(),
+        }
+        manifest.setdefault("resolved_incidents", []).append(record)
+        resolved.append(record)
+    manifest["active_incidents"] = active
     manifest["sample_count"] += 1
-    manifest["incident_count"] += len(incidents)
+    manifest["incident_count"] += len(opened)
     manifest["critical_incident_count"] += sum(
-        item["severity"] == "critical" for item in incidents
+        item["severity"] == "critical" for item in opened
     )
+    manifest["resolution_count"] = manifest.get("resolution_count", 0) + len(resolved)
     manifest["last_sample_at"] = sample_at.isoformat()
     manifest["last_metrics"] = metrics
     manifest["last_http_health"] = http_health
     expected_end = _parse(manifest["expected_end_at"])
     assert expected_end is not None
     if sample_at >= expected_end:
-        if manifest["sample_count"] < manifest["minimum_sample_count"]:
+        density_recorded = any(
+            item.get("code") == "insufficient_sample_density"
+            for item in manifest["incidents"]
+        )
+        if manifest["sample_count"] < manifest["minimum_sample_count"] and not density_recorded:
             density_incident = {
                 "at": sample_at.isoformat(),
                 "code": "insufficient_sample_density",

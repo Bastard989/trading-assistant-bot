@@ -39,7 +39,7 @@
 | 10. Exposure/scorecard | completed (shadow seed) | Read-only open-trade overlay and persistent signal lifecycle scorecards; outcome/reaction resolution needs live history |
 | 11. UI/help/navigation | completed | RU-first v11 metadata and bands, compact main view, journal subnavigation, models in tools, six analysis tabs, accessible help dialog, scenario expansion, exposure overlay; manually verified in in-app browser at desktop/mobile and automated authenticated Playwright E2E |
 | 12. Replay/calibration | implemented; gate failed honestly | Causal v10/v11 comparison plus economic/historical/full/no-trend/no-events/no-contagion/no-dependency/base-rate variants; future-release regression test; real financial-stress manifest checksum `66187057a90d204786af06a658b5ea4c420e694baca3dbaa69641a67b3621aaf`. Historical v11 coverage produced zero eligible samples, so v11 remains shadow and probability is null |
-| 13. Packaging/E2E/security | completed for repository candidate | Authenticated RU/EN/mobile/degraded Playwright E2E; CI installs Chromium; overall coverage 80.12%; computational core 90.31%, runtime 90.09%, PostgreSQL memory 96.83%; self-host doctor, source contracts, guarded update/rollback, encrypted off-host backup and isolated restore drill are tested |
+| 13. Packaging/E2E/security | completed for repository candidate | Authenticated RU/EN/mobile/degraded Playwright E2E; CI installs Chromium; overall coverage 80.20%; computational core 90.31%, runtime 90.09%, PostgreSQL memory 96.83%; self-host doctor, source contracts, guarded update/rollback, encrypted off-host backup and isolated restore drill are tested |
 | 14. Rollout/canary | in progress on target server | Release `7c87903` deployed with an immutable manifest after verified backup, restore drill and shadow migration; live DB migrated v20→v23, API/bot active, external temporary HTTPS health is green and all 12 official news channels pass from the server. Radar-specific systemd canary started `2026-08-11T19:24:02Z` and cannot complete before `2026-08-25T19:24:02Z`. Permanent HTTPS and a real encrypted off-host mount remain external blockers |
 
 ## Неподвижные ограничения
@@ -73,8 +73,8 @@
   `data/reports/crisis-radar-v11-financial-stress-manifest.json`.
 - Manifest не является успешным promotion evidence: числовое историческое
   покрытие v11 ниже fail-closed gate, eligible signals = 0, probability = null.
-- Полный regression suite после rollout evidence: `409 passed`, одно
-  предупреждение совместимости Starlette/httpx, overall coverage `80.12%`.
+- Полный regression suite после canary incident-lifecycle hardening: `410 passed`,
+  одно предупреждение совместимости Starlette/httpx, overall coverage `80.20%`.
 - Отдельные coverage gates: computational core `90.31%`,
   auth/config/main/jobs/migrations `90.09%`, PostgreSQL memory `96.83%`.
 - Source registry: 22 версионируемых контракта; offline contract gate проходит.

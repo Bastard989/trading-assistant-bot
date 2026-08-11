@@ -85,6 +85,8 @@ systemctl list-timers trading-assistant-backup.timer
 Run long checks through systemd so logout does not stop them. The radar canary
 checks HTTP readiness, snapshot lag, false-stable protection, numeric and news
 coverage, source failures, notification queues, backup checksum/age, database and
-disk growth. It never turns elapsed time into a simulated pass.
+disk growth. The manifest deduplicates an incident while it remains active,
+records its resolution, and counts it again only if it reopens. It never turns
+elapsed time into a simulated pass.
 
 For the first 24 hours, inspect authenticated Crisis Radar source health after each scheduled macro/global sync and confirm that the snapshot timestamp advances without duplicate alert deliveries. For fourteen days, review backup sidecars, source failures, restart counts, Telegram delivery retries, and disk growth daily. A future observation period cannot be claimed as passed in advance; record its actual start/end and incidents in the private operations log.

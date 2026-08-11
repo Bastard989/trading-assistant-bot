@@ -105,5 +105,8 @@ never executed.
 The radar-specific canary checks HTTP readiness, snapshot lag, false-stable,
 numeric/news coverage, source failures, queue growth, backup integrity/age and disk
 growth. Manifest continuity survives process restarts. A release needs at least
-1210 samples over 14 days with no critical incident. Rollback keeps the previous
-immutable methodology and database backup; it never rewrites prior snapshots.
+1210 samples over 14 days with no critical incident. Repeated samples of the same
+active incident do not create duplicates: the manifest records opened, active,
+resolved and reopened transitions while retaining every unique critical opening.
+Rollback keeps the previous immutable methodology and database backup; it never
+rewrites prior snapshots.

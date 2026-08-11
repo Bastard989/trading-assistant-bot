@@ -100,7 +100,8 @@
 
 - Target release: `7c87903`, source commit
   `7c879039aefce8d43416067ff7e035b7e6fc9912`; fresh server venv points to the
-  same release instead of an older copied venv.
+  same release instead of an older copied venv. The release tree is root-owned
+  and read-only to the service account; API and bot restart successfully from it.
 - Pre-update online backup:
   `pre-update-7c87903-20260811T1910Z.sqlite3`, SHA-256
   `454e5abe65da3c204595e7da639c6b36f98d4abc1f7ab364486f46da118838a4`.
@@ -121,9 +122,10 @@
   `2026-08-25T19:24:02.947243Z`; initial critical incidents: `0`. A failed GDELT
   discovery request is retained as a warning and does not masquerade as healthy
   official-news coverage.
-- Server doctor now passes token/owner, DB, schema, release and local verified
-  backup checks. It correctly remains red for permanent HTTPS, `age`, an age
-  recipient and a separately mounted off-host backup directory.
+- Server doctor now passes token/owner, DB, schema, release, local verified
+  backup and installed `age` checks. It correctly remains red for permanent
+  HTTPS, an externally retained age recipient/private identity and a separately
+  mounted off-host backup directory.
 - Machine-readable sanitized evidence:
   `docs/evidence/crisis-radar-v2-server-rollout-20260811.json`.
 

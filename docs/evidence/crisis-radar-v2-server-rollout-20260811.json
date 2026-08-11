@@ -5,7 +5,8 @@
     "id": "7c87903",
     "source_commit": "7c879039aefce8d43416067ff7e035b7e6fc9912",
     "schema_version": 23,
-    "fresh_venv_bound_to_release": true
+    "fresh_venv_bound_to_release": true,
+    "immutable_read_only_for_service": true
   },
   "pre_update_backup": {
     "filename": "pre-update-7c87903-20260811T1910Z.sqlite3",
@@ -59,8 +60,16 @@
   },
   "external_blockers": [
     "permanent_https_firewall_ingress_80_443",
-    "age_binary_and_recipient",
+    "external_age_recipient_and_private_identity",
     "separately_mounted_off_host_backup_directory",
     "fourteen_calendar_day_canary"
-  ]
+  ],
+  "server_doctor": {
+    "age_binary_available": true,
+    "required_failed": [
+      "permanent_https",
+      "backup_age_recipient",
+      "off_host_backup_directory"
+    ]
+  }
 }

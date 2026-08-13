@@ -10,10 +10,13 @@ from trading_bot.crisis_radar.catalog import (
     METHODOLOGY_CODE,
     METHODOLOGY_V11_VERSION,
     METHODOLOGY_V12_VERSION,
+    METHODOLOGY_V13_VERSION,
     V11_INDICATORS,
     V11_SCENARIOS,
     V12_INDICATORS,
     V12_SCENARIOS,
+    V13_INDICATORS,
+    V13_SCENARIOS,
 )
 from trading_bot.crisis_radar.coverage import (
     GLOBAL_V2_REQUIRED_REGIONS,
@@ -24,6 +27,10 @@ from trading_bot.crisis_radar.coverage import (
 )
 from trading_bot.crisis_radar.domain import CoverageStatus, QualityFlag
 from trading_bot.crisis_radar.repositories import CrisisRadarRepository
+from trading_bot.crisis_radar.replay_coverage import (
+    SCENARIO_REPLAY_COVERAGE_VERSION,
+    assess_scenario_replay_coverage,
+)
 from trading_bot.crisis_radar.scenario_v2 import calculate_scenario_v2
 from trading_bot.crisis_radar.scoring_v2 import (
     SCORING_VARIANTS,
@@ -37,6 +44,7 @@ from trading_bot.crisis_radar.trends import calculate_indicator_features
 
 REPLAY_V2_ENGINE_VERSION = "causal-v11-replay-v1"
 REPLAY_V12_ENGINE_VERSION = "causal-v12-replay-v1"
+REPLAY_V13_ENGINE_VERSION = "causal-v13-scenario-replay-v1"
 ZERO = Decimal("0")
 
 
@@ -56,9 +64,11 @@ class V11VariantSignal:
     latest_released_at: datetime | None
     observation_ids: tuple[int, ...]
     input_checksum: str
+    global_numeric_coverage: Decimal | None = None
+    coverage_contract: str | None = None
 
     def canonical_payload(self) -> dict:
-        return {
+        payload = {
             "signal_at": self.signal_at.isoformat(),
             "variant": self.variant,
             "signal_score": format(self.signal_score, "f"),
@@ -76,6 +86,13 @@ class V11VariantSignal:
             "observation_ids": list(self.observation_ids),
             "input_checksum": self.input_checksum,
         }
+        if self.global_numeric_coverage is not None:
+            payload["global_numeric_coverage"] = format(
+                self.global_numeric_coverage, "f"
+            )
+        if self.coverage_contract is not None:
+            payload["coverage_contract"] = self.coverage_contract
+        return payload
 
 
 @dataclass(frozen=True)
@@ -130,6 +147,7 @@ def _candidate_signals_as_of(
     snapshot_at: datetime,
     minimum_coverage: Decimal = Decimal(".70"),
     previous_context: dict[str, tuple[str | None, Decimal | None]] | None = None,
+    scenario_specific_coverage: bool = False,
 ) -> tuple[V11VariantSignal, ...]:
     """Calculate candidate variants using only information released by the cutoff."""
     if snapshot_at.tzinfo is None or snapshot_at.utcoffset() is None:
@@ -199,7 +217,7 @@ def _candidate_signals_as_of(
             group_code=seed.group_code,
             region_code=seed.region_code,
         )
-    coverage = assess_coverage(
+    global_coverage = assess_coverage(
         states,
         expected=tuple(
             ExpectedIndicator(
@@ -212,12 +230,42 @@ def _candidate_signals_as_of(
         required_groups=required_groups,
         required_regions=GLOBAL_V2_REQUIRED_REGIONS,
     )
+    if scenario_specific_coverage:
+        coverage = assess_scenario_replay_coverage(
+            states,
+            indicators=indicators,
+            definition=definition,
+            minimum_coverage=minimum_coverage,
+        )
+        relevant_codes = {
+            seed.code for seed in indicators if seed.group_code in definition.group_codes
+        }
+        base_scores = [
+            score for score in base_scores if score.indicator_code in relevant_codes
+        ]
+        assignments = {
+            seed.code: dependency_for(
+                code=seed.code,
+                group_code=seed.group_code,
+                region_code=seed.region_code,
+            )
+            for seed in indicators
+            if seed.code in relevant_codes
+        }
+        relevant_inputs = [
+            item
+            for item in inputs
+            if item.observation.indicator_code in relevant_codes
+        ]
+    else:
+        coverage = global_coverage
+        relevant_inputs = inputs
     events = tuple(
         repository.events_payload(days=90, limit=100, as_of=snapshot_at).get("items") or ()
     )
-    observation_ids = tuple(sorted(item.observation_id for item in inputs))
+    observation_ids = tuple(sorted(item.observation_id for item in relevant_inputs))
     latest_released_at = max(
-        (item.observation.released_at for item in inputs), default=None
+        (item.observation.released_at for item in relevant_inputs), default=None
     )
     results = []
     for variant in SCORING_VARIANTS:
@@ -248,14 +296,16 @@ def _candidate_signals_as_of(
             numeric_coverage=coverage.ratio,
             news_coverage=Decimal("1"),
         )
-        eligible = bool(inputs) and coverage.ratio >= minimum_coverage and (
+        eligible = bool(relevant_inputs) and coverage.ratio >= minimum_coverage and (
             coverage.status is not CoverageStatus.INSUFFICIENT_DATA
         )
         reason = (
             ""
             if eligible
             else "no_as_of_inputs"
-            if not inputs
+            if not relevant_inputs
+            else "insufficient_scenario_coverage"
+            if scenario_specific_coverage
             else "insufficient_numeric_coverage"
         )
         checksum_payload = {
@@ -265,6 +315,8 @@ def _candidate_signals_as_of(
             "variant": variant,
             "observation_ids": observation_ids,
         }
+        if scenario_specific_coverage:
+            checksum_payload["coverage_contract"] = coverage.input_checksum
         results.append(
             V11VariantSignal(
                 signal_at=snapshot_at,
@@ -275,7 +327,7 @@ def _candidate_signals_as_of(
                 intensity=stage.stress_intensity,
                 breadth=stage.systemic_breadth,
                 numeric_coverage=coverage.ratio,
-                input_count=len(inputs),
+                input_count=len(relevant_inputs),
                 backtest_eligible=eligible,
                 eligibility_reason=reason,
                 latest_released_at=latest_released_at,
@@ -285,6 +337,14 @@ def _candidate_signals_as_of(
                         checksum_payload, sort_keys=True, separators=(",", ":")
                     ).encode()
                 ).hexdigest(),
+                global_numeric_coverage=(
+                    global_coverage.ratio if scenario_specific_coverage else None
+                ),
+                coverage_contract=(
+                    SCENARIO_REPLAY_COVERAGE_VERSION
+                    if scenario_specific_coverage
+                    else None
+                ),
             )
         )
     return tuple(results)
@@ -333,6 +393,30 @@ def v12_signals_as_of(
         snapshot_at=snapshot_at,
         minimum_coverage=minimum_coverage,
         previous_context=previous_context,
+    )
+
+
+def v13_signals_as_of(
+    repository: CrisisRadarRepository,
+    *,
+    scenario_code: str,
+    snapshot_at: datetime,
+    minimum_coverage: Decimal = Decimal(".70"),
+    previous_context: dict[str, tuple[str | None, Decimal | None]] | None = None,
+) -> tuple[V11VariantSignal, ...]:
+    return _candidate_signals_as_of(
+        repository,
+        methodology_version=METHODOLOGY_V13_VERSION,
+        engine_version=REPLAY_V13_ENGINE_VERSION,
+        indicators=V13_INDICATORS,
+        scenarios=V13_SCENARIOS,
+        required_groups=V12_REQUIRED_GROUPS,
+        include_disabled=True,
+        scenario_code=scenario_code,
+        snapshot_at=snapshot_at,
+        minimum_coverage=minimum_coverage,
+        previous_context=previous_context,
+        scenario_specific_coverage=True,
     )
 
 
@@ -429,6 +513,30 @@ def replay_v12_scenario(
         methodology_version=METHODOLOGY_V12_VERSION,
         engine_version=REPLAY_V12_ENGINE_VERSION,
         signal_builder=v12_signals_as_of,
+        started_at=started_at,
+        ended_at=ended_at,
+        step=step,
+        minimum_coverage=minimum_coverage,
+        max_points=max_points,
+    )
+
+
+def replay_v13_scenario(
+    repository: CrisisRadarRepository,
+    scenario_code: str,
+    *,
+    started_at: datetime,
+    ended_at: datetime,
+    step: timedelta,
+    minimum_coverage: Decimal = Decimal(".70"),
+    max_points: int = 20000,
+) -> V11ReplayResult:
+    return _replay_candidate_scenario(
+        repository,
+        scenario_code,
+        methodology_version=METHODOLOGY_V13_VERSION,
+        engine_version=REPLAY_V13_ENGINE_VERSION,
+        signal_builder=v13_signals_as_of,
         started_at=started_at,
         ended_at=ended_at,
         step=step,

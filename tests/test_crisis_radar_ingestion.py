@@ -92,6 +92,54 @@ def test_repository_is_idempotent_and_links_changed_vintages(tmp_path) -> None:
     assert revision_count == 1
 
 
+def test_repository_can_preserve_same_value_point_in_time_vintage(tmp_path) -> None:
+    repository = _repository(tmp_path)
+    original = _observation(value="2.71", vintage="2026-07-01", fetched_day=1)
+    causal_vintage = _observation(
+        value="2.71", vintage="initial-release", fetched_day=2
+    )
+
+    first = repository.save_observation(original)
+    preserved = repository.save_observation(causal_vintage, preserve_vintage=True)
+    duplicate = repository.save_observation(causal_vintage, preserve_vintage=True)
+
+    assert first.inserted is True
+    assert preserved.inserted is True
+    assert preserved.revision_created is False
+    assert duplicate == type(duplicate)(preserved.observation_id, False, False)
+    with repository.db.connect() as connection:
+        rows = connection.execute(
+            "SELECT value_text, vintage FROM cr_observations ORDER BY id"
+        ).fetchall()
+    assert [tuple(row) for row in rows] == [
+        ("2.71", "2026-07-01"),
+        ("2.71", "initial-release"),
+    ]
+
+
+def test_out_of_order_vintage_builds_chronological_revision_link(tmp_path) -> None:
+    repository = _repository(tmp_path)
+    current = _observation(value="2.95", vintage="current", fetched_day=15)
+    initial = _observation(value="2.71", vintage="initial", fetched_day=1)
+
+    repository.save_observation(current)
+    inserted = repository.save_observation(initial, preserve_vintage=True)
+
+    assert inserted.revision_created is True
+    with repository.db.connect() as connection:
+        link = connection.execute(
+            """
+            SELECT previous.vintage, revised.vintage
+            FROM cr_observation_revisions AS link
+            JOIN cr_observations AS previous
+              ON previous.id=link.previous_observation_id
+            JOIN cr_observations AS revised
+              ON revised.id=link.revised_observation_id
+            """
+        ).fetchone()
+    assert tuple(link) == ("initial", "current")
+
+
 def test_repository_rejects_wrong_unit_and_unknown_pair(tmp_path) -> None:
     repository = _repository(tmp_path)
     wrong_unit = _observation(value="2.71", vintage="2026-07-01", fetched_day=1)

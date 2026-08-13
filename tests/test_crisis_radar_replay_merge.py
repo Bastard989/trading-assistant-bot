@@ -73,3 +73,26 @@ def test_replay_history_merge_rejects_same_database_and_empty_filter(tmp_path) -
     _repository(other)
     with pytest.raises(ValueError, match="must not be empty"):
         merge_history(path, other, source_codes=set())
+
+
+def test_replay_history_merge_preserves_equal_value_with_distinct_vintage(tmp_path) -> None:
+    source_path = tmp_path / "source-vintage.sqlite3"
+    destination_path = tmp_path / "destination-vintage.sqlite3"
+    source = _repository(source_path)
+    destination = _repository(destination_path)
+    source.save_observation(_observation(value="300000", vintage="initial"))
+    destination.save_observation(_observation(value="300000", vintage="current"))
+
+    report = merge_history(source_path, destination_path, source_codes={"fred"})
+
+    assert report["rows_inserted"] == 1
+    assert report["rows_duplicate"] == 0
+    assert report["equal_value_vintages_preserved"] == 1
+    with Database(destination_path).connect() as connection:
+        vintages = [
+            row[0]
+            for row in connection.execute(
+                "SELECT vintage FROM cr_observations ORDER BY vintage"
+            )
+        ]
+    assert vintages == ["current", "initial"]

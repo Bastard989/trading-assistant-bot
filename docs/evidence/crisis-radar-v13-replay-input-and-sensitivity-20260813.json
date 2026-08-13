@@ -1,0 +1,201 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-08-13T17:02:00+00:00",
+  "purpose": "Validate immutable candidate-v13 scenario-level coverage and causal financial-stress replay without changing working or production data.",
+  "official_method_basis": {
+    "ofr_fsi_page": "https://www.financialresearch.gov/financial-stress-index/",
+    "ofr_working_paper": "https://www.financialresearch.gov/working-papers/files/OFRwp-17-04_The-OFR-Financial-Stress-Index.pdf",
+    "principles_used": [
+      "financial stress is evaluated across credit, market-price and funding/liquidity channels",
+      "regional confirmation distinguishes the United States, other advanced economies and emerging markets",
+      "an unbalanced causal panel is allowed but missing required channel or region classes fails closed"
+    ]
+  },
+  "methodology": {
+    "version": "candidate-v13",
+    "checksum": "a6108cc6cd26d6dbb02e1dfa927cc2a9f1ab183eb741b939d1659d53f2e9e611",
+    "engine": "causal-v13-scenario-replay-v1",
+    "coverage_contract": "scenario-replay-coverage-v1",
+    "coverage_unit": "scenario_group_max_freshness",
+    "minimum_coverage": "0.70",
+    "healthy_coverage": "0.85",
+    "required_region_minimums": {
+      "us": 1,
+      "other_advanced": 2,
+      "emerging": 2
+    },
+    "live_enabled": false,
+    "promotion_status": "candidate"
+  },
+  "point_in_time_provenance_fix": {
+    "problem": "Equal numerical values from different vintages were previously deduplicated, allowing a late estimated archive row to suppress an exact initial-release row.",
+    "resolution": "Historical backfill preserves distinct vintages even when values are equal; merge rebuilds revision chains in release-time order and replay still applies causal release and quality gates.",
+    "equal_value_vintages_preserved": 9279,
+    "reverse_revision_links_before_rebuild": 42,
+    "reverse_revision_links_after_rebuild": 0,
+    "regression_tests_added": true
+  },
+  "official_fred_initial_release_backfill": {
+    "requested_window": {
+      "start": "1990-01-01",
+      "end": "2026-08-11"
+    },
+    "primary_after_provenance_fix": {
+      "status": "partial",
+      "rows_fetched": 64639,
+      "rows_written": 9267,
+      "errors": [
+        "us_job_openings_90d_change:FRED HTTP 500",
+        "us_quits_rate:FRED HTTP 500"
+      ]
+    },
+    "bounded_jolts_retry": {
+      "window": {
+        "start": "2010-08-11",
+        "end": "2026-08-10"
+      },
+      "status": "succeeded",
+      "rows_fetched": 379,
+      "rows_written": 12,
+      "errors": []
+    }
+  },
+  "isolated_history_merge": {
+    "source_created_from_disposable_research_database": true,
+    "rows_read": 89356,
+    "rows_inserted": 63561,
+    "rows_duplicate": 25795,
+    "rows_excluded_retrospective_revised": 0,
+    "rows_unknown_indicator": 0,
+    "indicator_count": 39,
+    "revision_links_created": 732,
+    "revision_links_rebuilt": 804,
+    "destination_observations": 123017,
+    "destination_revision_links": 1348,
+    "integrity": "ok",
+    "foreign_key_violations": 0,
+    "causal_eligibility_enforced_by_replay": true,
+    "disposable_database_sha256": "72fb638e4d9f30af67284b6202915c734eb216c9496b65a562f3f012325beb07"
+  },
+  "primary_replay": {
+    "manifest": "docs/evidence/crisis-radar-v13-financial-stress-replay-20260813.json",
+    "file_sha256": "757e1b7912f1f3ca1bcb2ed8dbe4db7e6e74a2eb271e5d3d1105ba40be722873",
+    "manifest_checksum": "f9a6da96ed0d3c62b0bcb3d204fc89a3fb6421f2cd42f0724753b97da433ec00",
+    "candidate_replay_checksum": "15530657e3f40e63f3743cd0b6796aae67d4195ccddae89fa7ebd6840233ff08",
+    "cutoff_count": 220,
+    "eligible_cutoff_count": 29,
+    "scenario_coverage_min": "0.0000",
+    "scenario_coverage_max": "0.8333",
+    "global_coverage_min": "0.0488",
+    "global_coverage_max": "0.4024",
+    "resolved_sample_count": 20,
+    "positive_event_count": 3,
+    "scored_count": 0,
+    "stage_counts": {
+      "insufficient_data": 191,
+      "tension": 24,
+      "warning": 5
+    },
+    "promotion_passed": false,
+    "probability": null
+  },
+  "sensitivity": [
+    {
+      "minimum_coverage": "0.70",
+      "cadence_days": 30,
+      "horizon_days": 30,
+      "eligible_cutoffs": 29,
+      "resolved_samples": 20,
+      "positive_events": 3,
+      "scored_count": 0,
+      "promotion_passed": false,
+      "manifest_checksum": "27156fe8dce038871e3f07fab2299d106ef477c57a91ef1aaafeed0a36fb6a1e"
+    },
+    {
+      "minimum_coverage": "0.75",
+      "cadence_days": 30,
+      "horizon_days": 30,
+      "eligible_cutoffs": 29,
+      "resolved_samples": 20,
+      "positive_events": 3,
+      "scored_count": 0,
+      "promotion_passed": false,
+      "manifest_checksum": "ded499d07133b010f496739f1b15a51b49ee968febd95a7e094570eacb5d7c9b"
+    },
+    {
+      "minimum_coverage": "0.80",
+      "cadence_days": 30,
+      "horizon_days": 30,
+      "eligible_cutoffs": 28,
+      "resolved_samples": 19,
+      "positive_events": 3,
+      "scored_count": 0,
+      "promotion_passed": false,
+      "manifest_checksum": "2106e8bbe6a5493717d8270716796c31fd7bbe6efd9902d1d3c5acc44ae63e63"
+    },
+    {
+      "minimum_coverage": "0.85",
+      "cadence_days": 30,
+      "horizon_days": 30,
+      "eligible_cutoffs": 0,
+      "resolved_samples": 0,
+      "positive_events": 0,
+      "scored_count": 0,
+      "promotion_passed": false,
+      "manifest_checksum": "0eab321af60d843e021961a0a3aebfcf91cd1d72e2bb8ef52c03680c86a35898"
+    },
+    {
+      "minimum_coverage": "0.70",
+      "cadence_days": 30,
+      "horizon_days": 15,
+      "eligible_cutoffs": 29,
+      "resolved_samples": 20,
+      "positive_events": 1,
+      "scored_count": 0,
+      "promotion_passed": false,
+      "manifest_checksum": "4a4064a7fee20bedd9b10acf3154d2a7ce79771de4f2d5a680a51089c25d176b"
+    },
+    {
+      "minimum_coverage": "0.70",
+      "cadence_days": 30,
+      "horizon_days": 90,
+      "eligible_cutoffs": 29,
+      "resolved_samples": 19,
+      "positive_events": 3,
+      "scored_count": 0,
+      "promotion_passed": false,
+      "manifest_checksum": "ffb2d833472498639d293cc36890d7fd80b9681ffbdd863fc4aec34e411a0806"
+    },
+    {
+      "minimum_coverage": "0.70",
+      "cadence_days": 15,
+      "horizon_days": 30,
+      "eligible_cutoffs": 57,
+      "resolved_samples": 40,
+      "positive_events": 3,
+      "scored_count": 0,
+      "promotion_passed": false,
+      "manifest_checksum": "0bc44c96589217f606942bfb1140dbe615145fadfd61a4ac239f6a87352a4985"
+    }
+  ],
+  "safety": {
+    "working_database_touched": false,
+    "production_database_touched": false,
+    "candidate_v13_entered_live_service_bootstrap": false,
+    "minimum_coverage_lowered_below_070": false,
+    "missing_required_channels_allowed": false,
+    "single_non_us_region_considered_sufficient": false,
+    "global_coverage_hidden": false,
+    "current_revisions_relabelled_as_initial_releases": false,
+    "probability_fabricated": false,
+    "disposable_database_distributed": false
+  },
+  "limitations": [
+    "Only 29 monthly cutoffs have sufficient scenario coverage; 191 remain fail-closed.",
+    "The eligible history contains only three independent positive OFR proxy episodes, far below the promotion gate.",
+    "No calibrated prediction was emitted, so Brier, recall, false-alert and threshold-performance claims remain unavailable.",
+    "The label catalog is global and cannot prove a regional holdout.",
+    "Sensitivity across stricter coverage thresholds and 15/30/90-day horizons never passes promotion.",
+    "candidate-v13 is replay-only; candidate-v10 remains the production methodology and live probability remains null."
+  ]
+}

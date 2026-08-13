@@ -391,7 +391,9 @@ class CrisisRadarService:
                 for observation in observations:
                     rows_written += int(
                         self.repository.save_observation(
-                            observation, sync_run_id=sync_run_id
+                            observation,
+                            sync_run_id=sync_run_id,
+                            preserve_vintage=True,
                         ).inserted
                     )
             except (FredClientError, SourcePayloadError) as exc:

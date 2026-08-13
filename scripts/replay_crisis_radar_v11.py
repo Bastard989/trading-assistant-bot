@@ -24,10 +24,16 @@ from trading_bot.crisis_radar.backtest import (
 from trading_bot.crisis_radar.catalog import (
     METHODOLOGY_V11_VERSION,
     METHODOLOGY_V12_VERSION,
+    METHODOLOGY_V13_VERSION,
     bootstrap_v12_catalog,
+    bootstrap_v13_catalog,
 )
 from trading_bot.crisis_radar.replay import replay_scenario
-from trading_bot.crisis_radar.replay_v2 import replay_v11_scenario, replay_v12_scenario
+from trading_bot.crisis_radar.replay_v2 import (
+    replay_v11_scenario,
+    replay_v12_scenario,
+    replay_v13_scenario,
+)
 from trading_bot.crisis_radar.repositories import CrisisRadarRepository
 from trading_bot.crisis_radar.validation import (
     evaluate_calibration_gate,
@@ -298,6 +304,27 @@ def _execute_candidate_comparison(
             f"{methodology_version} remains shadow until all promotion gates pass"
         ),
     }
+    global_coverages = tuple(
+        item.global_numeric_coverage
+        for item in full_signals
+        if item.global_numeric_coverage is not None
+    )
+    if global_coverages:
+        diagnostics = payload["candidate_replay_diagnostics"]
+        diagnostics["coverage_contract"] = next(
+            (
+                item.coverage_contract
+                for item in full_signals
+                if item.coverage_contract is not None
+            ),
+            None,
+        )
+        diagnostics["global_numeric_coverage_min"] = format(
+            min(global_coverages), "f"
+        )
+        diagnostics["global_numeric_coverage_max"] = format(
+            max(global_coverages), "f"
+        )
     checksum_payload = json.dumps(
         payload, ensure_ascii=True, sort_keys=True, separators=(",", ":"), default=str
     ).encode()
@@ -357,6 +384,33 @@ def execute_v12_comparison(
     )
 
 
+def execute_v13_comparison(
+    repository: CrisisRadarRepository,
+    *,
+    scenario_code: str,
+    started_at: datetime,
+    ended_at: datetime,
+    cadence_days: int,
+    horizon_days: int,
+    minimum_coverage: Decimal = Decimal(".70"),
+) -> dict:
+    """Compare replay-only v13 scenario coverage without changing live analysis."""
+
+    return _execute_candidate_comparison(
+        repository,
+        methodology_version=METHODOLOGY_V13_VERSION,
+        replay_candidate=replay_v13_scenario,
+        manifest_version="crisis-radar-v13-comparison-v1",
+        replay_checksum_key="v13_replay",
+        scenario_code=scenario_code,
+        started_at=started_at,
+        ended_at=ended_at,
+        cadence_days=cadence_days,
+        horizon_days=horizon_days,
+        minimum_coverage=minimum_coverage,
+    )
+
+
 def _require_current_schema(database: Database) -> None:
     try:
         with database.connect() as connection:
@@ -378,9 +432,13 @@ def main() -> None:
     )
     parser.add_argument(
         "--methodology",
-        choices=(METHODOLOGY_V11_VERSION, METHODOLOGY_V12_VERSION),
+        choices=(
+            METHODOLOGY_V11_VERSION,
+            METHODOLOGY_V12_VERSION,
+            METHODOLOGY_V13_VERSION,
+        ),
         default=METHODOLOGY_V11_VERSION,
-        help="Shadow candidate to replay; candidate-v12 is registered disabled/replay-only.",
+        help="Shadow candidate to replay; v12/v13 are registered disabled/replay-only.",
     )
     parser.add_argument("--scenario", required=True)
     parser.add_argument("--from", dest="started_at", required=True)
@@ -398,7 +456,10 @@ def main() -> None:
     database = Database(Path(args.database).expanduser(), auto_migrate=False)
     _require_current_schema(database)
     repository = CrisisRadarRepository(database)
-    if args.methodology == METHODOLOGY_V12_VERSION:
+    if args.methodology == METHODOLOGY_V13_VERSION:
+        bootstrap_v13_catalog(repository)
+        comparison = execute_v13_comparison
+    elif args.methodology == METHODOLOGY_V12_VERSION:
         bootstrap_v12_catalog(repository)
         comparison = execute_v12_comparison
     else:

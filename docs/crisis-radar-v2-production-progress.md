@@ -32,13 +32,13 @@
 | 3. Dependency/group/stage v2 | completed (shadow) | Independent subchannels/clusters, intensity + systemic breadth, anchors, fail-closed coverage, v10/v11 comparison; tests |
 | 4. Signed OI | completed (shadow) | 1d/7d/30d signed OI, leverage build vs liquidation unwind, v10 absolute series preserved; boundary/API/service tests |
 | 5. Threshold registry v11 | completed (candidate) | Immutable metadata/checksum/source/role/profile/promotion evidence for v11; v10 untouched |
-| 6. Numeric depth | in_progress | 13 scoring FRED v11 series plus 10 disabled research series. All ten now have verified causal initial-release history: an isolated 1990–2026 backfill retained 15,619 valid points with no revised/estimated/impossible-release rows. They are registered in immutable replay-only `candidate-v12` with RU/EN metadata, explicit thresholds and dependency channels; all ten remain disabled for live. Licensed FRED SP500 is explicitly live-only. US/market depth improved; non-US depth remains |
+| 6. Numeric depth | in_progress | 13 scoring FRED v11 series plus 10 disabled research series. All ten have verified causal initial-release history and are registered in immutable replay-only `candidate-v12`; all remain disabled for live. `candidate-v13` adds fixed scenario-group coverage and mandatory credit/market/funding plus US/other-advanced/emerging classes. Equal-value vintages are preserved and revision chains are rebuilt chronologically. US/market depth improved; independent non-US depth remains insufficient for production promotion |
 | 7. News coverage/lifecycle | in_progress | Separate news coverage, snapshot-time decay, immediate fusion recompute; all 12 configured official channels live-verified on 2026-08-11: 10 RSS, strict HKMA press-release JSON API for Hong Kong/Greater China and OFAC official GovDelivery topic `USTREAS_61` for sanctions events. Offline fixtures cover security-sensitive adapters. RBA rejected after reproducible HTTP 403; the retired native OFAC RSS is not used; broader filings/exchange coverage remains |
 | 8. Evidence memory profiles | completed (optional advanced) | Basic SQLite FTS5 works without embeddings. Advanced pgvector has schema, continuous ingestion, embedding queue/fallback, hybrid search, health API and a real local PostgreSQL/pgvector verification with relational evidence ID |
 | 9. Scenarios/recovery/diff | completed (shadow seed) | 11 Crisis Playbooks, causal chain, anchors, invalidation, recovery, evidence IDs and persisted causal diff; historical calibration remains stage 12 |
 | 10. Exposure/scorecard | completed (shadow seed) | Read-only open-trade overlay and persistent signal lifecycle scorecards; outcome/reaction resolution needs live history |
 | 11. UI/help/navigation | completed | RU-first v11 metadata and bands, compact main view, journal subnavigation, models in tools, six analysis tabs, accessible help dialog, scenario expansion, exposure overlay; manually verified in in-app browser at desktop/mobile and automated authenticated Playwright E2E |
-| 12. Replay/calibration | implemented; gate failed honestly | Causal v10/v11 and v10/v12 comparison plus economic/historical/full/no-trend/no-events/no-contagion/no-dependency/base-rate variants; future-release regression tests. After merging an online copy of existing history and causally backfilling every verified FRED series, `candidate-v12` financial-stress replay evaluated 220 monthly cutoffs using 4–32 inputs. Full numeric coverage was still only 4.88–37.80%, so all 220 cutoffs failed closed as `insufficient_data`. v11/v12 remain shadow and probability is null |
+| 12. Replay/calibration | implemented; gate failed honestly | Causal v10/v11/v12/v13 comparisons plus ablations and future-release regression tests. v13 replaces the misleading all-indicator denominator with fixed scenario-group coverage and mandatory independent channels/regions. Real replay evaluated 220 monthly cutoffs: 29 eligible, 20 resolved, only 3 independent positive episodes and 0 calibrated scores. Coverage/horizon sensitivity never passed. v11/v12/v13 remain shadow/replay-only and probability is null |
 | 13. Packaging/E2E/security | completed for repository candidate | Authenticated RU/EN/mobile/degraded Playwright E2E; CI installs Chromium; overall coverage 80.20%; computational core 90.31%, runtime 90.09%, PostgreSQL memory 96.83%; self-host doctor, source contracts, guarded update/rollback, encrypted off-host backup and isolated restore drill are tested |
 | 14. Rollout/canary | in progress on target server | Initial release `7c87903` safely migrated the live DB v20→v23. Active immutable hotfix release `715384d` deduplicates persistent canary incidents; API/bot are active, external temporary HTTPS health is green and all 12 official news channels pass from the server. A fresh radar-specific systemd canary for the active release started `2026-08-11T20:08:48Z` and cannot complete before `2026-08-25T20:08:48Z`. Permanent HTTPS and a real encrypted off-host mount remain external blockers |
 
@@ -74,6 +74,9 @@ initial releases use their actual release dates.
 - `candidate-v12` является отдельно checksummed replay-only методикой; десять
   новых индикаторов остаются глобально выключенными и не могут войти в live
   v10/v11 без отдельного будущего promotion.
+- `candidate-v13` является отдельно checksummed replay-only методикой с
+  фиксированным scenario coverage contract. Она не входит в bootstrap live-сервиса
+  и не может быть promoted при трёх независимых положительных эпизодах.
 - Live probability остаётся `null` до победы над baseline.
 - Календарный 14-дневный canary нельзя объявлять завершённым заранее.
 
@@ -111,6 +114,9 @@ initial releases use their actual release dates.
 - Full regression after immutable `candidate-v12` registry/replay integration
   and complete verified-FRED replay preparation: `436 passed`, one known
   Starlette/httpx compatibility warning; Ruff passed.
+- Full regression after immutable `candidate-v13` scenario coverage, vintage
+  preservation and chronological revision-chain hardening: `445 passed`, one
+  known Starlette/httpx compatibility warning; Ruff passed.
 - Source registry: 22 версионируемых контракта; offline contract gate проходит.
 - Live source contracts: 13/13 scoring FRED v11 series, 10/10 disabled
   next-methodology FRED research series and 12/12 configured official news
@@ -131,6 +137,19 @@ initial releases use their actual release dates.
   Evidence: `docs/evidence/crisis-radar-v12-financial-stress-replay-20260813.json`.
   Input preparation and isolation evidence:
   `docs/evidence/crisis-radar-v12-replay-input-preparation-20260813.json`.
+- Immutable `candidate-v13` replay candidate: scenario coverage is measured over
+  fixed independent groups using maximum freshness within each group, while
+  global coverage remains a separate diagnostic. The gate requires credit,
+  market-price and funding/liquidity channels plus US, two other-advanced and two
+  emerging regions. The real 220-cutoff replay produced 29 eligible cutoffs,
+  20 resolved samples and only three independent positive OFR episodes;
+  `scored_count=0`, promotion=false and probability=null. All stricter coverage
+  and 15/30/90-day sensitivity runs also failed promotion. Historical ingestion
+  now preserves equal-value distinct vintages and rebuilds chronological revision
+  chains; the isolated replay database has integrity `ok` and zero reverse links.
+  Evidence:
+  `docs/evidence/crisis-radar-v13-financial-stress-replay-20260813.json` and
+  `docs/evidence/crisis-radar-v13-replay-input-and-sensitivity-20260813.json`.
 - HKMA adapter rejects unsuccessful headers, malformed schema, duplicate/future
   records and URLs outside `www.hkma.gov.hk`; scheduled sync, CLI and news coverage
   use the same client/normalizer router.

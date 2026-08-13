@@ -23,6 +23,7 @@ METHODOLOGY_V2_VERSION = "candidate-v9"
 METHODOLOGY_GLOBAL_V2_VERSION = "candidate-v10"
 METHODOLOGY_V11_VERSION = "candidate-v11"
 METHODOLOGY_V12_VERSION = "candidate-v12"
+METHODOLOGY_V13_VERSION = "candidate-v13"
 
 
 @dataclass(frozen=True)
@@ -1396,6 +1397,7 @@ V11_INDICATORS = tuple(
     item for item in GLOBAL_V2_INDICATORS if not item.code.endswith("_oi_7d_abs_change")
 ) + FRED_V11_DEPTH_INDICATORS + BYBIT_SIGNED_V11_INDICATORS
 V12_INDICATORS = V11_INDICATORS + FRED_V12_CANDIDATE_INDICATORS
+V13_INDICATORS = V12_INDICATORS
 
 _V11_SCENARIO_EXTRA_GROUPS = {
     "global_recession": ("housing_cre",),
@@ -1432,6 +1434,60 @@ V12_SCENARIOS = tuple(
         ),
     )
     for scenario in V11_SCENARIOS
+)
+
+_FINANCIAL_STRESS_REGIONAL_GROUPS = (
+    "canada_market_conditions",
+    "uk_market_conditions",
+    "china_market_conditions",
+    "hong_kong_market_conditions",
+    "japan_market_conditions",
+    "korea_market_conditions",
+    "india_market_conditions",
+    "brazil_market_conditions",
+    "mexico_market_conditions",
+)
+V13_REPLAY_COVERAGE_CONTRACT = {
+    "version": "scenario-replay-coverage-v1",
+    "coverage_unit": "scenario_group_max_freshness",
+    "minimum_coverage": "0.70",
+    "healthy_coverage": "0.85",
+    "scenarios": {
+        "financial_stress": {
+            "required_channel_classes": {
+                "credit": ("credit",),
+                "market_price_stress": ("market_stress", "equity_market_stress"),
+                "funding_liquidity": (
+                    "rates_liquidity",
+                    "us_financial_conditions",
+                    "banking_stress",
+                    "dollar_liquidity",
+                ),
+            },
+            "required_region_classes": {
+                "us": {"alternatives": ("US",), "minimum_matches": 1},
+                "other_advanced": {
+                    "alternatives": ("EU", "CAN", "GBR", "HKG", "JPN", "KOR"),
+                    "minimum_matches": 2,
+                },
+                "emerging": {
+                    "alternatives": ("CHINA", "IND", "BRA", "MEX"),
+                    "minimum_matches": 2,
+                },
+            },
+        },
+    },
+}
+V13_SCENARIOS = tuple(
+    replace(
+        scenario,
+        group_codes=(
+            scenario.group_codes + _FINANCIAL_STRESS_REGIONAL_GROUPS
+            if scenario.code == "financial_stress"
+            else scenario.group_codes
+        ),
+    )
+    for scenario in V12_SCENARIOS
 )
 
 _V2_THRESHOLD_RATIONALE = {
@@ -1567,13 +1623,19 @@ def methodology_checksum(
             "recovery_fraction": str(STABILITY_POLICY.recovery_fraction),
         },
     }
-    if version in {METHODOLOGY_V11_VERSION, METHODOLOGY_V12_VERSION}:
+    if version in {
+        METHODOLOGY_V11_VERSION,
+        METHODOLOGY_V12_VERSION,
+        METHODOLOGY_V13_VERSION,
+    }:
         payload["indicator_scoring"] = {
             code: {key: str(value) for key, value in asdict(profile).items()}
             for code, profile in PROFILES.items()
         }
         payload["dependency_graph_version"] = DEPENDENCY_GRAPH_VERSION
         payload["stage_version"] = STAGE_VERSION
+    if version == METHODOLOGY_V13_VERSION:
+        payload["replay_coverage_contract"] = V13_REPLAY_COVERAGE_CONTRACT
     encoded = json.dumps(payload, ensure_ascii=True, sort_keys=True, separators=(",", ":")).encode()
     return hashlib.sha256(encoded).hexdigest()
 
@@ -1624,6 +1686,8 @@ def _bootstrap_catalog(
             if version == METHODOLOGY_V11_VERSION
             else "2026-08-13T11:27:28+00:00"
             if version == METHODOLOGY_V12_VERSION
+            else "2026-08-13T13:05:00+00:00"
+            if version == METHODOLOGY_V13_VERSION
             else
             "2026-08-04T12:00:00+00:00"
             if version == METHODOLOGY_GLOBAL_V2_VERSION
@@ -1679,7 +1743,11 @@ def _bootstrap_catalog(
                 "operational_role": "candidate_signal",
             },
         )
-        is_advanced = version in {METHODOLOGY_V11_VERSION, METHODOLOGY_V12_VERSION}
+        is_advanced = version in {
+            METHODOLOGY_V11_VERSION,
+            METHODOLOGY_V12_VERSION,
+            METHODOLOGY_V13_VERSION,
+        }
         profile = profile_for(
             frequency=item.frequency,
             direction=item.thresholds.direction,
@@ -1698,12 +1766,14 @@ def _bootstrap_catalog(
                 METHODOLOGY_V2_VERSION,
                 METHODOLOGY_V11_VERSION,
                 METHODOLOGY_V12_VERSION,
+                METHODOLOGY_V13_VERSION,
             } else "legacy",
             promotion_status=promotion_status,
             rationale=rationale if version in {
                 METHODOLOGY_V2_VERSION,
                 METHODOLOGY_V11_VERSION,
                 METHODOLOGY_V12_VERSION,
+                METHODOLOGY_V13_VERSION,
             } else {},
             source_url=(
                 rationale.get("source_url")
@@ -1725,6 +1795,8 @@ def _bootstrap_catalog(
             introduced_at=(
                 "2026-08-13T11:27:28+00:00"
                 if version == METHODOLOGY_V12_VERSION
+                else "2026-08-13T13:05:00+00:00"
+                if version == METHODOLOGY_V13_VERSION
                 else "2026-08-05T12:53:16+00:00"
                 if version == METHODOLOGY_V11_VERSION
                 else ""
@@ -1739,7 +1811,13 @@ def _bootstrap_catalog(
             repository.register_entity_metadata(
                 entity_type="indicator",
                 entity_code=item.code,
-                metadata_version=("v12" if version == METHODOLOGY_V12_VERSION else "v11"),
+                metadata_version=(
+                    "v13"
+                    if version == METHODOLOGY_V13_VERSION
+                    else "v12"
+                    if version == METHODOLOGY_V12_VERSION
+                    else "v11"
+                ),
                 payload=indicator_metadata(item, source_name=source.name),
             )
             repository.register_dependency_assignment(
@@ -1754,7 +1832,13 @@ def _bootstrap_catalog(
             repository.register_entity_metadata(
                 entity_type="group",
                 entity_code=item.group_code,
-                metadata_version=("v12" if version == METHODOLOGY_V12_VERSION else "v11"),
+                metadata_version=(
+                    "v13"
+                    if version == METHODOLOGY_V13_VERSION
+                    else "v12"
+                    if version == METHODOLOGY_V12_VERSION
+                    else "v11"
+                ),
                 payload=group_metadata(item.group_code),
             )
     active_indicator_codes = {indicator.code for indicator in indicators}
@@ -1789,13 +1873,23 @@ def _bootstrap_catalog(
             group_codes=scenario.group_codes,
             anchor_groups=scenario.anchor_groups,
         )
-        if version in {METHODOLOGY_V11_VERSION, METHODOLOGY_V12_VERSION}:
+        if version in {
+            METHODOLOGY_V11_VERSION,
+            METHODOLOGY_V12_VERSION,
+            METHODOLOGY_V13_VERSION,
+        }:
             from trading_bot.crisis_radar.metadata_v11 import scenario_metadata
 
             repository.register_entity_metadata(
                 entity_type="scenario",
                 entity_code=scenario.code,
-                metadata_version=("v12" if version == METHODOLOGY_V12_VERSION else "v11"),
+                metadata_version=(
+                    "v13"
+                    if version == METHODOLOGY_V13_VERSION
+                    else "v12"
+                    if version == METHODOLOGY_V12_VERSION
+                    else "v11"
+                ),
                 payload=scenario_metadata(scenario),
             )
     return {
@@ -1858,6 +1952,20 @@ def bootstrap_v12_catalog(repository: CrisisRadarRepository) -> dict[str, int | 
         version=METHODOLOGY_V12_VERSION,
         indicators=V12_INDICATORS,
         scenarios=V12_SCENARIOS,
+        promotion_status="candidate",
+        indicator_enabled_overrides={code: False for code in new_codes},
+    )
+
+
+def bootstrap_v13_catalog(repository: CrisisRadarRepository) -> dict[str, int | str]:
+    """Register scenario-specific replay coverage without enabling new live inputs."""
+
+    new_codes = {item.code for item in FRED_V12_CANDIDATE_INDICATORS}
+    return _bootstrap_catalog(
+        repository,
+        version=METHODOLOGY_V13_VERSION,
+        indicators=V13_INDICATORS,
+        scenarios=V13_SCENARIOS,
         promotion_status="candidate",
         indicator_enabled_overrides={code: False for code in new_codes},
     )

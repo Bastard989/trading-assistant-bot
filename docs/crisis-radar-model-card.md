@@ -1,6 +1,6 @@
 # Crisis Radar model card
 
-Дата: 2026-08-11.
+Дата: 2026-08-13.
 
 ## Назначение
 
@@ -13,6 +13,7 @@
 - основной live baseline: `candidate-v10`;
 - shadow methodology: `candidate-v11`;
 - replay-only depth methodology: `candidate-v12`;
+- replay-only scenario-coverage methodology: `candidate-v13`;
 - indicator scoring: `indicator-score-v2-seed-1`;
 - stage: `independent-stage-v2-seed-1`;
 - dependency graph: `dependency-graph-v2-seed-1`;
@@ -20,6 +21,7 @@
 - v10 replay: `historical-replay-v1`;
 - v11 comparison replay: `causal-v11-replay-v1`.
 - v12 comparison replay: `causal-v12-replay-v1`.
+- v13 comparison replay: `causal-v13-scenario-replay-v1`.
 
 ## Входы и выходы
 
@@ -89,9 +91,29 @@ never executed.
 coverage составил только 4,88–37,80%, поэтому все 220
 точек получили `insufficient_data`, promotion не пройден и probability=`null`.
 
+`candidate-v13` не меняет live-расчёт. Он исправляет исследовательский denominator:
+для `financial_stress` покрытие считается по фиксированным сценарным группам, а
+не по всем глобальным индикаторам. Одна группа является одной единицей покрытия;
+несколько коррелированных рядов одной группы не увеличивают denominator и не
+создают ложные независимые подтверждения. Допуск требует одновременно:
+
+- scenario coverage не ниже `0.70` (`0.85` считается healthy);
+- кредитный, рыночно-ценовой и funding/liquidity каналы;
+- США, минимум два региона other-advanced и минимум два emerging-региона.
+
+Глобальное покрытие вычисляется отдельно и не скрывается. Реальный причинный
+replay проверил 220 месячных cutoff: 29 прошли scenario gate, 20 имели разрешимый
+исход и содержали только три независимых положительных OFR-эпизода. Этого
+недостаточно для калибратора: `scored_count=0`, promotion=`false`,
+probability=`null`. Sensitivity при coverage 0.70/0.75/0.80/0.85 и горизонтах
+15/30/90 дней также не прошла promotion. Это улучшение честности выборки, а не
+доказательство прогностического преимущества.
+
 ## Known limitations
 
 - causal history has insufficient breadth/depth for v11 promotion;
+- candidate-v13 has only three independent positive financial-stress episodes;
+  it is replay-only and cannot emit a calibrated probability;
 - global regions have unequal channel depth;
 - ten additional official FRED depth series are disabled live inputs with
   explicit thresholds only inside immutable replay-only `candidate-v12`; they
@@ -112,6 +134,8 @@ coverage составил только 4,88–37,80%, поэтому все 220
 - causal replay rejects `retrospective_revised` rows and late historical imports
   whose release time was only estimated; recent live estimated-release rows remain
   eligible only inside the indicator's maximum staleness window;
+- equal numerical values from different vintages are preserved as separate
+  observations and revision links are rebuilt in chronological release order;
 - 14-day production canary must run after each release and cannot be pre-declared.
 
 ## Prohibited claims and uses
@@ -124,6 +148,7 @@ coverage составил только 4,88–37,80%, поэтому все 220
 - `stable` when mandatory data coverage is insufficient;
 - calling candidate-v11 production-primary before replay and canary pass.
 - calling candidate-v12 live or promoted while its coverage gate fails.
+- calling candidate-v13 live or promoted while calibration and holdout gates fail.
 
 ## Monitoring and rollback
 

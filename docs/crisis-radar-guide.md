@@ -1,9 +1,11 @@
 # Crisis Radar: руководство владельца и техническая методика
 
-Версия документа: 2026-08-11.
+Версия документа: 2026-08-13.
 
 Основной live-вывод: `candidate-v10`. Исследовательский shadow-расчёт:
 `candidate-v11`, `indicator-score-v2-seed-1`, `independent-stage-v2-seed-1`.
+`candidate-v12` и `candidate-v13` используются только для причинного replay и
+не входят в live bootstrap.
 Машинно проверяемая копия всех исполняемых seed-порогов и весов находится в
 `docs/crisis-radar-v2-runtime-contract.json`. CI сравнивает её непосредственно
 с константами вычислительного ядра.
@@ -87,6 +89,25 @@ sensitivity analysis. Недоступность любого из этих
 может перевести рабочий расчёт в degraded; ошибка остаётся отдельной
 research-диагностикой.
 
+`candidate-v13` решает отдельную проблему исторической проверки. Общее число
+индикаторов всего радара не является честным denominator для одного сценария:
+например, отсутствие крипторяда не должно блокировать replay банковского стресса,
+а десять похожих рядов одной группы не должны десять раз подтверждать кризис.
+Поэтому для каждого сценария заранее фиксируется набор групп. Свежесть группы —
+максимальная свежесть входящих в неё рядов, но сама группа даёт ровно одну единицу
+покрытия. Для `financial_stress` дополнительно обязательны credit,
+market-price-stress и funding/liquidity, США, минимум два other-advanced и два
+emerging-региона. Scenario coverage ниже 70% всегда даёт
+`insufficient_data`; порог не снижался. Global coverage показывается рядом как
+отдельная диагностика и не подменяет scenario gate.
+
+На реальной причинной истории v13 пропустил 29 из 220 месячных cutoff. Из них
+20 имели разрешимый исход, но только три являлись независимыми положительными
+OFR-эпизодами. Повторение тех же эпизодов более частым cadence не превращает их в
+новые кризисы. Поэтому калибратор не обучен, `scored_count=0`,
+`live_probability=null`, а v13 остаётся replay-only. Проверки coverage
+0,70/0,75/0,80/0,85 и горизонтов 15/30/90 дней не изменили этот вывод.
+
 ## 2. Пороговые ориентиры
 
 Экономический порог — объяснимая граница наблюдения, а не магическое
@@ -131,6 +152,12 @@ released_at <= cutoff
 Replay исключает `retrospective_revised`. Каждая точка хранит source, vintage,
 observed/released/fetched time и quality flags. Будущий релиз не может изменить
 прошлый replay-сигнал — это покрыто regression test.
+
+Две публикации с одинаковым числовым значением, но разными vintage не
+дедуплицируются: это разные известные в разные моменты данные. После исторического
+импорта цепочка revisions пересобирается по `released_at`, затем `fetched_at` и
+ID. Replay выбирает только vintage, реально доступный на cutoff; поздний архивный
+ряд не может подавить точную initial-release запись.
 
 Дополнительный causal gate защищает старые импорты: если время релиза было лишь
 оценено (`release_time_estimated`) и точка фактически загружена позже допустимой
@@ -385,6 +412,9 @@ python -m scripts.self_host source-check
 python -m scripts.crisis_radar sync --source all
 python -m scripts.replay_crisis_radar_v11 --scenario financial_stress \
   --from 1998-08-26 --through 2016-09-01 --cadence-days 90 --horizon-days 90
+python -m scripts.replay_crisis_radar_v11 --methodology candidate-v13 \
+  --scenario financial_stress --from 1998-08-26 --through 2016-09-01 \
+  --cadence-days 30 --horizon-days 30
 ```
 
 Server profile использует immutable release directories, systemd, Caddy
@@ -402,6 +432,8 @@ coverage, source failures, delivery queues, backup checksum/age и disk size.
 - Редкие кризисы дают мало независимых примеров.
 - Макроданные выходят с задержкой и пересмотрами.
 - Глобальное покрытие широко, но глубина по регионам неодинакова.
+- v13 имеет только три независимых положительных OFR-эпизода; этого недостаточно
+  для probability, holdout и доказательства преимущества над baseline.
 - Бесплатного подтверждённого TradFi-options feed нет.
 - Bybit options может не найти две ликвидные ноги; тогда идея отсутствует.
 - Annual structural context не является быстрым market anchor.

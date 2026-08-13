@@ -10,7 +10,10 @@ if __package__ in {None, ""}:
 
 from trading_bot.crisis_radar.catalog import bootstrap_v12_catalog  # noqa: E402
 from trading_bot.crisis_radar.domain import QualityFlag  # noqa: E402
-from trading_bot.crisis_radar.repositories import CrisisRadarRepository  # noqa: E402
+from trading_bot.crisis_radar.repositories import (  # noqa: E402
+    CrisisRadarRepository,
+    _rebuild_observation_revision_chain,
+)
 from trading_bot.db import CURRENT_SCHEMA_VERSION, Database  # noqa: E402
 
 
@@ -66,7 +69,9 @@ def merge_history(
         )
         parameters = tuple(sorted(source_codes))
     query += " ORDER BY observation.observed_at, observation.id"
-    rows_read = inserted = duplicate = excluded_revised = unknown = revisions = 0
+    rows_read = inserted = duplicate = excluded_revised = unknown = revisions_rebuilt = 0
+    equal_value_vintages_preserved = 0
+    affected_keys: dict[tuple[int, int, str], str] = {}
     codes: set[str] = set()
     with source.connect() as connection:
         rows = connection.execute(query, parameters).fetchall()
@@ -96,6 +101,20 @@ def merge_history(
                      released_at, fetched_at, id
             """
         ).fetchall()
+        revision_count_before = connection.execute(
+            "SELECT count(*) FROM cr_observation_revisions"
+        ).fetchone()[0]
+        reverse_revision_links_before = connection.execute(
+            """
+            SELECT count(*)
+            FROM cr_observation_revisions AS revision
+            JOIN cr_observations AS previous
+              ON previous.id=revision.previous_observation_id
+            JOIN cr_observations AS revised
+              ON revised.id=revision.revised_observation_id
+            WHERE previous.released_at > revised.released_at
+            """
+        ).fetchone()[0]
         unique_keys = {
             (int(row["indicator_id"]), int(row["source_id"]), row["observed_at"], row["vintage"])
             for row in existing
@@ -127,11 +146,14 @@ def merge_history(
                     f"unit mismatch for {row['indicator_code']}: {row['unit']} != {unit}"
                 )
             observation_key = (indicator_id, source_id, row["observed_at"])
+            codes.add(row["indicator_code"])
             unique_key = (*observation_key, row["vintage"])
             previous = latest_by_observation.get(observation_key)
-            if unique_key in unique_keys or (
-                previous is not None and previous[1] == row["value_text"]
-            ):
+            affected_keys[observation_key] = max(
+                affected_keys.get(observation_key, row["fetched_at"]),
+                row["fetched_at"],
+            )
+            if unique_key in unique_keys:
                 duplicate += 1
                 continue
             cursor = connection.execute(
@@ -155,23 +177,38 @@ def merge_history(
                 ),
             )
             observation_id = int(cursor.lastrowid)
-            if previous is not None and previous[1] != row["value_text"]:
-                connection.execute(
-                    """
-                    INSERT OR IGNORE INTO cr_observation_revisions(
-                        previous_observation_id, revised_observation_id, detected_at
-                    ) VALUES (?, ?, ?)
-                    """,
-                    (previous[0], observation_id, row["fetched_at"]),
-                )
-                revisions += 1
+            if previous is not None and previous[1] == row["value_text"]:
+                equal_value_vintages_preserved += 1
             inserted += 1
             unique_keys.add(unique_key)
             latest_by_observation[observation_key] = (
                 observation_id,
                 row["value_text"],
             )
-            codes.add(row["indicator_code"])
+        for (indicator_id, source_id, observed_at), detected_at in affected_keys.items():
+            revisions_rebuilt += len(
+                _rebuild_observation_revision_chain(
+                    connection,
+                    indicator_id=indicator_id,
+                    source_id=source_id,
+                    observed_at=observed_at,
+                    detected_at=detected_at,
+                )
+            )
+        revision_count_after = connection.execute(
+            "SELECT count(*) FROM cr_observation_revisions"
+        ).fetchone()[0]
+        reverse_revision_links_after = connection.execute(
+            """
+            SELECT count(*)
+            FROM cr_observation_revisions AS revision
+            JOIN cr_observations AS previous
+              ON previous.id=revision.previous_observation_id
+            JOIN cr_observations AS revised
+              ON revised.id=revision.revised_observation_id
+            WHERE previous.released_at > revised.released_at
+            """
+        ).fetchone()[0]
     with destination.connect() as connection:
         integrity = connection.execute("PRAGMA integrity_check").fetchone()[0]
         foreign_keys = len(connection.execute("PRAGMA foreign_key_check").fetchall())
@@ -181,9 +218,13 @@ def merge_history(
         "rows_read": rows_read,
         "rows_inserted": inserted,
         "rows_duplicate": duplicate,
+        "equal_value_vintages_preserved": equal_value_vintages_preserved,
         "rows_excluded_retrospective_revised": excluded_revised,
         "rows_unknown_indicator": unknown,
-        "revision_links_created": revisions,
+        "revision_links_created": max(0, revision_count_after - revision_count_before),
+        "revision_links_rebuilt": revisions_rebuilt,
+        "reverse_revision_links_before": reverse_revision_links_before,
+        "reverse_revision_links_after": reverse_revision_links_after,
         "indicator_count": len(codes),
         "integrity": integrity,
         "foreign_key_violations": foreign_keys,

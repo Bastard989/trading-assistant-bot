@@ -229,6 +229,49 @@ def test_causal_queries_exclude_late_estimated_backfill_but_keep_live_data(tmp_p
     ).observation.value == Decimal("25")
 
 
+def test_exact_vintage_supersedes_equal_value_noncausal_archive_row(tmp_path) -> None:
+    repository = CrisisRadarRepository(Database(tmp_path / "causal-vintage.sqlite3"))
+    CrisisRadarService(repository).bootstrap()
+    common = dict(
+        indicator_code="vix",
+        source_code="fred",
+        value=Decimal("20"),
+        unit="index_points",
+        observed_at=START,
+        released_at=START,
+    )
+    repository.save_observation(
+        Observation(
+            **common,
+            fetched_at=datetime(2026, 8, 11, tzinfo=UTC),
+            vintage="current-archive",
+            quality_flags=frozenset({QualityFlag.RELEASE_TIME_ESTIMATED}),
+        )
+    )
+    exact = repository.save_observation(
+        Observation(
+            **common,
+            fetched_at=datetime(2026, 8, 13, tzinfo=UTC),
+            vintage="initial-release",
+        ),
+        preserve_vintage=True,
+    )
+
+    causal = repository.analysis_inputs_as_of(
+        METHODOLOGY_CODE,
+        METHODOLOGY_VERSION,
+        as_of=START + timedelta(days=1),
+        causal_only=True,
+    )
+
+    assert exact.inserted is True
+    selected = next(
+        item for item in causal if item.observation.indicator_code == "vix"
+    )
+    assert selected.observation.vintage == "initial-release"
+    assert QualityFlag.RELEASE_TIME_ESTIMATED not in selected.observation.quality_flags
+
+
 def test_onset_labels_exclude_active_events_and_right_censored_horizons() -> None:
     event = ScenarioEvent(
         "global_recession",

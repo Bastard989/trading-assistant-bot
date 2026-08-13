@@ -5,6 +5,7 @@ from pathlib import Path
 from trading_bot.crisis_radar.catalog import (
     METHODOLOGY_V11_VERSION,
     METHODOLOGY_V12_VERSION,
+    METHODOLOGY_V13_VERSION,
 )
 from trading_bot.crisis_radar.methodology_contract import (
     runtime_methodology_contract,
@@ -12,6 +13,7 @@ from trading_bot.crisis_radar.methodology_contract import (
 from trading_bot.crisis_radar.replay_v2 import (
     REPLAY_V2_ENGINE_VERSION,
     REPLAY_V12_ENGINE_VERSION,
+    REPLAY_V13_ENGINE_VERSION,
 )
 from trading_bot.crisis_radar.scoring_v2 import PROFILES, SCORING_VERSION
 from trading_bot.crisis_radar.stage_v2 import (
@@ -41,6 +43,15 @@ V12_REPLAY_EVIDENCE_PATH = (
 )
 V12_REPLAY_INPUT_EVIDENCE_PATH = (
     ROOT / "docs" / "evidence" / "crisis-radar-v12-replay-input-preparation-20260813.json"
+)
+V13_REPLAY_EVIDENCE_PATH = (
+    ROOT / "docs" / "evidence" / "crisis-radar-v13-financial-stress-replay-20260813.json"
+)
+V13_REPLAY_SUMMARY_PATH = (
+    ROOT
+    / "docs"
+    / "evidence"
+    / "crisis-radar-v13-replay-input-and-sensitivity-20260813.json"
 )
 
 
@@ -217,5 +228,86 @@ def test_v12_replay_input_preparation_is_isolated_and_does_not_weaken_gate() -> 
         "candidate_v12_live_indicators_enabled": False,
         "coverage_denominator_reduced_to_force_eligibility": False,
         "current_revisions_relabelled_as_historical_initial_releases": False,
+        "disposable_database_distributed": False,
+    }
+
+
+def test_v13_replay_evidence_uses_scenario_coverage_and_stays_unpromoted() -> None:
+    evidence = json.loads(V13_REPLAY_EVIDENCE_PATH.read_text(encoding="utf-8"))
+
+    assert evidence["methodology"] == METHODOLOGY_V13_VERSION
+    assert evidence["manifest_version"] == "crisis-radar-v13-comparison-v1"
+    assert evidence["candidate_status"] == "shadow"
+    assert evidence["live_probability"] is None
+    assert evidence["promotion_gate"]["passed"] is False
+    diagnostics = evidence["candidate_replay_diagnostics"]
+    assert diagnostics["coverage_contract"] == "scenario-replay-coverage-v1"
+    assert diagnostics["cutoff_count"] == 220
+    assert diagnostics["eligible_cutoff_count"] == 29
+    assert diagnostics["numeric_coverage_max"] == "0.8333"
+    assert diagnostics["global_numeric_coverage_max"] == "0.4024"
+    assert diagnostics["stage_counts"] == {
+        "insufficient_data": 191,
+        "tension": 24,
+        "warning": 5,
+    }
+    assert evidence["results"]["full"]["sample_count"] == 20
+    assert evidence["results"]["full"]["positive_count"] == 3
+    assert evidence["results"]["full"]["scored_count"] == 0
+    assert len(evidence["checksums"]["v13_replay"]) == 64
+    assert REPLAY_V13_ENGINE_VERSION == "causal-v13-scenario-replay-v1"
+    expected_checksum = evidence.pop("manifest_checksum")
+    canonical = json.dumps(
+        evidence,
+        ensure_ascii=True,
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    ).encode()
+    assert hashlib.sha256(canonical).hexdigest() == expected_checksum
+
+
+def test_v13_input_and_sensitivity_evidence_keeps_all_safety_gates_closed() -> None:
+    summary = json.loads(V13_REPLAY_SUMMARY_PATH.read_text(encoding="utf-8"))
+    replay_bytes = V13_REPLAY_EVIDENCE_PATH.read_bytes()
+    replay = json.loads(replay_bytes)
+
+    assert summary["methodology"] == {
+        "version": METHODOLOGY_V13_VERSION,
+        "checksum": "a6108cc6cd26d6dbb02e1dfa927cc2a9f1ab183eb741b939d1659d53f2e9e611",
+        "engine": REPLAY_V13_ENGINE_VERSION,
+        "coverage_contract": "scenario-replay-coverage-v1",
+        "coverage_unit": "scenario_group_max_freshness",
+        "minimum_coverage": "0.70",
+        "healthy_coverage": "0.85",
+        "required_region_minimums": {"us": 1, "other_advanced": 2, "emerging": 2},
+        "live_enabled": False,
+        "promotion_status": "candidate",
+    }
+    assert summary["primary_replay"]["file_sha256"] == hashlib.sha256(
+        replay_bytes
+    ).hexdigest()
+    assert summary["primary_replay"]["manifest_checksum"] == replay["manifest_checksum"]
+    assert summary["primary_replay"]["eligible_cutoff_count"] == 29
+    assert summary["primary_replay"]["resolved_sample_count"] == 20
+    assert summary["primary_replay"]["positive_event_count"] == 3
+    assert summary["primary_replay"]["scored_count"] == 0
+    assert summary["primary_replay"]["probability"] is None
+    assert summary["primary_replay"]["promotion_passed"] is False
+    assert summary["point_in_time_provenance_fix"][
+        "reverse_revision_links_after_rebuild"
+    ] == 0
+    assert all(item["promotion_passed"] is False for item in summary["sensitivity"])
+    assert all(float(item["minimum_coverage"]) >= 0.70 for item in summary["sensitivity"])
+    assert summary["safety"] == {
+        "working_database_touched": False,
+        "production_database_touched": False,
+        "candidate_v13_entered_live_service_bootstrap": False,
+        "minimum_coverage_lowered_below_070": False,
+        "missing_required_channels_allowed": False,
+        "single_non_us_region_considered_sufficient": False,
+        "global_coverage_hidden": False,
+        "current_revisions_relabelled_as_initial_releases": False,
+        "probability_fabricated": False,
         "disposable_database_distributed": False,
     }

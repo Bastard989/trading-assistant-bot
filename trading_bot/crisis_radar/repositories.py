@@ -156,6 +156,72 @@ def _analysis_inputs_from_rows(rows) -> list[AnalysisInput]:
     return result
 
 
+def _rebuild_observation_revision_chain(
+    connection,
+    *,
+    indicator_id: int,
+    source_id: int,
+    observed_at: str,
+    detected_at: str,
+) -> tuple[tuple[int, int], ...]:
+    """Keep revision links chronological when history arrives out of order."""
+
+    rows = connection.execute(
+        """
+        SELECT id, value_text
+        FROM cr_observations
+        WHERE indicator_id=? AND source_id=? AND observed_at=?
+        ORDER BY released_at, fetched_at, id
+        """,
+        (indicator_id, source_id, observed_at),
+    ).fetchall()
+    if len(rows) < 2:
+        return ()
+    ids = tuple(int(row["id"]) for row in rows)
+    placeholders = ",".join("?" for _ in ids)
+    existing = {
+        (int(row["previous_observation_id"]), int(row["revised_observation_id"])): row[
+            "detected_at"
+        ]
+        for row in connection.execute(
+            f"""
+            SELECT previous_observation_id, revised_observation_id, detected_at
+            FROM cr_observation_revisions
+            WHERE previous_observation_id IN ({placeholders})
+              AND revised_observation_id IN ({placeholders})
+            """,
+            (*ids, *ids),
+        )
+    }
+    connection.execute(
+        f"""
+        DELETE FROM cr_observation_revisions
+        WHERE previous_observation_id IN ({placeholders})
+          AND revised_observation_id IN ({placeholders})
+        """,
+        (*ids, *ids),
+    )
+    links = tuple(
+        (int(previous["id"]), int(revised["id"]))
+        for previous, revised in zip(rows[:-1], rows[1:], strict=True)
+        if previous["value_text"] != revised["value_text"]
+    )
+    for previous_id, revised_id in links:
+        connection.execute(
+            """
+            INSERT INTO cr_observation_revisions(
+                previous_observation_id, revised_observation_id, detected_at
+            ) VALUES (?, ?, ?)
+            """,
+            (
+                previous_id,
+                revised_id,
+                existing.get((previous_id, revised_id), detected_at),
+            ),
+        )
+    return links
+
+
 def _decimal_text(value: Decimal | None) -> str | None:
     return None if value is None else format(value, "f")
 
@@ -757,7 +823,13 @@ class CrisisRadarRepository:
             )
             return int(cursor.lastrowid)
 
-    def save_observation(self, observation: Observation, *, sync_run_id: int | None = None) -> SavedObservation:
+    def save_observation(
+        self,
+        observation: Observation,
+        *,
+        sync_run_id: int | None = None,
+        preserve_vintage: bool = False,
+    ) -> SavedObservation:
         flags = json.dumps(sorted(flag.value for flag in observation.quality_flags), separators=(",", ":"))
         with self.db.connect() as connection:
             indicator = connection.execute(
@@ -778,7 +850,7 @@ class CrisisRadarRepository:
 
             previous = connection.execute(
                 """
-                SELECT id, value_text FROM cr_observations
+                SELECT id, value_text, vintage FROM cr_observations
                 WHERE indicator_id = ? AND source_id = ? AND observed_at = ?
                 ORDER BY released_at DESC, fetched_at DESC, id DESC
                 LIMIT 1
@@ -786,7 +858,11 @@ class CrisisRadarRepository:
                 (indicator[0], indicator[2], _utc_text(observation.observed_at)),
             ).fetchone()
             formatted_value = format(observation.value, "f")
-            if previous is not None and previous[1] == formatted_value:
+            if (
+                previous is not None
+                and previous[1] == formatted_value
+                and (not preserve_vintage or previous[2] == observation.vintage)
+            ):
                 return SavedObservation(int(previous[0]), False, False)
             cursor = connection.execute(
                 """
@@ -824,16 +900,14 @@ class CrisisRadarRepository:
                 ).fetchone()
                 return SavedObservation(int(existing[0]), False, False)
             observation_id = int(cursor.lastrowid)
-            revision_created = previous is not None and previous[1] != formatted_value
-            if revision_created:
-                connection.execute(
-                    """
-                    INSERT INTO cr_observation_revisions(
-                        previous_observation_id, revised_observation_id, detected_at
-                    ) VALUES (?, ?, ?)
-                    """,
-                    (previous[0], observation_id, _utc_text(observation.fetched_at)),
-                )
+            revision_links = _rebuild_observation_revision_chain(
+                connection,
+                indicator_id=int(indicator[0]),
+                source_id=int(indicator[2]),
+                observed_at=_utc_text(observation.observed_at),
+                detected_at=_utc_text(observation.fetched_at),
+            )
+            revision_created = any(observation_id in link for link in revision_links)
             return SavedObservation(observation_id, True, revision_created)
 
     def save_news_item(

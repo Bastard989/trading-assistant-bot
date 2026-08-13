@@ -1,0 +1,259 @@
+{
+  "ablation_findings": {
+    "contagion_numeric_delta_expected": "zero: contagion is diagnostic in candidate-v13",
+    "dependency_correction": "tested by treating every indicator/group as independent",
+    "events_numeric_delta_expected": "zero: events do not alter numeric indicator/stage score"
+  },
+  "candidate_replay_diagnostics": {
+    "coverage_contract": "scenario-replay-coverage-v1",
+    "cutoff_count": 220,
+    "eligibility_reason_counts": {
+      "": 29,
+      "insufficient_scenario_coverage": 104,
+      "no_as_of_inputs": 87
+    },
+    "eligible_cutoff_count": 29,
+    "global_numeric_coverage_max": "0.4024",
+    "global_numeric_coverage_min": "0.0488",
+    "input_count_max": 18,
+    "input_count_min": 0,
+    "numeric_coverage_max": "0.8333",
+    "numeric_coverage_min": "0.0000",
+    "stage_counts": {
+      "insufficient_data": 191,
+      "tension": 24,
+      "warning": 5
+    }
+  },
+  "candidate_status": "shadow",
+  "catalog": {
+    "checksum": "4dd9396b5a9a251f7da1e2c850f13bdd90fbf16d9df0c9880bfe4b535cd1dc2e",
+    "event_count": 17,
+    "regions": [
+      "GLOBAL"
+    ],
+    "version": "ofr-policy-interventions-2017-v1"
+  },
+  "causal_contract": {
+    "active_events_excluded": true,
+    "future_observations_allowed": false,
+    "observed_at_lte_cutoff": true,
+    "released_at_lte_cutoff": true,
+    "retrospective_revisions_excluded": true,
+    "right_censoring": true
+  },
+  "checksums": {
+    "v10_replay": "54b929b04604c481c14c85a1aa54fd111204c0c4b194633fd19bd8ca19db4e54",
+    "v13_replay": "15530657e3f40e63f3743cd0b6796aae67d4195ccddae89fa7ebd6840233ff08"
+  },
+  "generated_at": "2026-08-13T16:51:09.530618+00:00",
+  "live_probability": null,
+  "live_probability_reason": "candidate-v13 remains shadow until all promotion gates pass",
+  "manifest_checksum": "f9a6da96ed0d3c62b0bcb3d204fc89a3fb6421f2cd42f0724753b97da433ec00",
+  "manifest_version": "crisis-radar-v13-comparison-v1",
+  "methodology": "candidate-v13",
+  "period": {
+    "cadence_days": 30,
+    "ended_at": "2016-09-01T23:59:59+00:00",
+    "horizon_days": 30,
+    "minimum_coverage": "0.70",
+    "started_at": "1998-08-26T00:00:00+00:00"
+  },
+  "promotion_gate": {
+    "criteria": {
+      "beats_base_rate_brier": false,
+      "crisis_holdout_passed": false,
+      "false_alert_ceiling": false,
+      "minimum_holdout_events": false,
+      "minimum_independent_events": false,
+      "recall_floor": false,
+      "region_holdout_passed": false,
+      "scored_coverage_floor": false,
+      "sensitivity_stable": false
+    },
+    "passed": false,
+    "reasons": [
+      "minimum_independent_events",
+      "minimum_holdout_events",
+      "beats_base_rate_brier",
+      "recall_floor",
+      "false_alert_ceiling",
+      "scored_coverage_floor",
+      "sensitivity_stable",
+      "region_holdout_passed",
+      "crisis_holdout_passed"
+    ]
+  },
+  "results": {
+    "economic_only": {
+      "average_lead_days": null,
+      "baseline_brier_score": null,
+      "brier_score": null,
+      "coverage": "0",
+      "eligible_signal_count": 29,
+      "false_alert_rate": null,
+      "log_loss": null,
+      "positive_count": 3,
+      "positive_event_count": 3,
+      "precision": null,
+      "probability": null,
+      "recall": null,
+      "resolved_sample_count": 20,
+      "sample_count": 20,
+      "scored_count": 0,
+      "status": "evaluated"
+    },
+    "full": {
+      "average_lead_days": null,
+      "baseline_brier_score": null,
+      "brier_score": null,
+      "coverage": "0",
+      "eligible_signal_count": 29,
+      "false_alert_rate": null,
+      "log_loss": null,
+      "positive_count": 3,
+      "positive_event_count": 3,
+      "precision": null,
+      "probability": null,
+      "recall": null,
+      "resolved_sample_count": 20,
+      "sample_count": 20,
+      "scored_count": 0,
+      "status": "evaluated"
+    },
+    "historical_only": {
+      "average_lead_days": null,
+      "baseline_brier_score": null,
+      "brier_score": null,
+      "coverage": "0",
+      "eligible_signal_count": 29,
+      "false_alert_rate": null,
+      "log_loss": null,
+      "positive_count": 3,
+      "positive_event_count": 3,
+      "precision": null,
+      "probability": null,
+      "recall": null,
+      "resolved_sample_count": 20,
+      "sample_count": 20,
+      "scored_count": 0,
+      "status": "evaluated"
+    },
+    "naive_base_rate": {
+      "brier_score": null,
+      "note": "Expanding-window base rate used by the causal calibrator.",
+      "probability": null,
+      "status": "evaluated"
+    },
+    "v10_baseline": {
+      "probability": null,
+      "sample_count": 0,
+      "status": "insufficient_resolved_samples"
+    },
+    "without_contagion": {
+      "average_lead_days": null,
+      "baseline_brier_score": null,
+      "brier_score": null,
+      "coverage": "0",
+      "eligible_signal_count": 29,
+      "false_alert_rate": null,
+      "log_loss": null,
+      "positive_count": 3,
+      "positive_event_count": 3,
+      "precision": null,
+      "probability": null,
+      "recall": null,
+      "resolved_sample_count": 20,
+      "sample_count": 20,
+      "scored_count": 0,
+      "status": "evaluated"
+    },
+    "without_dependency_correction": {
+      "average_lead_days": null,
+      "baseline_brier_score": null,
+      "brier_score": null,
+      "coverage": "0",
+      "eligible_signal_count": 29,
+      "false_alert_rate": null,
+      "log_loss": null,
+      "positive_count": 3,
+      "positive_event_count": 3,
+      "precision": null,
+      "probability": null,
+      "recall": null,
+      "resolved_sample_count": 20,
+      "sample_count": 20,
+      "scored_count": 0,
+      "status": "evaluated"
+    },
+    "without_events": {
+      "average_lead_days": null,
+      "baseline_brier_score": null,
+      "brier_score": null,
+      "coverage": "0",
+      "eligible_signal_count": 29,
+      "false_alert_rate": null,
+      "log_loss": null,
+      "positive_count": 3,
+      "positive_event_count": 3,
+      "precision": null,
+      "probability": null,
+      "recall": null,
+      "resolved_sample_count": 20,
+      "sample_count": 20,
+      "scored_count": 0,
+      "status": "evaluated"
+    },
+    "without_trend": {
+      "average_lead_days": null,
+      "baseline_brier_score": null,
+      "brier_score": null,
+      "coverage": "0",
+      "eligible_signal_count": 29,
+      "false_alert_rate": null,
+      "log_loss": null,
+      "positive_count": 3,
+      "positive_event_count": 3,
+      "precision": null,
+      "probability": null,
+      "recall": null,
+      "resolved_sample_count": 20,
+      "sample_count": 20,
+      "scored_count": 0,
+      "status": "evaluated"
+    }
+  },
+  "scenario_code": "financial_stress",
+  "threshold_sensitivity": [
+    {
+      "false_alert_count": 0,
+      "precision": null,
+      "recall": null,
+      "threshold": "0.40"
+    },
+    {
+      "false_alert_count": 0,
+      "precision": null,
+      "recall": null,
+      "threshold": "0.45"
+    },
+    {
+      "false_alert_count": 0,
+      "precision": null,
+      "recall": null,
+      "threshold": "0.50"
+    },
+    {
+      "false_alert_count": 0,
+      "precision": null,
+      "recall": null,
+      "threshold": "0.55"
+    },
+    {
+      "false_alert_count": 0,
+      "precision": null,
+      "recall": null,
+      "threshold": "0.60"
+    }
+  ]
+}

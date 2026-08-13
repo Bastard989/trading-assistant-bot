@@ -16,6 +16,7 @@ from trading_bot.crisis_radar.sources.base import SourcePayloadError
 
 
 NEWS_RULE_VERSION = "official-news-v1"
+_NORMALIZED_WORDS = re.compile(r"[a-zа-яё0-9]{2,}|[一-鿿]", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -96,6 +97,10 @@ def _canonical_url(value: str, *, allowed_hosts: tuple[str, ...]) -> str:
         raise SourcePayloadError("official news item has an untrusted URL")
     path = re.sub(r"/{2,}", "/", parts.path or "/")
     return urlunsplit(("https", parts.hostname, path, "", ""))
+
+
+def _normalized_title(value: str) -> str:
+    return " ".join(_NORMALIZED_WORDS.findall(value.casefold()))[:500]
 
 
 class RssAdapter:
@@ -217,7 +222,7 @@ class RssAdapter:
         content_hash = hashlib.sha256(
             "\n".join((title, summary, url, published_at.isoformat())).encode()
         ).hexdigest()
-        normalized_title = " ".join(re.findall(r"[a-z0-9]{2,}", title.casefold()))
+        normalized_title = _normalized_title(title)
         return NewsItem(
             source_code=self.source_code,
             provider_item_id=provider_item_id,
@@ -322,7 +327,7 @@ class HkmaNewsAdapter:
             raise SourcePayloadError("HKMA official API record has an empty title")
         url = _canonical_url(link_raw, allowed_hosts=self._HOSTS)
         provider_item_id = hashlib.sha256(url.encode()).hexdigest()
-        normalized_title = " ".join(re.findall(r"[a-z0-9]{2,}", title.casefold()))
+        normalized_title = _normalized_title(title)
         source_text = title.casefold()
         importance = (
             "high"
@@ -357,18 +362,142 @@ class HkmaNewsAdapter:
         )
 
 
+class NbsNewsAdapter:
+    """Strict adapter for the official NBS China data-release RSS feed."""
+
+    source_code = "nbs_news"
+    _HOSTS = ("www.stats.gov.cn",)
+    _PUBLISHER = "National Bureau of Statistics of China"
+    _CHINA_STANDARD_TIME = timezone(timedelta(hours=8))
+    _HIGH_IMPORTANCE_TERMS = (
+        "国内生产总值",
+        "国民经济",
+        "失业率",
+        "居民消费价格",
+        "工业生产者出厂价格",
+        "规模以上工业增加值",
+        "房地产",
+        "商品住宅销售价格",
+    )
+
+    def normalize(self, payload: bytes, *, fetched_at: datetime) -> list[NewsItem]:
+        if fetched_at.tzinfo is None or fetched_at.utcoffset() is None:
+            raise ValueError("fetched_at must be timezone-aware")
+        lowered = payload.lower()
+        if b"<!doctype" in lowered or b"<!entity" in lowered:
+            raise SourcePayloadError("DTD and entities are forbidden in NBS RSS")
+        try:
+            root = ElementTree.fromstring(payload)
+        except ElementTree.ParseError as exc:
+            raise SourcePayloadError("invalid NBS official RSS XML") from exc
+        channel = root.find("channel") if root.tag == "rss" else None
+        if channel is None:
+            raise SourcePayloadError("NBS feed is not RSS 2.0")
+        language = (channel.findtext("language") or "").strip().casefold()
+        if language not in {"zh-cn", "zh_cn", "zh"}:
+            raise SourcePayloadError("NBS RSS has an unexpected language contract")
+        nodes = channel.findall("item")
+        if not nodes or len(nodes) > 1000:
+            raise SourcePayloadError("NBS RSS must contain 1 to 1000 items")
+
+        items: list[NewsItem] = []
+        seen_ids: set[str] = set()
+        for node in nodes[:100]:
+            item = self._normalize_item(node, fetched_at=fetched_at)
+            if item is None:
+                continue
+            if item.provider_item_id in seen_ids:
+                raise SourcePayloadError("NBS RSS contains duplicate records")
+            seen_ids.add(item.provider_item_id)
+            items.append(item)
+        if not items:
+            raise SourcePayloadError("NBS RSS contains no current valid items")
+        return sorted(items, key=lambda item: item.published_at)
+
+    def _normalize_item(
+        self, node: ElementTree.Element, *, fetched_at: datetime
+    ) -> NewsItem | None:
+        title_raw = node.findtext("title") or ""
+        link_raw = node.findtext("link") or ""
+        provider_raw = (node.findtext("docId") or link_raw).strip()
+        published_raw = (node.findtext("pubTime") or node.findtext("pubDate") or "").strip()
+        if not title_raw or not link_raw or not provider_raw or not published_raw:
+            raise SourcePayloadError("NBS RSS item is missing required fields")
+        try:
+            published_at = datetime.strptime(published_raw, "%Y-%m-%d %H:%M:%S").replace(
+                tzinfo=self._CHINA_STANDARD_TIME
+            ).astimezone(timezone.utc)
+        except ValueError as exc:
+            raise SourcePayloadError("invalid NBS RSS publication date") from exc
+        if published_at > fetched_at + timedelta(minutes=5):
+            return None
+
+        title = _plain_text(title_raw, limit=300)
+        if not title:
+            raise SourcePayloadError("NBS RSS item has an empty title")
+        summary = _plain_text(node.findtext("description") or "", limit=1200)
+        if summary.casefold() == title.casefold():
+            summary = ""
+        category = _plain_text(node.findtext("channel") or "data_release", limit=120)
+        url = _canonical_url(link_raw, allowed_hosts=self._HOSTS)
+        provider_item_id = hashlib.sha256(provider_raw.encode()).hexdigest()
+        normalized_title = _normalized_title(title)
+        source_text = " ".join((title, summary, category)).casefold()
+        importance = (
+            "high"
+            if any(term in source_text for term in self._HIGH_IMPORTANCE_TERMS)
+            else "medium"
+        )
+        content_hash = hashlib.sha256(
+            "\n".join((title, summary, url, published_at.isoformat())).encode()
+        ).hexdigest()
+        raw_payload_hash = hashlib.sha256(
+            ElementTree.tostring(node, encoding="utf-8")
+        ).hexdigest()
+        return NewsItem(
+            source_code=self.source_code,
+            provider_item_id=provider_item_id,
+            published_at=published_at,
+            fetched_at=fetched_at,
+            title=title,
+            summary=summary,
+            url=url,
+            category=category,
+            # The stored processing language remains compatible with the existing
+            # basic profile; the source language and original text are preserved.
+            language="en",
+            importance=importance,
+            content_hash=content_hash,
+            publisher=self._PUBLISHER,
+            original_language="zh-CN",
+            normalized_title=normalized_title,
+            dedup_hash=hashlib.sha256(normalized_title.encode()).hexdigest(),
+            source_tier="A",
+            evidence_excerpt=(summary or title)[:600],
+            raw_payload_hash=raw_payload_hash,
+        )
+
+
 def normalize_official_news(
     source_code: str, payload: bytes, *, fetched_at: datetime
 ) -> list[NewsItem]:
     if source_code == HkmaNewsAdapter.source_code:
         return HkmaNewsAdapter().normalize(payload, fetched_at=fetched_at)
+    if source_code == NbsNewsAdapter.source_code:
+        return NbsNewsAdapter().normalize(payload, fetched_at=fetched_at)
     return RssAdapter(source_code).normalize(payload, fetched_at=fetched_at)
 
 
 _RULES = {
     "global_recession": {
-        "growth": ("economic growth", "growth and resilience", "recession", "demand"),
-        "labor": ("employment", "labour market", "labor market", "unemployment"),
+        "growth": (
+            "economic growth", "growth and resilience", "recession", "demand",
+            "经济增长", "国内生产总值", "国民经济", "社会消费品零售",
+        ),
+        "labor": (
+            "employment", "labour market", "labor market", "unemployment",
+            "就业", "失业率",
+        ),
         "projections": ("economic projections", "forecast", "outlook"),
         "credit_conditions": ("access to finance", "lending conditions", "credit conditions"),
     },
@@ -380,7 +509,10 @@ _RULES = {
     },
     "oil_stagflation": {
         "energy_shock": ("energy supply", "oil supply", "oil price", "energy shock"),
-        "inflation": ("inflation", "price pressures", "supply shock"),
+        "inflation": (
+            "inflation", "price pressures", "supply shock", "通货膨胀",
+            "居民消费价格", "工业生产者出厂价格",
+        ),
     },
     "crypto_leverage_unwind": {
         "crypto_assets": ("crypto asset", "cryptoasset", "stablecoin", "digital asset"),
@@ -393,6 +525,11 @@ _RULES = {
             "people's bank of china",
             "renminbi",
             "yuan",
+            "中国",
+            "全国",
+            "国家统计局",
+            "国民经济",
+            "国内生产总值",
         ),
     },
 }
@@ -414,7 +551,13 @@ _REASONS = {
 
 def classify_news(item: NewsItem) -> tuple[NewsEvidence, ...]:
     text = " ".join((item.title, item.summary, item.category)).casefold()
-    urgent = any(term in text for term in ("emergency", "failure", "crisis", "severe", "systemic"))
+    urgent = any(
+        term in text
+        for term in (
+            "emergency", "failure", "crisis", "severe", "systemic",
+            "紧急", "危机", "严重", "系统性",
+        )
+    )
     result = []
     for scenario_code, groups in _RULES.items():
         matched = tuple(

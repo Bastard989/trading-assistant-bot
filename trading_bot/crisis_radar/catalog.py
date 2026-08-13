@@ -227,6 +227,12 @@ NEWS_SOURCES = (
         access_type="official_api",
     ),
     NewsSourceSeed(
+        code="nbs_news",
+        name="National Bureau of Statistics of China Data Releases RSS",
+        base_url="https://www.stats.gov.cn/sj/zxfb/rss.xml",
+        terms_url="https://www.stats.gov.cn/wzgl/rss/202302/t20230217_1912859.html",
+    ),
+    NewsSourceSeed(
         code="ofac_news",
         name="OFAC Recent Actions GovDelivery RSS",
         base_url="https://public.govdelivery.com/topics/USTREAS_61/feed.rss",

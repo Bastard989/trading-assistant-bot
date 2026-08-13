@@ -114,6 +114,13 @@ SOURCE_POLICIES = (
         "candidate", "Hong Kong and Greater China banking, liquidity and renminbi events",
     ),
     SourcePolicy(
+        "nbs_news", "A",
+        "https://www.stats.gov.cn/wzgl/rss/202302/t20230217_1912859.html",
+        "official-rss", "intraday", "official China Standard Time publication timestamp",
+        "one bounded 6 MB feed request per polling interval", None, "candidate",
+        "official China growth, labor, inflation, industry, demand and housing releases",
+    ),
+    SourcePolicy(
         "ofac_news", "A", "https://ofac.treasury.gov/recent-actions",
         "official-govdelivery-rss", "intraday", "publication time", "bounded polling",
         None, "candidate", "US Treasury sanctions, designations and restrictions",

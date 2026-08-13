@@ -60,6 +60,9 @@ V13_REPLAY_SUMMARY_PATH = (
 V14_BIS_DEPTH_EVIDENCE_PATH = (
     ROOT / "docs" / "evidence" / "crisis-radar-v14-bis-depth-contract-20260813.json"
 )
+NBS_NEWS_EVIDENCE_PATH = (
+    ROOT / "docs" / "evidence" / "crisis-radar-nbs-news-contract-20260813.json"
+)
 
 
 def test_documented_runtime_versions_match_code() -> None:
@@ -353,4 +356,39 @@ def test_v14_bis_depth_evidence_is_disabled_and_not_mislabelled_as_causal() -> N
         "historical_bulk_rows_claimed_as_point_in_time": False,
         "probability_emitted": False,
         "raw_provider_archives_distributed": False,
+    }
+
+
+def test_nbs_news_evidence_is_official_bounded_and_cannot_change_numeric_stage() -> None:
+    evidence = json.loads(NBS_NEWS_EVIDENCE_PATH.read_text(encoding="utf-8"))
+
+    assert evidence["evidence_version"] == "nbs-official-news-contract-v1"
+    assert evidence["source"]["tier"] == "A"
+    assert evidence["source"]["endpoint"] == (
+        "https://www.stats.gov.cn/sj/zxfb/rss.xml"
+    )
+    assert evidence["live_contract"]["payload_bytes"] <= 6_000_000
+    assert len(evidence["live_contract"]["payload_sha256"]) == 64
+    assert evidence["live_contract"]["adapter_result"] == "passed"
+    assert evidence["safety_contract"]["max_response_bytes"] == 6_000_000
+    assert evidence["safety_contract"]["original_language_preserved"] == "zh-CN"
+    assert evidence["analysis_contract"]["normal_release_items_checked"] == 100
+    assert (
+        evidence["analysis_contract"][
+            "normal_release_items_promoted_to_crisis_events"
+        ]
+        == 0
+    )
+    assert evidence["analysis_contract"]["changes_numeric_market_stage"] is False
+    assert evidence["analysis_contract"]["creates_crisis_probability"] is False
+    assert evidence["isolated_ingestion"] == {
+        "status": "succeeded",
+        "rows_fetched": 100,
+        "rows_written": 100,
+        "scenario_evidence_written": 108,
+        "crisis_events_written": 0,
+        "sqlite_integrity": "ok",
+        "foreign_key_errors": 0,
+        "working_database_touched": False,
+        "production_database_touched": False,
     }

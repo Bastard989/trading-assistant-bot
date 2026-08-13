@@ -155,9 +155,72 @@ class HkmaNewsClient:
         raise NewsSourceError("HKMA official API request failed")
 
 
+class NbsNewsClient:
+    source_code = "nbs_news"
+    _URL = "https://www.stats.gov.cn/sj/zxfb/rss.xml"
+
+    def __init__(
+        self,
+        *,
+        client: httpx.AsyncClient | None = None,
+        attempts: int = 3,
+        timeout_seconds: float = 30,
+        sleep: Sleep = asyncio.sleep,
+        max_response_bytes: int = 6_000_000,
+    ) -> None:
+        if attempts < 1 or attempts > 5:
+            raise ValueError("attempts must be between 1 and 5")
+        if max_response_bytes < 1_000_000 or max_response_bytes > 8_000_000:
+            raise ValueError("NBS response limit must be between 1 MB and 8 MB")
+        self._client = client
+        self.attempts = attempts
+        self.timeout_seconds = timeout_seconds
+        self.sleep = sleep
+        self.max_response_bytes = max_response_bytes
+
+    async def fetch(self) -> bytes:
+        owns_client = self._client is None
+        client = self._client or httpx.AsyncClient(timeout=self.timeout_seconds)
+        try:
+            for attempt in range(1, self.attempts + 1):
+                try:
+                    response = await client.get(
+                        self._URL,
+                        headers={
+                            "Accept": "application/rss+xml, application/xml, text/xml",
+                            "User-Agent": "TradingAssistant-CrisisRadar/8",
+                        },
+                    )
+                except httpx.RequestError as exc:
+                    if attempt == self.attempts:
+                        raise NewsSourceError(
+                            "NBS official RSS request failed after retries"
+                        ) from exc
+                    await self.sleep(min(2 ** (attempt - 1), 5))
+                    continue
+                if response.status_code == 200:
+                    if len(response.content) > self.max_response_bytes:
+                        raise NewsSourceError(
+                            "NBS official RSS response exceeds configured size limit"
+                        )
+                    return response.content
+                retryable = response.status_code == 429 or response.status_code >= 500
+                if not retryable or attempt == self.attempts:
+                    raise NewsSourceError(
+                        f"NBS official RSS returned HTTP {response.status_code}"
+                    )
+                await self.sleep(min(2 ** (attempt - 1), 5))
+        finally:
+            if owns_client:
+                await client.aclose()
+        raise NewsSourceError("NBS official RSS request failed")
+
+
 def news_client_for(source_code: str) -> NewsClient:
     if source_code == HkmaNewsClient.source_code:
         return HkmaNewsClient()
+    if source_code == NbsNewsClient.source_code:
+        return NbsNewsClient()
     return RssClient(source_code)
 
 

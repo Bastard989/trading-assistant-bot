@@ -19,36 +19,67 @@ _PROMPT_INJECTION = (
     "developer message",
     "tool call",
     "игнорируй предыдущие инструкции",
+    "忽略之前的指令",
+    "忽略所有指令",
+    "系统提示",
 )
 
 _TAXONOMY = {
-    "bankruptcy": ("bankruptcy", "insolvency", "chapter 11", "банкрот"),
-    "default": ("sovereign default", "debt default", "missed payment", "дефолт"),
-    "bank_run": ("bank run", "deposit flight", "withdrawal limits", "набег на банк"),
+    "bankruptcy": ("bankruptcy", "insolvency", "chapter 11", "банкрот", "破产"),
+    "default": (
+        "sovereign default", "debt default", "missed payment", "дефолт",
+        "债务违约", "主权违约",
+    ),
+    "bank_run": (
+        "bank run", "deposit flight", "withdrawal limits", "набег на банк",
+        "银行挤兑", "存款外流", "提现限制",
+    ),
     "emergency_liquidity": (
-        "emergency liquidity", "emergency lending", "liquidity assistance", "экстренная ликвидность"
+        "emergency liquidity", "emergency lending", "liquidity assistance",
+        "экстренная ликвидность", "紧急流动性", "紧急贷款",
     ),
-    "sanctions": ("sanction", "export control", "asset freeze", "санкц"),
-    "armed_conflict": ("war ", "armed conflict", "military strike", "invasion", "войн", "удар"),
+    "sanctions": (
+        "sanction", "export control", "asset freeze", "санкц",
+        "制裁", "出口管制", "资产冻结",
+    ),
+    "armed_conflict": (
+        "war ", "armed conflict", "military strike", "invasion", "войн", "удар",
+        "战争", "武装冲突", "军事打击", "入侵",
+    ),
     "supply_disruption": (
-        "supply disruption", "shipping disruption", "port closure", "blockade", "перебои поставок"
+        "supply disruption", "shipping disruption", "port closure", "blockade",
+        "перебои поставок", "供应中断", "航运中断", "港口关闭", "封锁",
     ),
-    "commodity_shock": ("oil shock", "gas supply", "food shock", "commodity shock", "сырьевой шок"),
+    "commodity_shock": (
+        "oil shock", "gas supply", "food shock", "commodity shock", "сырьевой шок",
+        "油价冲击", "天然气供应", "食品价格冲击", "大宗商品冲击",
+    ),
     "regulatory_restriction": (
-        "trading suspension", "regulatory ban", "withdrawal ban", "prohibition", "запрет торгов"
+        "trading suspension", "regulatory ban", "withdrawal ban", "prohibition",
+        "запрет торгов", "暂停交易", "监管禁令", "禁止提款",
     ),
     "cyber_exchange_failure": (
-        "exchange hack", "cyberattack", "trading outage", "exchange failure", "взлом биржи"
+        "exchange hack", "cyberattack", "trading outage", "exchange failure", "взлом биржи",
+        "交易所黑客", "网络攻击", "交易中断", "交易所故障",
     ),
-    "stablecoin_failure": ("stablecoin depeg", "stablecoin collapse", "reserve shortfall", "депег"),
-    "recession_signal": ("recession", "sharp contraction", "economic crisis", "рецесс", "экономический кризис"),
+    "stablecoin_failure": (
+        "stablecoin depeg", "stablecoin collapse", "reserve shortfall", "депег",
+        "稳定币脱锚", "稳定币崩溃", "储备不足",
+    ),
+    "recession_signal": (
+        "recession", "sharp contraction", "economic crisis", "рецесс", "экономический кризис",
+        "经济衰退", "经济大幅收缩", "经济危机",
+    ),
 }
 
 _REGIONS = {
     "US": ("united states", "u.s.", "federal reserve", "sec ", "cftc"),
     "EU": ("euro area", "eurozone", "european central bank", "ecb"),
     "GBR": ("united kingdom", "bank of england", "britain"),
-    "CHN": ("china", "chinese", "beijing", "hong kong"),
+    "CHN": (
+        "china", "chinese", "beijing", "hong kong", "中国", "全国",
+        "北京", "香港", "国家统计局", "中国人民银行",
+    ),
     "JPN": ("japan", "japanese", "bank of japan"),
     "KOR": ("south korea", "korean"),
     "IND": ("india", "indian", "reserve bank of india"),
@@ -59,14 +90,14 @@ _REGIONS = {
 }
 
 _ASSETS = {
-    "BTC": ("bitcoin", "btc"),
-    "ETH": ("ethereum", "ether", "eth"),
-    "OIL": ("oil", "brent", "wti"),
-    "GOLD": ("gold",),
-    "USD": ("dollar", "usd"),
-    "BANKS": ("bank", "deposit", "lender"),
-    "EQUITIES": ("stock market", "equities", "shares"),
-    "CREDIT": ("bond", "credit", "debt"),
+    "BTC": ("bitcoin", "btc", "比特币"),
+    "ETH": ("ethereum", "ether", "eth", "以太坊"),
+    "OIL": ("oil", "brent", "wti", "石油", "原油"),
+    "GOLD": ("gold", "黄金"),
+    "USD": ("dollar", "usd", "美元"),
+    "BANKS": ("bank", "deposit", "lender", "银行", "存款"),
+    "EQUITIES": ("stock market", "equities", "shares", "股市", "股票"),
+    "CREDIT": ("bond", "credit", "debt", "债券", "信贷", "债务"),
 }
 
 

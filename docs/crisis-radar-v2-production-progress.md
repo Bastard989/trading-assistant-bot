@@ -33,7 +33,7 @@
 | 4. Signed OI | completed (shadow) | 1d/7d/30d signed OI, leverage build vs liquidation unwind, v10 absolute series preserved; boundary/API/service tests |
 | 5. Threshold registry v11 | completed (candidate) | Immutable metadata/checksum/source/role/profile/promotion evidence for v11; v10 untouched |
 | 6. Numeric depth | in_progress | 13 scoring FRED v11 series plus 10 disabled causal FRED depth series. `candidate-v13` adds fixed scenario-group coverage and mandatory credit/market/funding plus US/other-advanced/emerging classes. Disabled `candidate-v14` adds official BIS debt-service and real-house-price channels for ten economies. Real contract parsing retained 480 DSR-gap and 1,656 housing observations. Current BIS bulk history lacks exact release vintages, so it is collection evidence rather than causal replay evidence. Non-US depth improved materially but labor, banking funding, sovereign, shipping and stablecoin depth remain incomplete |
-| 7. News coverage/lifecycle | in_progress | Separate news coverage, snapshot-time decay, immediate fusion recompute; all 12 configured official channels live-verified on 2026-08-11: 10 RSS, strict HKMA press-release JSON API for Hong Kong/Greater China and OFAC official GovDelivery topic `USTREAS_61` for sanctions events. Offline fixtures cover security-sensitive adapters. RBA rejected after reproducible HTTP 403; the retired native OFAC RSS is not used; broader filings/exchange coverage remains |
+| 7. News coverage/lifecycle | in_progress | Separate news coverage, snapshot-time decay, immediate fusion recompute. Repository candidate now has 13 official channels: 12 RSS plus strict HKMA JSON API. The new official NBS China RSS preserves Chinese text, parses China Standard Time, contributes a separate CHN coverage region and uses conservative Chinese growth/labor/inflation rules. Its real 4.56 MB payload passed the bounded contract on 2026-08-13 and 0/100 normal releases became false crisis events. The active server release still has the previously verified 12 channels until rollout. RBA rejected after reproducible HTTP 403; broader filings/exchange coverage remains |
 | 8. Evidence memory profiles | completed (optional advanced) | Basic SQLite FTS5 works without embeddings. Advanced pgvector has schema, continuous ingestion, embedding queue/fallback, hybrid search, health API and a real local PostgreSQL/pgvector verification with relational evidence ID |
 | 9. Scenarios/recovery/diff | completed (shadow seed) | 11 Crisis Playbooks, causal chain, anchors, invalidation, recovery, evidence IDs and persisted causal diff; historical calibration remains stage 12 |
 | 10. Exposure/scorecard | completed (shadow seed) | Read-only open-trade overlay and persistent signal lifecycle scorecards; outcome/reaction resolution needs live history |
@@ -123,11 +123,15 @@ initial releases use their actual release dates.
 - Full regression after disabled `candidate-v14` BIS debt-service/housing depth
   integration and live-source contract verification: `453 passed`, one known
   Starlette/httpx compatibility warning; Ruff passed.
-- Source registry: 22 версионируемых контракта; offline contract gate проходит.
+- Full regression after the official multilingual NBS China news contract,
+  conservative Chinese rules and CHN news-coverage integration: `459 passed`,
+  one known Starlette/httpx compatibility warning; Ruff passed.
+- Source registry: 23 версионируемых контракта; offline contract gate проходит.
 - Live source contracts: 13/13 scoring FRED v11 series, 10/10 disabled
-  next-methodology FRED research series and 12/12 configured official news
-  channels (10 RSS + HKMA JSON API + OFAC GovDelivery RSS) вернули валидные
-  данные 2026-08-11.
+  next-methodology FRED research series and the previous 12/12 official-news
+  server channels returned valid data on 2026-08-11. The 13th repository channel,
+  NBS China RSS, separately passed live fetch and parsing on 2026-08-13; it is not
+  claimed as deployed before rollout.
 - FRED/ALFRED causal capability audit on 2026-08-13: 38 configured series
   verified, licensed SP500 explicitly `live_only`, zero unknown contracts.
   Isolated depth backfill retained 15,619 causal points across all ten disabled
@@ -164,6 +168,15 @@ initial releases use their actual release dates.
   They remain disabled because current bulk revisions do not prove historical
   release time. Evidence:
   `docs/evidence/crisis-radar-v14-bis-depth-contract-20260813.json`.
+- Official NBS China RSS candidate fetched 4,558,474 bytes from the documented
+  HTTPS endpoint, matched SHA-256
+  `948a3fe01901a7c46530f5bea65a2981ad8f68ced4289fab1ab3fff137585646`,
+  parsed 100 bounded current items from the 500-item feed and converted the
+  provider's naive timestamps from UTC+08:00. The strict adapter rejects DTD,
+  wrong language, untrusted hosts, duplicates, future records and oversized
+  responses. Chinese growth/labor/inflation rules classify scenario context;
+  0/100 normal releases became crisis event candidates. Evidence:
+  `docs/evidence/crisis-radar-nbs-news-contract-20260813.json`.
 - HKMA adapter rejects unsuccessful headers, malformed schema, duplicate/future
   records and URLs outside `www.hkma.gov.hk`; scheduled sync, CLI and news coverage
   use the same client/normalizer router.

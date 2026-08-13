@@ -1242,7 +1242,8 @@ class CrisisRadarRepository:
                 """
                 SELECT item.id, item.published_at, item.fetched_at, item.title,
                        item.summary, item.url, item.category, item.language,
-                       item.importance, source.code AS source_code,
+                       item.original_language, item.publisher, item.importance,
+                       source.code AS source_code,
                        source.name AS source_name, scenario.code AS scenario_code,
                        scenario.name_payload, evidence.relevance_score_text,
                        evidence.severity, evidence.rule_codes_payload,
@@ -1279,6 +1280,8 @@ class CrisisRadarRepository:
                     "url": row["url"],
                     "category": row["category"],
                     "language": row["language"],
+                    "original_language": row["original_language"],
+                    "publisher": row["publisher"],
                     "importance": row["importance"],
                     "source": {"code": row["source_code"], "name": row["source_name"]},
                     "scenarios": [],
@@ -1445,6 +1448,7 @@ class CrisisRadarRepository:
             "boe_news": "GBR", "boc_news": "CAN",
             "fdic_news": "US",
             "hkma_news": "HKG",
+            "nbs_news": "CHN",
             "ofac_news": "GLOBAL",
         }
         covered_regions = {

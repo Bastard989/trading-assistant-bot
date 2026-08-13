@@ -14,3 +14,7 @@ def test_source_registry_is_unique_licensed_and_fail_explicit() -> None:
     assert bis["tier"] == "A"
     assert "debt-service" in bis["operational_role"]
     assert "three allowlisted" in bis["rate_limit_policy"]
+    nbs = next(item for item in payload["sources"] if item["code"] == "nbs_news")
+    assert nbs["tier"] == "A"
+    assert "6 MB" in nbs["rate_limit_policy"]
+    assert "China" in nbs["operational_role"]

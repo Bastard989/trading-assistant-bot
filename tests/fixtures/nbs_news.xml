@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>数据发布</title>
+    <link>https://www.stats.gov.cn/sj/zxfb/</link>
+    <language>zh-CN</language>
+    <description>数据发布</description>
+    <item>
+      <title><![CDATA[2026年上半年国民经济运行总体平稳]]></title>
+      <channel>数据发布</channel>
+      <link>https://www.stats.gov.cn/sj/zxfb/202607/t20260715_1964001.html</link>
+      <pubTime>2026-07-15 10:00:00</pubTime>
+      <pubDate>2026-07-15 10:00:00</pubDate>
+      <description><![CDATA[上半年国内生产总值同比增长，全国城镇调查失业率保持稳定。]]></description>
+      <content><![CDATA[这个较长内容字段不应进入摘要。]]></content>
+      <docId>1964001</docId>
+    </item>
+    <item>
+      <title><![CDATA[2026年6月份居民消费价格同比上涨]]></title>
+      <channel>数据发布</channel>
+      <link>https://www.stats.gov.cn/sj/zxfb/202607/t20260709_1963999.html</link>
+      <pubTime>2026-07-09 09:30:00</pubTime>
+      <pubDate>2026-07-09 09:30:00</pubDate>
+      <description><![CDATA[全国居民消费价格指数发布。]]></description>
+      <docId>1963999</docId>
+    </item>
+  </channel>
+</rss>

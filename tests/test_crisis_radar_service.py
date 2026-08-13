@@ -11,6 +11,7 @@ from trading_bot.crisis_radar.domain import Observation, QualityFlag
 from trading_bot.crisis_radar.repositories import CrisisRadarRepository
 from trading_bot.crisis_radar.service import CrisisRadarService
 from trading_bot.crisis_radar.sources.base import SeriesRequest
+from trading_bot.crisis_radar.sources.fred import FredAdapter
 from trading_bot.crisis_radar.sources.fred_client import FredClient, FredClientError
 from trading_bot.db import Database
 
@@ -130,6 +131,9 @@ def test_fred_initial_release_history_chunks_vintage_windows() -> None:
     ranges = []
 
     async def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/vintagedates"):
+            assert request.url.params["limit"] == "1"
+            return httpx.Response(200, json={"vintage_dates": ["2012-01-01"]})
         realtime_start = date.fromisoformat(request.url.params["realtime_start"])
         realtime_end = date.fromisoformat(request.url.params["realtime_end"])
         ranges.append((realtime_start, realtime_end))
@@ -160,11 +164,49 @@ def test_fred_initial_release_history_chunks_vintage_windows() -> None:
 
     payload = json.loads(asyncio.run(scenario()))
     assert len(ranges) == 3
+    assert ranges[0][0] == date(2012, 1, 1)
     assert all(
         current[1] + timedelta(days=1) == following[0]
         for current, following in zip(ranges, ranges[1:])
     )
     assert len(payload["observations"]) == len(ranges)
+
+
+def test_fred_initial_release_history_returns_empty_when_archive_has_no_vintage() -> None:
+    calls = 0
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        assert request.url.path.endswith("/vintagedates")
+        return httpx.Response(200, json={"vintage_dates": []})
+
+    async def scenario() -> bytes:
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http_client:
+            return await FredClient("secret-key", client=http_client).fetch_history(
+                SeriesRequest("claims", "ICSA", "persons"),
+                observation_start=date(1990, 1, 1),
+                observation_end=date(1991, 1, 1),
+                initial_release=True,
+            )
+
+    assert json.loads(asyncio.run(scenario())) == {"observations": []}
+    assert calls == 1
+
+
+def test_fred_adapter_drops_impossible_future_observation_from_causal_history() -> None:
+    payload = _fred_history_payload(
+        [("2020-01-02", "100"), ("2020-01-03", "101")],
+        releases={"2020-01-02": "2020-01-01", "2020-01-03": "2020-01-03"},
+    )
+    observations = FredAdapter().normalize(
+        payload,
+        SeriesRequest("market", "MARKET", "index"),
+        fetched_at=NOW,
+        release_from_vintage=True,
+    )
+    assert [item.observed_at.date().isoformat() for item in observations] == ["2020-01-03"]
+    assert observations[0].released_at == observations[0].observed_at
 
 
 class StubFredClient:
@@ -299,6 +341,7 @@ def test_fred_backfill_uses_initial_releases_for_every_series(tmp_path) -> None:
     assert by_code["us_nfci"].released_at == datetime(2000, 2, 22, tzinfo=timezone.utc)
     assert QualityFlag.RELEASE_TIME_ESTIMATED not in by_code["sahm_rule"].quality_flags
     assert by_code["sahm_rule"].released_at == datetime(2000, 2, 22, tzinfo=timezone.utc)
+    assert result["skipped"] == ["sp500_30d_drawdown:live_only"]
 
 
 def test_snapshot_changes_and_indicator_history_use_saved_evidence(tmp_path) -> None:

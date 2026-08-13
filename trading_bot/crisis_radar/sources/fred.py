@@ -58,6 +58,13 @@ class FredAdapter:
                 else observed_at
             )
             if released_at < observed_at:
+                # Some licensed market series were bulk-added to ALFRED with a
+                # real-time vintage that predates a subset of their observation
+                # labels.  Those rows cannot be causal evidence.  Drop only the
+                # impossible rows; never shift their release time forward or
+                # let one bad row discard later, valid initial releases.
+                if release_from_vintage:
+                    continue
                 raise SourcePayloadError("FRED initial release cannot precede observation date")
             if released_at > fetched_at:
                 raise SourcePayloadError("FRED observation cannot be later than fetch time")
@@ -168,7 +175,10 @@ class FredTransformAdapter:
                 continue
             base = raw[base_index].value
             if base == 0:
-                raise SourcePayloadError("FRED transform base value cannot be zero")
+                # A percentage change from zero is mathematically undefined.
+                # Exclude that derived point while retaining later windows with
+                # a valid base; never invent an epsilon or infinite return.
+                continue
             value = (item.value / base - 1) * 100
             result.append(self._derived(item, request, value))
         if not result:

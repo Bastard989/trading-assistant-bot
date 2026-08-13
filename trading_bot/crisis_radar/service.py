@@ -10,6 +10,7 @@ from trading_bot.crisis_radar.catalog import (
     BYBIT_SIGNED_V11_INDICATORS,
     FRED_INDICATORS,
     FRED_GLOBAL_V2_INDICATORS,
+    FRED_HISTORICAL_BACKFILL_MODES,
     FRED_V11_DEPTH_INDICATORS,
     FRED_V12_RESEARCH_INDICATORS,
     METHODOLOGY_CODE,
@@ -323,6 +324,8 @@ class CrisisRadarService:
         rows_fetched = 0
         rows_written = 0
         errors: list[str] = []
+        error_details: list[str] = []
+        skipped: list[str] = []
         active_seeds = _active_fred_collection_seeds(self.feature_flags)
         known_codes = {item.code for item in _ALL_FRED_COLLECTION_SEEDS}
         if indicator_codes is not None and (not indicator_codes or not indicator_codes <= known_codes):
@@ -337,16 +340,19 @@ class CrisisRadarService:
         for seed in selected_seeds:
             request = SeriesRequest(seed.code, seed.provider_series_id, seed.unit)
             try:
-                backfill_mode = getattr(
-                    seed,
-                    "historical_backfill_mode",
-                    "initial_release",
+                backfill_mode = FRED_HISTORICAL_BACKFILL_MODES.get(
+                    seed.code,
+                    getattr(seed, "historical_backfill_mode", "initial_release"),
                 )
                 if backfill_mode not in {
                     "initial_release",
                     "current_revision_research",
+                    "live_only",
                 }:
                     raise RuntimeError("unsupported FRED historical backfill mode")
+                if backfill_mode == "live_only":
+                    skipped.append(f"{seed.code}:live_only")
+                    continue
                 initial_release = backfill_mode == "initial_release"
                 payload = await client.fetch_history(
                     request,
@@ -390,6 +396,7 @@ class CrisisRadarService:
                     )
             except (FredClientError, SourcePayloadError) as exc:
                 errors.append(f"{seed.code}:{type(exc).__name__}")
+                error_details.append(f"{seed.code}:{type(exc).__name__}:{exc}")
         status = (
             "failed"
             if len(errors) == len(selected_seeds)
@@ -414,6 +421,8 @@ class CrisisRadarService:
             "rows_written": rows_written,
             "stage": None if overview is None else overview.stage.value,
             "errors": errors,
+            "error_details": error_details,
+            "skipped": skipped,
         }
 
     async def sync_fred_calendar(

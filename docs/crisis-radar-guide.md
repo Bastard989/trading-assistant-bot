@@ -73,14 +73,16 @@ v11 остаётся shadow до победы над baseline на replay и liv
 исследовательских рядов FRED: initial claims, unemployment, SLOOS lending
 standards, CRE delinquency, housing starts, central-bank liquidity swaps,
 Nasdaq Composite/100, Brent и Henry Hub gas. Они зарегистрированы как
-`enabled=false`, не имеют v11-порогов и не участвуют в текущем риске. Для
-unemployment и housing starts официальный
+`enabled=false`, не имеют v11-порогов и не участвуют в текущем риске. Для всех
+десяти рядов официальный
 [FRED/ALFRED `output_type=4`](https://fred.stlouisfed.org/docs/api/fred/series_observations.html#output_type)
-даёт первоначальные публикации и фактическое время релиза. Остальные восемь рядов не
-имеют ALFRED-vintage: их исторические точки получают
-`retrospective_revised` и исключаются из причинного replay. Такое разделение
-позволяет накопить исследовательскую историю, не меняя задним числом checksum
-или выводы immutable `candidate-v11`. Недоступность любого из этих
+подтверждён на недавнем capability-окне. Полный изолированный backfill сохранил
+15 619 причинных точек: `retrospective_revised=0`,
+`release_time_estimated=0`, невозможные строки с `released_at < observed_at`
+исключены, а процентные изменения от нулевой базы не выдумываются. Эти ряды
+всё ещё `enabled=false`: новая история не меняет checksum или выводы immutable
+`candidate-v11` и не получает пороги до новой версии методики, causal replay и
+sensitivity analysis. Недоступность любого из этих
 исследовательских рядов не понижает здоровье обязательного FRED-контура и не
 может перевести рабочий расчёт в degraded; ошибка остаётся отдельной
 research-диагностикой.
@@ -136,6 +138,13 @@ observed/released/fetched time и quality flags. Будущий релиз не 
 с оценённым временем допускается, если задержка `fetched_at - observed_at` не
 превышает `max_staleness`. Настоящий ALFRED initial release допускается по
 сохранённому `released_at`, даже если был импортирован позднее.
+
+Перед initial-release backfill клиент запрашивает первую доступную vintage-date
+и не делает заведомо невозможные ранние запросы. Строка провайдера, в которой
+vintage раньше метки наблюдения, отбрасывается, а не сдвигается искусственно.
+Лицензированный ряд FRED S&P 500 не поддерживает этот vintage-контракт и поэтому явно имеет
+режим `live_only`: свежие значения участвуют в мониторинге, но ряд исключён из
+исторического replay.
 
 Просроченное значение не становится нейтральным: availability обнуляет его вклад,
 а coverage gate может вернуть `insufficient_data`.

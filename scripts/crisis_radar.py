@@ -5,8 +5,12 @@ import asyncio
 import json
 import os
 import sqlite3
+import sys
 from datetime import date
 from pathlib import Path
+
+if __package__ in {None, ""}:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from dotenv import load_dotenv
 

@@ -55,6 +55,27 @@ def test_fx_transform_calculates_signed_30_day_change() -> None:
     assert observations[-1].value == Decimal("12.0000")
 
 
+def test_change_transform_skips_undefined_zero_base_but_keeps_later_history() -> None:
+    payload = json.dumps(
+        {
+            "observations": [
+                {"date": "2026-01-01", "realtime_start": "2026-01-01", "value": "0"},
+                {"date": "2026-04-01", "realtime_start": "2026-04-01", "value": "2"},
+                {"date": "2026-07-01", "realtime_start": "2026-07-01", "value": "4"},
+            ]
+        }
+    ).encode()
+    observations = FredTransformAdapter().normalize(
+        payload,
+        SeriesRequest("gas_90d_change", "GAS", "percent"),
+        transform="change_90d",
+        fetched_at=NOW,
+    )
+
+    assert [item.observed_at.date().isoformat() for item in observations] == ["2026-07-01"]
+    assert observations[0].value == Decimal("100.0000")
+
+
 def test_fred_transform_rejects_unknown_transform() -> None:
     with pytest.raises(SourcePayloadError, match="unsupported"):
         FredTransformAdapter().normalize(

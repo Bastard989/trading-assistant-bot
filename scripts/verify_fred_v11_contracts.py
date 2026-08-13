@@ -31,9 +31,7 @@ async def main() -> None:
     client = FredClient(os.environ["FRED_API_KEY"])
     for series_id in SERIES_IDS:
         try:
-            metadata_payload = await client._get(  # noqa: SLF001 - diagnostic contract check
-                "/series", {"series_id": series_id}
-            )
+            metadata_payload = await client.fetch_series_metadata(series_id)
             metadata_rows = json.loads(metadata_payload).get("seriess", [])
             metadata = metadata_rows[0] if metadata_rows else {}
             payload = await client.fetch(

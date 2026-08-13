@@ -23,6 +23,12 @@ ROLLOUT_EVIDENCE_PATH = (
 DEPTH_EVIDENCE_PATH = (
     ROOT / "docs" / "evidence" / "crisis-radar-depth-research-20260811.json"
 )
+CAUSAL_DEPTH_EVIDENCE_PATH = (
+    ROOT / "docs" / "evidence" / "crisis-radar-fred-causal-backfill-20260813.json"
+)
+CAUSAL_CAPABILITY_EVIDENCE_PATH = (
+    ROOT / "docs" / "evidence" / "crisis-radar-fred-causal-capability-20260812.json"
+)
 
 
 def test_documented_runtime_versions_match_code() -> None:
@@ -123,3 +129,30 @@ def test_depth_research_evidence_is_historical_and_cannot_claim_v11_promotion() 
     assert evidence["safety"]["research_failure_degrades_required_fred_health"] is False
     assert evidence["safety"]["current_revision_points_flagged_retrospective_revised"] is True
     assert "new_immutable_methodology_version" in evidence["safety"]["promotion_required"]
+
+
+def test_new_depth_history_is_causal_but_remains_disabled_and_unpromoted() -> None:
+    evidence = json.loads(CAUSAL_DEPTH_EVIDENCE_PATH.read_text(encoding="utf-8"))
+    capability = json.loads(CAUSAL_CAPABILITY_EVIDENCE_PATH.read_text(encoding="utf-8"))
+
+    final = evidence["effective_final_state"]
+    assert final["series"] == 10
+    assert final["causal_points"] == sum(item["points"] for item in evidence["series"])
+    assert final["retrospective_revised_points"] == 0
+    assert final["release_time_estimated_points"] == 0
+    assert final["impossible_release_points"] == 0
+    assert final["database_integrity"] == "ok"
+    assert final["foreign_key_violations"] == 0
+    assert final["working_database_touched"] is False
+    assert final["production_database_touched"] is False
+    assert evidence["causal_safeguards"]["research_indicators_enabled"] is False
+    assert evidence["causal_safeguards"]["v11_thresholds_created"] is False
+    assert evidence["causal_safeguards"]["v11_checksum_changed"] is False
+    assert "new_immutable_methodology_version" in evidence["promotion_required"]
+    assert capability["counts"] == {"verified": 38, "live_only": 1}
+    live_only = [
+        item["indicator_code"]
+        for item in capability["results"]
+        if item["contract_status"] == "live_only"
+    ]
+    assert live_only == ["sp500_30d_drawdown"]

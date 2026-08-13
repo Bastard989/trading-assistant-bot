@@ -1,0 +1,102 @@
+{
+  "version": 1,
+  "recorded_at": "2026-08-13T11:27:28Z",
+  "purpose": "isolated causal initial-release validation for disabled next-methodology FRED inputs",
+  "source": "fred_alfred_official_api",
+  "requested_window": {
+    "start": "1990-01-01",
+    "end": "2026-08-11"
+  },
+  "effective_final_state": {
+    "series": 10,
+    "causal_points": 15619,
+    "retrospective_revised_points": 0,
+    "release_time_estimated_points": 0,
+    "impossible_release_points": 0,
+    "database_integrity": "ok",
+    "foreign_key_violations": 0,
+    "database_sha256": "4705bfb20d00ba4584aeaa6c2de55cd5acf64d6e3c558ebfaf85fc00709cda59",
+    "working_database_touched": false,
+    "production_database_touched": false
+  },
+  "series": [
+    {
+      "indicator_code": "brent_90d_change",
+      "points": 3840,
+      "observed_start": "2011-07-05T00:00:00+00:00",
+      "observed_end": "2026-08-03T00:00:00+00:00"
+    },
+    {
+      "indicator_code": "fed_liquidity_swaps",
+      "points": 861,
+      "observed_start": "2010-02-10T00:00:00+00:00",
+      "observed_end": "2026-08-05T00:00:00+00:00"
+    },
+    {
+      "indicator_code": "henry_hub_gas_90d_change",
+      "points": 2878,
+      "observed_start": "2015-03-09T00:00:00+00:00",
+      "observed_end": "2026-08-03T00:00:00+00:00"
+    },
+    {
+      "indicator_code": "nasdaq_100_30d_drawdown",
+      "points": 3075,
+      "observed_start": "2014-05-20T00:00:00+00:00",
+      "observed_end": "2026-08-11T00:00:00+00:00"
+    },
+    {
+      "indicator_code": "nasdaq_composite_30d_drawdown",
+      "points": 3070,
+      "observed_start": "2014-05-21T00:00:00+00:00",
+      "observed_end": "2026-08-11T00:00:00+00:00"
+    },
+    {
+      "indicator_code": "us_cre_delinquency_rate",
+      "points": 60,
+      "observed_start": "2011-04-01T00:00:00+00:00",
+      "observed_end": "2026-01-01T00:00:00+00:00"
+    },
+    {
+      "indicator_code": "us_housing_starts_90d_change",
+      "points": 435,
+      "observed_start": "1990-04-01T00:00:00+00:00",
+      "observed_end": "2026-06-01T00:00:00+00:00"
+    },
+    {
+      "indicator_code": "us_initial_claims",
+      "points": 897,
+      "observed_start": "2009-05-30T00:00:00+00:00",
+      "observed_end": "2026-08-01T00:00:00+00:00"
+    },
+    {
+      "indicator_code": "us_sloos_ci_tightening",
+      "points": 65,
+      "observed_start": "2010-07-01T00:00:00+00:00",
+      "observed_end": "2026-07-01T00:00:00+00:00"
+    },
+    {
+      "indicator_code": "us_unemployment_rate",
+      "points": 438,
+      "observed_start": "1990-01-01T00:00:00+00:00",
+      "observed_end": "2026-07-01T00:00:00+00:00"
+    }
+  ],
+  "causal_safeguards": {
+    "first_vintage_discovery": true,
+    "future_dated_provider_rows_dropped": true,
+    "zero_base_percentage_changes_dropped": true,
+    "epsilon_or_infinite_return_invented": false,
+    "research_indicators_enabled": false,
+    "v11_thresholds_created": false,
+    "v11_checksum_changed": false,
+    "live_v11_stage_changed": false
+  },
+  "capability_evidence": "docs/evidence/crisis-radar-fred-causal-capability-20260812.json",
+  "promotion_required": [
+    "new_immutable_methodology_version",
+    "threshold_registry",
+    "causal_replay",
+    "sensitivity_analysis",
+    "live_canary"
+  ]
+}

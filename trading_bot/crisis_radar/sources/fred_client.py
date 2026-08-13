@@ -53,6 +53,72 @@ class FredClient:
             },
         )
 
+    async def fetch_series_metadata(self, series_id: str) -> bytes:
+        """Return the provider contract for one FRED series."""
+
+        if not series_id.strip():
+            raise ValueError("FRED series_id is required")
+        return await self._get("/series", {"series_id": series_id.strip()})
+
+    async def fetch_vintage_dates(
+        self,
+        series_id: str,
+        *,
+        realtime_start: date,
+        realtime_end: date,
+        limit: int = 10_000,
+    ) -> bytes:
+        """Return dates when a series changed in ALFRED's real-time archive."""
+
+        if not series_id.strip():
+            raise ValueError("FRED series_id is required")
+        if realtime_end < realtime_start:
+            raise ValueError("FRED vintage end date must not precede start date")
+        if limit < 1 or limit > 10_000:
+            raise ValueError("FRED vintage limit must be between 1 and 10000")
+        return await self._get(
+            "/series/vintagedates",
+            {
+                "series_id": series_id.strip(),
+                "realtime_start": realtime_start.isoformat(),
+                "realtime_end": realtime_end.isoformat(),
+                "sort_order": "asc",
+                "limit": str(limit),
+            },
+        )
+
+    async def fetch_initial_release_probe(
+        self,
+        request: SeriesRequest,
+        *,
+        observation_start: date,
+        observation_end: date,
+    ) -> bytes:
+        """Probe whether FRED can return bounded initial-release observations.
+
+        This deliberately requests one row only.  It is a capability check, not
+        a historical backfill, and therefore cannot be used as replay evidence.
+        The four-year bound stays below FRED's 2,000-vintage JSON limit.
+        """
+
+        if observation_end < observation_start:
+            raise ValueError("FRED probe end date must not precede start date")
+        if (observation_end - observation_start).days > 1460:
+            raise ValueError("FRED initial-release probe must not exceed four years")
+        return await self._get(
+            "/series/observations",
+            {
+                "series_id": request.provider_series_id,
+                "observation_start": observation_start.isoformat(),
+                "observation_end": observation_end.isoformat(),
+                "realtime_start": observation_start.isoformat(),
+                "realtime_end": observation_end.isoformat(),
+                "output_type": "4",
+                "sort_order": "desc",
+                "limit": "1",
+            },
+        )
+
     async def fetch_history(
         self,
         request: SeriesRequest,
@@ -71,10 +137,33 @@ class FredClient:
             raise ValueError("FRED history max_rows must be between 1 and 20000")
         realtime_ranges: list[tuple[date | None, date | None]] = [(None, None)]
         if initial_release:
+            # A number of series were added to ALFRED years after their first
+            # observation.  FRED rejects an output_type=4 real-time window that
+            # ends before the first available vintage instead of returning an
+            # empty page.  Discover the first vintage and never issue those
+            # impossible early requests.
+            vintage_payload = await self.fetch_vintage_dates(
+                request.provider_series_id,
+                realtime_start=observation_start,
+                realtime_end=observation_end,
+                limit=1,
+            )
+            try:
+                vintage_document = json.loads(vintage_payload)
+                vintage_dates = vintage_document["vintage_dates"]
+                if not isinstance(vintage_dates, list):
+                    raise TypeError
+                first_vintage = (
+                    date.fromisoformat(str(vintage_dates[0])) if vintage_dates else None
+                )
+            except (json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
+                raise FredClientError("FRED vintage history returned malformed JSON") from exc
+            if first_vintage is None:
+                return b'{"observations":[]}'
             # FRED JSON limits one request to 2,000 vintage dates. Four-year
             # release windows stay below that ceiling even for daily series.
             realtime_ranges = []
-            chunk_start = observation_start
+            chunk_start = max(observation_start, first_vintage)
             while chunk_start <= observation_end:
                 chunk_end = min(observation_end, chunk_start + timedelta(days=1460))
                 realtime_ranges.append((chunk_start, chunk_end))

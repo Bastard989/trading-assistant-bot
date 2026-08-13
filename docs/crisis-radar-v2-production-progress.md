@@ -32,7 +32,7 @@
 | 3. Dependency/group/stage v2 | completed (shadow) | Independent subchannels/clusters, intensity + systemic breadth, anchors, fail-closed coverage, v10/v11 comparison; tests |
 | 4. Signed OI | completed (shadow) | 1d/7d/30d signed OI, leverage build vs liquidation unwind, v10 absolute series preserved; boundary/API/service tests |
 | 5. Threshold registry v11 | completed (candidate) | Immutable metadata/checksum/source/role/profile/promotion evidence for v11; v10 untouched |
-| 6. Numeric depth | in_progress | 13 scoring FRED v11 series plus 10 disabled next-methodology research series live-verified on 2026-08-11. The research set adds initial claims, unemployment, SLOOS lending standards, CRE delinquency, housing starts, central-bank liquidity swaps, Nasdaq Composite/100, Brent and Henry Hub gas. Collection is enabled without changing the immutable v11 checksum or risk score; threshold promotion, historical backfill/replay and non-US depth remain |
+| 6. Numeric depth | in_progress | 13 scoring FRED v11 series plus 10 disabled next-methodology research series. All ten now have verified causal initial-release history: an isolated 1990–2026 backfill retained 15,619 valid points with no revised/estimated/impossible-release rows. Licensed FRED SP500 is explicitly live-only. v11 checksum/risk remain unchanged; new immutable thresholds, replay and non-US depth remain |
 | 7. News coverage/lifecycle | in_progress | Separate news coverage, snapshot-time decay, immediate fusion recompute; all 12 configured official channels live-verified on 2026-08-11: 10 RSS, strict HKMA press-release JSON API for Hong Kong/Greater China and OFAC official GovDelivery topic `USTREAS_61` for sanctions events. Offline fixtures cover security-sensitive adapters. RBA rejected after reproducible HTTP 403; the retired native OFAC RSS is not used; broader filings/exchange coverage remains |
 | 8. Evidence memory profiles | completed (optional advanced) | Basic SQLite FTS5 works without embeddings. Advanced pgvector has schema, continuous ingestion, embedding queue/fallback, hybrid search, health API and a real local PostgreSQL/pgvector verification with relational evidence ID |
 | 9. Scenarios/recovery/diff | completed (shadow seed) | 11 Crisis Playbooks, causal chain, anchors, invalidation, recovery, evidence IDs and persisted causal diff; historical calibration remains stage 12 |
@@ -51,6 +51,15 @@ times; the other 38 444 points are explicitly `retrospective_revised` research
 and cannot enter replay. The working and production databases were not touched
 by this verification.
 
+That first collection-only experiment has now been superseded, not rewritten,
+by `docs/evidence/crisis-radar-fred-causal-backfill-20260813.json` and
+`docs/evidence/crisis-radar-fred-causal-capability-20260812.json`. Provider
+capability is verified for 38 configured FRED indicators; the remaining licensed
+SP500 series is explicitly `live_only`. The ten disabled depth inputs now retain
+15,619 causal initial-release points with zero `retrospective_revised`, zero
+estimated-release and zero impossible-release rows. This is data availability,
+not promotion evidence: no v11 threshold, checksum, stage or probability changed.
+
 Replay now also rejects legacy `release_time_estimated` observations when they
 were fetched later than the indicator's maximum staleness window. This closes the
 path where a current revised historical download could appear available at an
@@ -65,7 +74,7 @@ initial releases use their actual release dates.
 - Live probability остаётся `null` до победы над baseline.
 - Календарный 14-дневный canary нельзя объявлять завершённым заранее.
 
-## Последнее доказательство (2026-08-11)
+## Последнее доказательство (2026-08-13)
 
 - Repository candidate commits:
   `9dedacb` (v11 shadow core/UI), `5bbd69e` (self-host/CI/canary),
@@ -82,6 +91,8 @@ initial releases use their actual release dates.
   (https://github.com/Bastard989/trading-assistant-bot/actions/runs/31521008770).
 - GitHub Actions CI for canary incident-lifecycle hotfix `715384d`: passed
   (https://github.com/Bastard989/trading-assistant-bot/actions/runs/31530885555).
+- GitHub Actions CI for causal FRED replay hardening `93e67f9`: passed
+  (https://github.com/Bastard989/trading-assistant-bot/actions/runs/31540171731).
 - Targeted replay/scoring/validation: `19 passed`.
 - Targeted UI/i18n/canary: `12 passed`.
 - Authenticated Playwright browser E2E: `1 passed` (RU/EN, six analysis tabs,
@@ -90,7 +101,7 @@ initial releases use their actual release dates.
   `data/reports/crisis-radar-v11-financial-stress-manifest.json`.
 - Manifest не является успешным promotion evidence: числовое историческое
   покрытие v11 ниже fail-closed gate, eligible signals = 0, probability = null.
-- Полный regression suite после causal-backfill hardening: `416 passed`,
+- Полный regression suite после causal capability/backfill hardening: `427 passed`,
   одно предупреждение совместимости Starlette/httpx, overall coverage `80.20%`.
 - Отдельные coverage gates: computational core `90.31%`,
   auth/config/main/jobs/migrations `90.09%`, PostgreSQL memory `96.83%`.
@@ -99,6 +110,11 @@ initial releases use their actual release dates.
   next-methodology FRED research series and 12/12 configured official news
   channels (10 RSS + HKMA JSON API + OFAC GovDelivery RSS) вернули валидные
   данные 2026-08-11.
+- FRED/ALFRED causal capability audit on 2026-08-13: 38 configured series
+  verified, licensed SP500 explicitly `live_only`, zero unknown contracts.
+  Isolated depth backfill retained 15,619 causal points across all ten disabled
+  research series and passed integrity/foreign-key checks without touching the
+  working or production database.
 - HKMA adapter rejects unsuccessful headers, malformed schema, duplicate/future
   records and URLs outside `www.hkma.gov.hk`; scheduled sync, CLI and news coverage
   use the same client/normalizer router.

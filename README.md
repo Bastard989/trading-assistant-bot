@@ -203,7 +203,7 @@ python -m scripts.soak_check --base-url http://127.0.0.1:8080 --duration-seconds
 
 FRED, BEA, and EIA keys enable their respective live synchronizations. ECB, Eurostat, World Bank, BIS, OECD, Bybit, all configured official RSS feeds, and the HKMA press-release API use public endpoints without keys. World Bank, BIS, and OECD run in a separate daily job because their macro series update slowly and the BIS bulk archive is substantially larger than an ordinary API response. The methodology and UI can be tested entirely offline with fixtures. The dashboard deliberately does not show a single “magic crash probability”: the overview communicates the current market stage and breadth of deterioration, while technical scores and source health stay behind the detailed-mode toggle.
 
-FRED exposes only ten years of daily S&P 500 history and identifies that series as S&P Dow Jones copyrighted data. The application keeps fetched observations in the owner's private database; the repository and self-hosted package do not redistribute an S&P dataset.
+FRED exposes only ten years of daily S&P 500 history and identifies that series as S&P Dow Jones copyrighted data. Its vintage/initial-release endpoint rejects this licensed series, so the radar treats S&P 500 as `live_only`: fresh observations can support monitoring but the series is excluded from causal replay. The application keeps fetched observations in the owner's private database; the repository and self-hosted package do not redistribute an S&P dataset.
 
 Read-only owner-authenticated endpoints:
 

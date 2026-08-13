@@ -85,9 +85,12 @@ never executed.
 - ten additional official FRED depth series are collection-only research inputs;
   they have no v11 thresholds and cannot affect the live stage until a new
   immutable methodology passes replay, sensitivity and canary gates; their
-  collection failures are isolated from required FRED source health; only two
-  currently expose ALFRED initial-release vintages, while the remaining eight
-  are flagged `retrospective_revised` and excluded from causal replay;
+  collection failures are isolated from required FRED source health; an
+  isolated ALFRED backfill now provides 15,619 causal initial-release points
+  across all ten series, but this improves evidence availability rather than
+  proving predictive advantage or authorizing promotion;
+- the licensed FRED S&P 500 series rejects the vintage contract and is explicitly
+  live-only, so it cannot contribute historical replay evidence;
 - 12 official-news channels do not constitute exhaustive world-news coverage;
 - events and contagion currently do not change numeric v11 stage, so their numeric
   ablation delta is expected to be zero;

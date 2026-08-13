@@ -148,10 +148,16 @@ def dependency_for(*, code: str, group_code: str, region_code: str) -> Dependenc
             else "equity_drawdown" if "drawdown" in code
             else group_code
         )
-    elif group_code in {"crypto_leverage", "crypto_price_stress"}:
+    elif group_code in {
+        "crypto_leverage",
+        "crypto_price_stress",
+        "stablecoin_stress",
+    }:
         cluster, anchor = "crypto_stablecoins", "market"
         subchannel = (
-            "funding" if "funding" in code
+            "usdc_usdt_cross_venue"
+            if group_code == "stablecoin_stress"
+            else "funding" if "funding" in code
             else "open_interest" if "oi_" in code
             else "crypto_price" if "drawdown" in code
             else group_code

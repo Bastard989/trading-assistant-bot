@@ -26,6 +26,7 @@ METHODOLOGY_V12_VERSION = "candidate-v12"
 METHODOLOGY_V13_VERSION = "candidate-v13"
 METHODOLOGY_V14_VERSION = "candidate-v14"
 METHODOLOGY_V15_VERSION = "candidate-v15"
+METHODOLOGY_V16_VERSION = "candidate-v16"
 
 
 @dataclass(frozen=True)
@@ -166,6 +167,15 @@ NEW_YORK_FED = SourceSeed(
     terms_url="https://www.newyorkfed.org/termsofuse",
     expected_frequency="monthly",
     max_staleness_seconds=75 * 86400,
+)
+
+BINANCE_MARKET = SourceSeed(
+    code="binance_market",
+    name="Binance Public Spot Market Data",
+    base_url="https://data-api.binance.vision/api/v3",
+    terms_url="https://www.binance.com/en/terms",
+    expected_frequency="intraday",
+    max_staleness_seconds=2 * 3600,
 )
 
 NEWS_SOURCES = (
@@ -1508,6 +1518,48 @@ NEW_YORK_FED_V15_CANDIDATE_INDICATORS = (
 )
 V15_INDICATORS = V14_INDICATORS + NEW_YORK_FED_V15_CANDIDATE_INDICATORS
 
+STABLECOIN_V16_CANDIDATE_INDICATORS = (
+    IndicatorSeed(
+        code="usdc_usdt_dislocation_bybit",
+        provider_series_id="USDCUSDT:best_bid_ask",
+        name="USDC/USDT spot dislocation on Bybit",
+        name_ru="Расхождение USDC/USDT на Bybit",
+        group_code="stablecoin_stress",
+        region_code="GLOBAL",
+        unit="percent_from_peg",
+        frequency="intraday",
+        max_staleness_seconds=2 * 3600,
+        thresholds=IndicatorThresholds(
+            warning=Decimal("0.25"),
+            danger=Decimal("1"),
+            critical=Decimal("3"),
+            reference=Decimal("0"),
+            direction=RiskDirection.HIGHER_IS_WORSE,
+        ),
+        transform="max(abs(midpoint-1),half_spread)*100",
+    ),
+    IndicatorSeed(
+        code="usdc_usdt_dislocation_binance",
+        provider_series_id="USDCUSDT:best_bid_ask",
+        name="USDC/USDT spot dislocation on Binance",
+        name_ru="Расхождение USDC/USDT на Binance",
+        group_code="stablecoin_stress",
+        region_code="GLOBAL",
+        unit="percent_from_peg",
+        frequency="intraday",
+        max_staleness_seconds=2 * 3600,
+        thresholds=IndicatorThresholds(
+            warning=Decimal("0.25"),
+            danger=Decimal("1"),
+            critical=Decimal("3"),
+            reference=Decimal("0"),
+            direction=RiskDirection.HIGHER_IS_WORSE,
+        ),
+        transform="max(abs(midpoint-1),half_spread)*100",
+    ),
+)
+V16_INDICATORS = V15_INDICATORS + STABLECOIN_V16_CANDIDATE_INDICATORS
+
 _V11_SCENARIO_EXTRA_GROUPS = {
     "global_recession": ("housing_cre",),
     "financial_stress": ("banking_stress", "dollar_liquidity"),
@@ -1638,6 +1690,25 @@ V15_SCENARIOS = tuple(
     )
     for scenario in V14_SCENARIOS
 )
+V16_SCENARIOS = tuple(
+    replace(
+        scenario,
+        group_codes=(
+            scenario.group_codes + ("stablecoin_stress",)
+            if scenario.code in {
+                "crypto_leverage_unwind",
+                "exchange_stablecoin_failure",
+            }
+            else scenario.group_codes
+        ),
+        anchor_groups=(
+            scenario.anchor_groups + ("stablecoin_stress",)
+            if scenario.code == "exchange_stablecoin_failure"
+            else scenario.anchor_groups
+        ),
+    )
+    for scenario in V15_SCENARIOS
+)
 
 _V2_THRESHOLD_RATIONALE = {
     "sahm_rule": {
@@ -1734,6 +1805,18 @@ _V2_THRESHOLD_RATIONALE = {
         "source_url": "https://www.newyorkfed.org/research/policy/gscpi",
         "operational_role": "global_supply_chain_pressure",
     },
+    "usdc_usdt_dislocation_bybit": {
+        "ru": "0,25/1/3% — кандидатные зоны относительного расхождения двух крупнейших долларовых стейблкоинов по исполнимым bid/ask Bybit; показатель не определяет, какой именно токен потерял привязку.",
+        "en": "0.25%/1%/3% are candidate relative-dislocation bands for two major USD stablecoins using executable Bybit bid/ask quotes; the pair alone cannot identify which token lost its peg.",
+        "source_url": "https://bybit-exchange.github.io/docs/v5/market/tickers",
+        "operational_role": "stablecoin_cross_market_dislocation",
+    },
+    "usdc_usdt_dislocation_binance": {
+        "ru": "0,25/1/3% — те же candidate-зоны на независимой площадке Binance; обе биржи находятся в одном подканале и не удваивают системную ширину.",
+        "en": "0.25%/1%/3% apply on the separate Binance venue; both venues share one dependency subchannel and cannot double systemic breadth.",
+        "source_url": "https://developers.binance.com/en/docs/products/spot/rest-api",
+        "operational_role": "stablecoin_cross_market_confirmation",
+    },
 }
 
 for _slug, _iso, _label, _label_ru in _BIS_V14_REGION_ROWS:
@@ -1796,6 +1879,8 @@ def methodology_checksum(
     )
     if version == METHODOLOGY_V15_VERSION:
         methodology_sources += (NEW_YORK_FED,)
+    elif version == METHODOLOGY_V16_VERSION:
+        methodology_sources += (NEW_YORK_FED, BINANCE_MARKET)
     payload = {
         "methodology": [METHODOLOGY_CODE, version],
         "sources": [asdict(item) for item in methodology_sources],
@@ -1824,6 +1909,7 @@ def methodology_checksum(
         METHODOLOGY_V13_VERSION,
         METHODOLOGY_V14_VERSION,
         METHODOLOGY_V15_VERSION,
+        METHODOLOGY_V16_VERSION,
     }:
         payload["indicator_scoring"] = {
             code: {key: str(value) for key, value in asdict(profile).items()}
@@ -1857,6 +1943,8 @@ def _source_code_for_indicator(code: str) -> str:
         (BIS, BIS_V14_CANDIDATE_INDICATORS),
         (OECD, OECD_GLOBAL_V2_INDICATORS),
         (NEW_YORK_FED, NEW_YORK_FED_V15_CANDIDATE_INDICATORS),
+        (BYBIT, tuple(item for item in STABLECOIN_V16_CANDIDATE_INDICATORS if item.code.endswith("_bybit"))),
+        (BINANCE_MARKET, tuple(item for item in STABLECOIN_V16_CANDIDATE_INDICATORS if item.code.endswith("_binance"))),
     ):
         if any(item.code == code for item in indicators):
             return source.code
@@ -1891,6 +1979,8 @@ def _bootstrap_catalog(
             if version == METHODOLOGY_V14_VERSION
             else "2026-08-13T18:40:00+00:00"
             if version == METHODOLOGY_V15_VERSION
+            else "2026-08-13T20:35:00+00:00"
+            if version == METHODOLOGY_V16_VERSION
             else
             "2026-08-04T12:00:00+00:00"
             if version == METHODOLOGY_GLOBAL_V2_VERSION
@@ -1902,6 +1992,8 @@ def _bootstrap_catalog(
     catalog_sources = (FRED, BEA, EIA, ECB, EUROSTAT, WORLD_BANK, BIS, OECD, BYBIT)
     if version == METHODOLOGY_V15_VERSION:
         catalog_sources += (NEW_YORK_FED,)
+    elif version == METHODOLOGY_V16_VERSION:
+        catalog_sources += (NEW_YORK_FED, BINANCE_MARKET)
     for source in catalog_sources:
         repository.register_source(
             source.code,
@@ -1910,7 +2002,7 @@ def _bootstrap_catalog(
             terms_url=source.terms_url,
             access_type=(
                 "research_candidate"
-                if source.code == NEW_YORK_FED.code
+                if source.code in {NEW_YORK_FED.code, BINANCE_MARKET.code}
                 else "api"
             ),
             expected_frequency=source.expected_frequency,
@@ -1960,6 +2052,7 @@ def _bootstrap_catalog(
             METHODOLOGY_V13_VERSION,
             METHODOLOGY_V14_VERSION,
             METHODOLOGY_V15_VERSION,
+            METHODOLOGY_V16_VERSION,
         }
         profile = profile_for(
             frequency=item.frequency,
@@ -1982,6 +2075,7 @@ def _bootstrap_catalog(
                 METHODOLOGY_V13_VERSION,
                 METHODOLOGY_V14_VERSION,
                 METHODOLOGY_V15_VERSION,
+                METHODOLOGY_V16_VERSION,
             } else "legacy",
             promotion_status=promotion_status,
             rationale=rationale if version in {
@@ -1991,6 +2085,7 @@ def _bootstrap_catalog(
                 METHODOLOGY_V13_VERSION,
                 METHODOLOGY_V14_VERSION,
                 METHODOLOGY_V15_VERSION,
+                METHODOLOGY_V16_VERSION,
             } else {},
             source_url=(
                 rationale.get("source_url")
@@ -2018,6 +2113,8 @@ def _bootstrap_catalog(
                 if version == METHODOLOGY_V14_VERSION
                 else "2026-08-13T18:40:00+00:00"
                 if version == METHODOLOGY_V15_VERSION
+                else "2026-08-13T20:35:00+00:00"
+                if version == METHODOLOGY_V16_VERSION
                 else "2026-08-05T12:53:16+00:00"
                 if version == METHODOLOGY_V11_VERSION
                 else ""
@@ -2033,7 +2130,9 @@ def _bootstrap_catalog(
                 entity_type="indicator",
                 entity_code=item.code,
                 metadata_version=(
-                    "v15"
+                    "v16"
+                    if version == METHODOLOGY_V16_VERSION
+                    else "v15"
                     if version == METHODOLOGY_V15_VERSION
                     else "v14"
                     if version == METHODOLOGY_V14_VERSION
@@ -2058,7 +2157,9 @@ def _bootstrap_catalog(
                 entity_type="group",
                 entity_code=item.group_code,
                 metadata_version=(
-                    "v15"
+                    "v16"
+                    if version == METHODOLOGY_V16_VERSION
+                    else "v15"
                     if version == METHODOLOGY_V15_VERSION
                     else "v14"
                     if version == METHODOLOGY_V14_VERSION
@@ -2108,6 +2209,7 @@ def _bootstrap_catalog(
             METHODOLOGY_V13_VERSION,
             METHODOLOGY_V14_VERSION,
             METHODOLOGY_V15_VERSION,
+            METHODOLOGY_V16_VERSION,
         }:
             from trading_bot.crisis_radar.metadata_v11 import scenario_metadata
 
@@ -2115,7 +2217,9 @@ def _bootstrap_catalog(
                 entity_type="scenario",
                 entity_code=scenario.code,
                 metadata_version=(
-                    "v15"
+                    "v16"
+                    if version == METHODOLOGY_V16_VERSION
+                    else "v15"
                     if version == METHODOLOGY_V15_VERSION
                     else "v14"
                     if version == METHODOLOGY_V14_VERSION
@@ -2239,6 +2343,28 @@ def bootstrap_v15_catalog(repository: CrisisRadarRepository) -> dict[str, int | 
         version=METHODOLOGY_V15_VERSION,
         indicators=V15_INDICATORS,
         scenarios=V15_SCENARIOS,
+        promotion_status="candidate",
+        indicator_enabled_overrides={code: False for code in new_codes},
+    )
+
+
+def bootstrap_v16_catalog(repository: CrisisRadarRepository) -> dict[str, int | str]:
+    """Register cross-venue stablecoin dislocation as disabled research inputs."""
+
+    new_codes = {
+        item.code
+        for item in (
+            FRED_V12_CANDIDATE_INDICATORS
+            + BIS_V14_CANDIDATE_INDICATORS
+            + NEW_YORK_FED_V15_CANDIDATE_INDICATORS
+            + STABLECOIN_V16_CANDIDATE_INDICATORS
+        )
+    }
+    return _bootstrap_catalog(
+        repository,
+        version=METHODOLOGY_V16_VERSION,
+        indicators=V16_INDICATORS,
+        scenarios=V16_SCENARIOS,
         promotion_status="candidate",
         indicator_enabled_overrides={code: False for code in new_codes},
     )

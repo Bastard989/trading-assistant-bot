@@ -62,6 +62,13 @@ class FakeService:
         self.calls.append("new_york_fed")
         return {"status": "succeeded"}
 
+    async def sync_binance_stablecoin(
+        self, client, *, recompute_after: bool = False
+    ) -> dict:
+        assert recompute_after is False
+        self.calls.append("binance_market")
+        return {"status": "succeeded"}
+
     async def sync_news(self, client) -> dict:
         self.calls.append(client.source_code)
         return {"status": "succeeded"}
@@ -334,6 +341,22 @@ def test_global_sync_collects_disabled_gscpi_candidate_when_v11_is_enabled() -> 
         "bis",
         "oecd",
         "new_york_fed",
+        "market",
+    ]
+
+
+def test_hourly_sync_collects_disabled_stablecoin_candidate_when_v11_is_enabled() -> None:
+    service = FakeService()
+    service.feature_flags = SimpleNamespace(scoring_v11=True)
+    jobs = CrisisRadarJobs(service, fred_api_key="")
+
+    asyncio.run(jobs.sync(None))
+
+    assert service.calls == [
+        "ecb",
+        "eurostat",
+        "bybit",
+        "binance_market",
         "market",
     ]
 

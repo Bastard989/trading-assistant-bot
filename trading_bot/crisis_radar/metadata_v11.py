@@ -22,6 +22,10 @@ GROUP_CONTEXT = {
         "Криптоплечи помогают отличить устойчивое движение от перегруженной позиции рынка.",
         "Crypto leverage helps distinguish a durable move from crowded positioning.",
     ),
+    "stablecoin_stress": (
+        "Расхождение исполнимых котировок USDC/USDT на нескольких биржах показывает потерю взаимной долларовой привязки или исчезновение ликвидности.",
+        "Executable USDC/USDT dislocation across venues can reveal a relative peg break or disappearing liquidity.",
+    ),
     "inflation_commodities": (
         "Сырьевой шок может одновременно усилить инфляцию и ослабить рост.",
         "A commodity shock can raise inflation while weakening growth.",
@@ -60,6 +64,7 @@ _GROUP_NAMES = {
     "housing_cre": ("Жильё и недвижимость США", "US housing and real estate"),
     "crypto_leverage": ("Плечи крипторынка", "Crypto leverage"),
     "crypto_price_stress": ("Ценовой стресс крипторынка", "Crypto price stress"),
+    "stablecoin_stress": ("Стресс стейблкоинов", "Stablecoin stress"),
     "inflation_commodities": ("Инфляция и сырьё", "Inflation and commodities"),
     "technology_market": ("Технологический рынок США", "US technology market"),
     "real_economy": ("Реальная экономика США", "US real economy"),

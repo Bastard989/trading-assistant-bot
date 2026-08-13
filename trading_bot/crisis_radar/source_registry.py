@@ -74,6 +74,12 @@ SOURCE_POLICIES = (
         "crypto market, price and leverage",
     ),
     SourcePolicy(
+        "binance_market", "B", "https://www.binance.com/en/terms", "public-market-api",
+        "intraday", "near real-time", "one bounded public book-ticker request per hourly sync",
+        "bybit", "candidate",
+        "cross-venue USDC/USDT dislocation; disabled from live scoring pending causal replay",
+    ),
+    SourcePolicy(
         "fed_news", "A", "https://www.federalreserve.gov/feeds.htm", "official-rss", "intraday",
         "publication time", "bounded polling", None, "active", "US monetary and banking events",
     ),
@@ -147,7 +153,7 @@ SOURCE_POLICIES = (
 
 def source_registry_payload() -> dict:
     return {
-        "version": "2026-08-13.2",
+        "version": "2026-08-13.3",
         "sources": [asdict(item) for item in SOURCE_POLICIES],
         "rules": {
             "official_first": True,

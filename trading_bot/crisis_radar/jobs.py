@@ -16,6 +16,7 @@ from trading_bot.crisis_radar.sources.news_clients import (
     news_client_for,
 )
 from trading_bot.crisis_radar.sources.new_york_fed import NewYorkFedClient
+from trading_bot.crisis_radar.sources.stablecoins import BinanceMarketClient
 
 
 logger = logging.getLogger(__name__)
@@ -106,6 +107,23 @@ class CrisisRadarJobs:
                 results["bybit"] = await self.service.sync_bybit(
                     BybitClient(), recompute_after=False
                 )
+                if results["bybit"].get("research_errors"):
+                    logger.warning(
+                        "Crisis Radar Bybit research collector degraded: %s",
+                        results["bybit"]["research_errors"],
+                    )
+                if bool(
+                    getattr(
+                        getattr(self.service, "feature_flags", None),
+                        "scoring_v11",
+                        False,
+                    )
+                ):
+                    results["binance_market"] = (
+                        await self.service.sync_binance_stablecoin(
+                            BinanceMarketClient(), recompute_after=False
+                        )
+                    )
                 self.service.recompute()
                 if self.alert_user_ids:
                     self.service.repository.enqueue_alert_deliveries(self.alert_user_ids)

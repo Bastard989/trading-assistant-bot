@@ -16,6 +16,7 @@
 - replay-only scenario-coverage methodology: `candidate-v13`;
 - disabled BIS depth collection methodology: `candidate-v14`;
 - disabled New York Fed GSCPI collection methodology: `candidate-v15`;
+- disabled cross-venue stablecoin collection methodology: `candidate-v16`;
 - indicator scoring: `indicator-score-v2-seed-1`;
 - stage: `independent-stage-v2-seed-1`;
 - dependency graph: `dependency-graph-v2-seed-1`;
@@ -131,6 +132,13 @@ causal replay evidence и не даёт права включить v14 в live.
 выдаётся за точную point-in-time историю. Пороги 1/2/3 стандартных отклонения —
 shadow-зоны, а не вероятность; индикатор не входит в live stage.
 
+`candidate-v16` добавляет отключённое относительное расхождение USDC/USDT по
+исполняемым bid/ask Bybit и Binance. Формула берёт максимум отклонения midpoint
+от 1 и половины spread. Обе площадки входят в один dependency-подканал, поэтому
+не удваивают системную ширину. Пороги 0,25/1/3% — неповышенные candidate-зоны.
+Исторического point-in-time order-book набора для causal replay нет: собирается
+только будущая история, probability остаётся `null`, live stage не меняется.
+
 ## Known limitations
 
 - causal history has insufficient breadth/depth for v11 promotion;
@@ -140,6 +148,9 @@ shadow-зоны, а не вероятность; индикатор не вхо�
   historical release vintages and cannot be used as causal replay evidence;
 - candidate-v15 GSCPI is disabled; exact historical release timestamps and
   causal replay/promotion evidence are still absent;
+- candidate-v16 stablecoin inputs are disabled; they provide relative
+  USDC/USDT dislocation rather than identifying the depegged token and have no
+  historical point-in-time quote set for causal replay;
 - global regions have unequal channel depth;
 - ten additional official FRED depth series are disabled live inputs with
   explicit thresholds only inside immutable replay-only `candidate-v12`; they
@@ -177,6 +188,7 @@ shadow-зоны, а не вероятность; индикатор не вхо�
 - calling candidate-v13 live or promoted while calibration and holdout gates fail.
 - calling candidate-v14 live or promoted before point-in-time replay and canary.
 - calling candidate-v15 live or promoted before causal replay and canary.
+- calling candidate-v16 live or promoted before forward history, replay and canary.
 
 ## Monitoring and rollback
 

@@ -31,6 +31,7 @@ from trading_bot.crisis_radar.sources.global_clients import BisClient, OecdClien
 from trading_bot.crisis_radar.sources.official_clients import BeaClient, EiaClient
 from trading_bot.crisis_radar.sources.news_clients import news_client_for
 from trading_bot.crisis_radar.sources.new_york_fed import NewYorkFedClient
+from trading_bot.crisis_radar.sources.stablecoins import BinanceMarketClient
 from trading_bot.db import CURRENT_SCHEMA_VERSION, Database
 
 
@@ -83,6 +84,7 @@ def main() -> None:
             "bis",
             "oecd",
             "new_york_fed",
+            "binance_market",
             "news",
             "fed_news",
             "ecb_news",
@@ -186,6 +188,14 @@ def main() -> None:
             elif args.source == "new_york_fed":
                 raise RuntimeError(
                     "CRISIS_RADAR_SCORING_V11 must be enabled for the GSCPI research collector"
+                )
+            if args.source in {"all", "binance_market"} and service.feature_flags.scoring_v11:
+                results["binance_market"] = await service.sync_binance_stablecoin(
+                    BinanceMarketClient(), recompute_after=False
+                )
+            elif args.source == "binance_market":
+                raise RuntimeError(
+                    "CRISIS_RADAR_SCORING_V11 must be enabled for the stablecoin research collector"
                 )
             news_source_codes = (
                 "fed_news",

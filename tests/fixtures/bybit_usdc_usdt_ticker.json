@@ -1,0 +1,17 @@
+{
+  "retCode": 0,
+  "retMsg": "OK",
+  "result": {
+    "category": "spot",
+    "list": [
+      {
+        "symbol": "USDCUSDT",
+        "bid1Price": "0.9951",
+        "bid1Size": "900",
+        "ask1Price": "0.9961",
+        "ask1Size": "1100"
+      }
+    ]
+  },
+  "time": 1786654800000
+}

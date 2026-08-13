@@ -1,0 +1,98 @@
+{
+  "evidence_version": "stablecoin-v16-contract-v1",
+  "collected_at": "2026-08-13T20:38:42.037523Z",
+  "methodology": {
+    "version": "candidate-v16",
+    "effective_from": "2026-08-13T20:35:00Z",
+    "checksum": "de14e7d4dca74c25f8e90cc3431453b8cce92db05ab6ecf9a4cb6be4cc504e5a",
+    "previous_version": "candidate-v15",
+    "previous_checksum": "897930146f268238b8a39eef244583f28c119a757adad8971594297189f15a01",
+    "new_indicator_count": 2,
+    "live_enabled": false
+  },
+  "formula": {
+    "expression": "max(abs((bid+ask)/2-1),(ask-bid)/2)*100",
+    "unit": "percent_from_peg",
+    "candidate_bands": {
+      "warning": "0.25",
+      "danger": "1",
+      "critical": "3"
+    },
+    "interpretation": "Relative USDC/USDT peg or liquidity dislocation; the pair alone cannot identify which stablecoin moved.",
+    "dependency_contract": "Both venues share usdc_usdt_cross_venue and cannot double systemic breadth."
+  },
+  "official_sources": [
+    {
+      "code": "bybit",
+      "tier": "B",
+      "endpoint": "https://api.bybit.com/v5/market/tickers",
+      "documentation": "https://bybit-exchange.github.io/docs/v5/market/tickers",
+      "terms": "https://www.bybit.com/en/help-center/article/Bybit-Website-Terms-and-Conditions",
+      "payload_bytes": 413,
+      "payload_sha256": "6e067e5774d78a14505f250361b8498d26ee4fc3b17f75fb4c6bb44a3cac5d5c",
+      "fetched_at": "2026-08-13T20:38:42.037523Z",
+      "normalized_dislocation_percent": "0.0950"
+    },
+    {
+      "code": "binance_market",
+      "tier": "B",
+      "endpoint": "https://data-api.binance.vision/api/v3/ticker/bookTicker",
+      "documentation": "https://developers.binance.com/en/docs/products/spot/rest-api",
+      "terms": "https://www.binance.com/en/terms",
+      "payload_bytes": 123,
+      "payload_sha256": "fcaee55304a72622cce94a6748845566a9580c804197908d4164a936f637030a",
+      "fetched_at": "2026-08-13T20:38:40.031969Z",
+      "normalized_dislocation_percent": "0.0895"
+    }
+  ],
+  "excluded_source": {
+    "code": "coinbase_exchange",
+    "terms": "https://www.coinbase.com/legal/market_data",
+    "reason": "Not integrated into this sold self-hosted repository because the current market-data terms require a separate legal assessment for redistribution, derived data and AI-related use."
+  },
+  "causal_status": {
+    "historical_point_in_time_book_available": false,
+    "causal_replay_completed": false,
+    "forward_collection_started": true,
+    "eligible_for_probability": false
+  },
+  "isolated_ingestion": {
+    "bootstrap_methodology_version": "candidate-v16",
+    "registered_source_count": 26,
+    "rows": [
+      {
+        "code": "usdc_usdt_dislocation_binance",
+        "enabled": 0,
+        "source_code": "binance_market",
+        "observation_count": 1
+      },
+      {
+        "code": "usdc_usdt_dislocation_bybit",
+        "enabled": 0,
+        "source_code": "bybit",
+        "observation_count": 1
+      }
+    ],
+    "candidate_v16_snapshot_count": 0,
+    "sqlite_integrity": "ok",
+    "foreign_key_violations": 0
+  },
+  "source_contract": {
+    "official_machine_readable_endpoints": true,
+    "public_requests_require_no_api_secret": true,
+    "response_size_is_bounded": true,
+    "symbol_and_schema_are_strictly_validated": true,
+    "provider_clock_is_checked_for_bybit": true,
+    "quotes_require_executable_bid_and_ask_size": true,
+    "same_risk_channel_is_not_double_counted": true
+  },
+  "safety": {
+    "new_indicators_enabled": false,
+    "candidate_v16_entered_live_snapshot_calculation": false,
+    "candidate_v15_checksum_changed": false,
+    "working_database_touched": false,
+    "production_database_touched": false,
+    "probability_emitted": false,
+    "raw_provider_payloads_distributed": false
+  }
+}

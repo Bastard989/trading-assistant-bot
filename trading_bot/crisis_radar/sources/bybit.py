@@ -106,6 +106,15 @@ class BybitClient:
             {"category": "option", "baseCoin": cleaned},
         )
 
+    async def fetch_spot_ticker(self, symbol: str) -> bytes:
+        cleaned = symbol.strip().upper()
+        if cleaned not in {"USDCUSDT"}:
+            raise ValueError("unsupported Bybit stablecoin spot symbol")
+        return await self._get(
+            "tickers",
+            {"category": "spot", "symbol": cleaned},
+        )
+
     @staticmethod
     def _page(payload: bytes, *, symbol: str) -> tuple[dict, list]:
         try:

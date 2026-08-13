@@ -29,6 +29,7 @@ from trading_bot.crisis_radar.catalog import (
     bootstrap_v11_catalog,
     bootstrap_v14_catalog,
     bootstrap_v15_catalog,
+    bootstrap_v16_catalog,
 )
 from trading_bot.crisis_radar.coverage import (
     DEFAULT_REQUIRED_REGIONS,
@@ -94,6 +95,11 @@ from trading_bot.crisis_radar.sources.new_york_fed import (
     NewYorkFedClient,
     NewYorkFedSourceError,
 )
+from trading_bot.crisis_radar.sources.stablecoins import (
+    BinanceMarketClient,
+    BinanceMarketSourceError,
+    StablecoinDislocationAdapter,
+)
 from trading_bot.crisis_radar.sources.official_clients import BeaClient, EiaClient, OfficialSourceError
 from trading_bot.crisis_radar.stability import STABILITY_POLICY, stabilize_indicator_state
 from trading_bot.crisis_radar.states import build_indicator_state, build_market_overview
@@ -156,6 +162,7 @@ class CrisisRadarService:
             result["shadow_v11"] = bootstrap_v11_catalog(self.repository)
             result["research_v14"] = bootstrap_v14_catalog(self.repository)
             result["research_v15"] = bootstrap_v15_catalog(self.repository)
+            result["research_v16"] = bootstrap_v16_catalog(self.repository)
         return result
 
     def derive_crypto_event_catalog(
@@ -835,6 +842,57 @@ class CrisisRadarService:
             "stage": None if overview is None else overview.stage.value,
         }
 
+    async def sync_binance_stablecoin(
+        self,
+        client: BinanceMarketClient,
+        *,
+        fetched_at: datetime | None = None,
+        recompute_after: bool = False,
+    ) -> dict[str, int | str | None]:
+        """Collect a disabled Binance USDC/USDT dislocation research input."""
+
+        self.bootstrap()
+        if recompute_after:
+            raise ValueError("disabled stablecoin research cannot recompute live stage")
+        now = fetched_at or datetime.now(timezone.utc)
+        if now.tzinfo is None or now.utcoffset() is None:
+            raise ValueError("fetched_at must be timezone-aware")
+        sync_run_id = self.repository.start_sync_run("binance_market", started_at=now)
+        rows_fetched = 0
+        rows_written = 0
+        error = ""
+        try:
+            observation = StablecoinDislocationAdapter().normalize_binance(
+                await client.fetch_usdc_usdt_book(), fetched_at=now
+            )
+            rows_fetched = 1
+            rows_written = int(
+                self.repository.save_observation(
+                    observation,
+                    sync_run_id=sync_run_id,
+                    preserve_vintage=True,
+                ).inserted
+            )
+        except (BinanceMarketSourceError, SourcePayloadError) as exc:
+            error = type(exc).__name__
+        status = "failed" if error else "succeeded"
+        self.repository.finish_sync_run(
+            sync_run_id,
+            finished_at=datetime.now(timezone.utc),
+            status=status,
+            rows_fetched=rows_fetched,
+            rows_written=rows_written,
+            error_code="source_error" if error else "",
+            error_detail=error,
+        )
+        return {
+            "sync_run_id": sync_run_id,
+            "status": status,
+            "rows_fetched": rows_fetched,
+            "rows_written": rows_written,
+            "stage": None,
+        }
+
     async def sync_oecd(
         self,
         client: OecdClient,
@@ -1029,7 +1087,7 @@ class CrisisRadarService:
         *,
         fetched_at: datetime | None = None,
         recompute_after: bool = True,
-    ) -> dict[str, int | str | None]:
+    ) -> dict[str, int | str | None | list[str]]:
         self.bootstrap()
         now = fetched_at or datetime.now(timezone.utc)
         if now.tzinfo is None or now.utcoffset() is None:
@@ -1038,7 +1096,8 @@ class CrisisRadarService:
         adapter = BybitAdapter()
         rows_fetched = 0
         rows_written = 0
-        errors = []
+        errors: list[str] = []
+        research_errors: list[str] = []
         for symbol in ("BTCUSDT", "ETHUSDT"):
             try:
                 funding_payload = await client.fetch_funding(symbol)
@@ -1073,6 +1132,25 @@ class CrisisRadarService:
                         )
             except (BybitSourceError, SourcePayloadError) as exc:
                 errors.append(f"{symbol}:{type(exc).__name__}")
+        live_rows_fetched = rows_fetched
+        if self.feature_flags.scoring_v11:
+            try:
+                observation = StablecoinDislocationAdapter().normalize_bybit(
+                    await client.fetch_spot_ticker("USDCUSDT"),
+                    fetched_at=now,
+                )
+                rows_fetched += 1
+                rows_written += int(
+                    self.repository.save_observation(
+                        observation,
+                        sync_run_id=sync_run_id,
+                        preserve_vintage=True,
+                    ).inserted
+                )
+            except (BybitSourceError, SourcePayloadError) as exc:
+                research_errors.append(
+                    f"USDCUSDT:{type(exc).__name__}"
+                )
         status = "failed" if len(errors) == 2 else "partial" if errors else "succeeded"
         self.repository.finish_sync_run(
             sync_run_id,
@@ -1083,14 +1161,23 @@ class CrisisRadarService:
             error_code="source_errors" if errors else "",
             error_detail=",".join(errors),
         )
-        overview = self.recompute(snapshot_at=now) if rows_fetched and recompute_after else None
-        return {
+        overview = (
+            self.recompute(snapshot_at=now)
+            if live_rows_fetched and recompute_after
+            else None
+        )
+        result: dict[str, int | str | None | list[str]] = {
             "sync_run_id": sync_run_id,
             "status": status,
             "rows_fetched": rows_fetched,
             "rows_written": rows_written,
             "stage": None if overview is None else overview.stage.value,
         }
+        if research_errors:
+            result["research_errors"] = research_errors
+        if self.feature_flags.scoring_v11:
+            result["research_rows_fetched"] = int(not research_errors)
+        return result
 
     async def backfill_bybit(
         self,

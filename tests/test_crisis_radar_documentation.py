@@ -8,10 +8,13 @@ from trading_bot.crisis_radar.catalog import (
     METHODOLOGY_V13_VERSION,
     METHODOLOGY_V14_VERSION,
     METHODOLOGY_V15_VERSION,
+    METHODOLOGY_V16_VERSION,
     V14_INDICATORS,
     V14_SCENARIOS,
     V15_INDICATORS,
     V15_SCENARIOS,
+    V16_INDICATORS,
+    V16_SCENARIOS,
     methodology_checksum,
 )
 from trading_bot.crisis_radar.methodology_contract import (
@@ -66,6 +69,12 @@ V14_BIS_DEPTH_EVIDENCE_PATH = (
 V15_GSCPI_EVIDENCE_PATH = (
     ROOT / "docs" / "evidence" / "crisis-radar-v15-gscpi-contract-20260813.json"
 )
+V16_STABLECOIN_EVIDENCE_PATH = (
+    ROOT
+    / "docs"
+    / "evidence"
+    / "crisis-radar-v16-stablecoin-contract-20260813.json"
+)
 NBS_NEWS_EVIDENCE_PATH = (
     ROOT / "docs" / "evidence" / "crisis-radar-nbs-news-contract-20260813.json"
 )
@@ -77,6 +86,7 @@ BOK_NEWS_EVIDENCE_PATH = (
 def test_documented_runtime_versions_match_code() -> None:
     for version in (
         METHODOLOGY_V11_VERSION,
+        METHODOLOGY_V16_VERSION,
         SCORING_VERSION,
         STAGE_VERSION,
         DEPENDENCY_GRAPH_VERSION,
@@ -401,6 +411,57 @@ def test_v15_gscpi_evidence_is_official_disabled_and_causally_conservative() -> 
     assert evidence["safety"]["working_database_touched"] is False
     assert evidence["safety"]["production_database_touched"] is False
     assert evidence["safety"]["probability_emitted"] is False
+
+
+def test_v16_stablecoin_evidence_is_disabled_relative_and_not_double_counted() -> None:
+    evidence = json.loads(V16_STABLECOIN_EVIDENCE_PATH.read_text(encoding="utf-8"))
+
+    assert evidence["methodology"]["version"] == METHODOLOGY_V16_VERSION
+    assert evidence["methodology"]["effective_from"] < evidence["collected_at"]
+    assert evidence["methodology"]["checksum"] == methodology_checksum(
+        version=METHODOLOGY_V16_VERSION,
+        indicators=V16_INDICATORS,
+        scenarios=V16_SCENARIOS,
+    )
+    assert evidence["methodology"]["previous_version"] == METHODOLOGY_V15_VERSION
+    assert evidence["methodology"]["live_enabled"] is False
+    assert evidence["formula"]["candidate_bands"] == {
+        "warning": "0.25",
+        "danger": "1",
+        "critical": "3",
+    }
+    assert "cannot identify" in evidence["formula"]["interpretation"]
+    assert "cannot double" in evidence["formula"]["dependency_contract"]
+    assert {item["code"] for item in evidence["official_sources"]} == {
+        "bybit",
+        "binance_market",
+    }
+    assert all(len(item["payload_sha256"]) == 64 for item in evidence["official_sources"])
+    assert evidence["excluded_source"]["code"] == "coinbase_exchange"
+    assert evidence["causal_status"] == {
+        "historical_point_in_time_book_available": False,
+        "causal_replay_completed": False,
+        "forward_collection_started": True,
+        "eligible_for_probability": False,
+    }
+    assert evidence["isolated_ingestion"]["registered_source_count"] == 26
+    assert all(
+        row["enabled"] == 0 and row["observation_count"] == 1
+        for row in evidence["isolated_ingestion"]["rows"]
+    )
+    assert evidence["isolated_ingestion"]["candidate_v16_snapshot_count"] == 0
+    assert evidence["isolated_ingestion"]["sqlite_integrity"] == "ok"
+    assert evidence["isolated_ingestion"]["foreign_key_violations"] == 0
+    assert all(evidence["source_contract"].values())
+    assert evidence["safety"] == {
+        "new_indicators_enabled": False,
+        "candidate_v16_entered_live_snapshot_calculation": False,
+        "candidate_v15_checksum_changed": False,
+        "working_database_touched": False,
+        "production_database_touched": False,
+        "probability_emitted": False,
+        "raw_provider_payloads_distributed": False,
+    }
 
 
 def test_nbs_news_evidence_is_official_bounded_and_cannot_change_numeric_stage() -> None:

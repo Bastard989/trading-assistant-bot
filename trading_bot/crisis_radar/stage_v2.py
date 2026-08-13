@@ -109,9 +109,19 @@ def dependency_for(*, code: str, group_code: str, region_code: str) -> Dependenc
             else "leading_labor" if "temporary" in code or "weekly_hours" in code
             else group_code
         )
-    elif group_code in {"credit", "global_credit_cycle"} or group_code.endswith("_credit_cycle"):
+    elif (
+        group_code in {"credit", "global_credit_cycle"}
+        or group_code.endswith("_credit_cycle")
+        or group_code.endswith("_debt_service")
+    ):
         cluster, anchor = "corporate_credit", "credit"
-        subchannel = "corporate_spreads" if code in {"us_hy_oas", "us_ig_oas"} else group_code
+        subchannel = (
+            "corporate_spreads"
+            if code in {"us_hy_oas", "us_ig_oas"}
+            else "debt_service"
+            if group_code.endswith("_debt_service")
+            else group_code
+        )
     elif group_code in {
         "rates_liquidity", "us_financial_conditions", "euro_financial_stress",
         "banking_stress", "dollar_liquidity",
@@ -149,10 +159,14 @@ def dependency_for(*, code: str, group_code: str, region_code: str) -> Dependenc
     elif group_code == "inflation_commodities":
         cluster, anchor = "commodities_supply", None
         subchannel = group_code
-    elif group_code == "housing_cre":
+    elif group_code == "housing_cre" or group_code.endswith("_housing_cycle"):
         cluster, anchor = "housing_cre", None
         subchannel = (
-            "cre_delinquency" if "delinquency" in code else "housing_activity"
+            "cre_delinquency"
+            if "delinquency" in code
+            else "house_prices"
+            if group_code.endswith("_housing_cycle")
+            else "housing_activity"
         )
     elif group_code in {"real_economy", "global_growth", "euro_growth", "china_growth"} or group_code.endswith("_growth"):
         cluster, anchor = "real_economy", None

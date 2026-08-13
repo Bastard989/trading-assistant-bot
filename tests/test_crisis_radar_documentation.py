@@ -6,6 +6,10 @@ from trading_bot.crisis_radar.catalog import (
     METHODOLOGY_V11_VERSION,
     METHODOLOGY_V12_VERSION,
     METHODOLOGY_V13_VERSION,
+    METHODOLOGY_V14_VERSION,
+    V14_INDICATORS,
+    V14_SCENARIOS,
+    methodology_checksum,
 )
 from trading_bot.crisis_radar.methodology_contract import (
     runtime_methodology_contract,
@@ -52,6 +56,9 @@ V13_REPLAY_SUMMARY_PATH = (
     / "docs"
     / "evidence"
     / "crisis-radar-v13-replay-input-and-sensitivity-20260813.json"
+)
+V14_BIS_DEPTH_EVIDENCE_PATH = (
+    ROOT / "docs" / "evidence" / "crisis-radar-v14-bis-depth-contract-20260813.json"
 )
 
 
@@ -310,4 +317,40 @@ def test_v13_input_and_sensitivity_evidence_keeps_all_safety_gates_closed() -> N
         "current_revisions_relabelled_as_initial_releases": False,
         "probability_fabricated": False,
         "disposable_database_distributed": False,
+    }
+
+
+def test_v14_bis_depth_evidence_is_disabled_and_not_mislabelled_as_causal() -> None:
+    evidence = json.loads(V14_BIS_DEPTH_EVIDENCE_PATH.read_text(encoding="utf-8"))
+
+    assert evidence["methodology"]["version"] == METHODOLOGY_V14_VERSION
+    assert evidence["methodology"]["checksum"] == methodology_checksum(
+        version=METHODOLOGY_V14_VERSION,
+        indicators=V14_INDICATORS,
+        scenarios=V14_SCENARIOS,
+    )
+    assert evidence["methodology"]["new_indicator_count"] == 20
+    assert evidence["methodology"]["live_enabled"] is False
+    assert evidence["official_sources"][0]["retained_observations"] == 480
+    assert evidence["official_sources"][1]["retained_observations"] == 1656
+    assert evidence["causal_status"] == {
+        "provider_payload_is_current_bulk_revision": True,
+        "release_time_is_exact_for_historical_rows": False,
+        "quality_flag": "release_time_estimated",
+        "retrospective_history_eligible_for_causal_replay": False,
+        "future_live_collection_can_build_point_in_time_history": True,
+    }
+    assert all(evidence["source_contract"].values())
+    assert evidence["safety"] == {
+        "new_indicators_enabled": False,
+        "candidate_v14_entered_live_snapshot_calculation": False,
+        "candidate_v10_changed": False,
+        "candidate_v11_changed": False,
+        "candidate_v12_changed": False,
+        "candidate_v13_changed": False,
+        "working_database_touched": False,
+        "production_database_touched": False,
+        "historical_bulk_rows_claimed_as_point_in_time": False,
+        "probability_emitted": False,
+        "raw_provider_archives_distributed": False,
     }

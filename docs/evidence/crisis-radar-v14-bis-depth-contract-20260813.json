@@ -1,0 +1,112 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-08-13T17:27:16Z",
+  "purpose": "Admit official BIS debt-service and residential-property-price data as disabled research depth without changing the live methodology.",
+  "methodology": {
+    "version": "candidate-v14",
+    "checksum": "5aa975fc8a3abadc1fca56e3eebd6ee22892df75631901099a87664f9a57ba6b",
+    "indicator_count": 102,
+    "new_indicator_count": 20,
+    "scenario_count": 11,
+    "live_enabled": false,
+    "promotion_status": "candidate"
+  },
+  "official_sources": [
+    {
+      "dataset": "BIS debt service ratios",
+      "url": "https://data.bis.org/static/bulk/WS_DSR_csv_flat.zip",
+      "terms": "https://www.bis.org/terms_conditions.htm",
+      "payload_sha256": "b9c2ebe5ff546fa4a02c315695bae78d0d0e5bd9254e70de6ae456ae35c5a3f4",
+      "archive_entry": "WS_DSR_csv_flat.csv",
+      "selected_series": "private non-financial sector",
+      "transform": "current DSR minus the preceding 60-quarter mean",
+      "retained_observations": 480,
+      "indicator_count": 10,
+      "observed_from": "2014-03-31",
+      "observed_through": "2025-12-31"
+    },
+    {
+      "dataset": "BIS selected residential property prices",
+      "url": "https://data.bis.org/static/bulk/WS_SPP_csv_flat.zip",
+      "terms": "https://www.bis.org/terms_conditions.htm",
+      "payload_sha256": "21cad6b4853b922f415c361a70d60af54e085db661aa18054b4dad31a6482ce5",
+      "archive_entry": "WS_SPP_csv_flat.csv",
+      "selected_series": "quarterly real year-on-year change",
+      "transform": "provider real year-on-year change",
+      "retained_observations": 1656,
+      "indicator_count": 10,
+      "observed_from": "1956-03-31",
+      "observed_through": "2026-03-31"
+    }
+  ],
+  "regions": [
+    "United States",
+    "Canada",
+    "United Kingdom",
+    "China",
+    "Hong Kong SAR",
+    "Japan",
+    "Korea",
+    "India",
+    "Brazil",
+    "Mexico"
+  ],
+  "threshold_basis": {
+    "debt_service_gap": {
+      "warning": "2.5",
+      "danger": "4",
+      "critical": "6",
+      "unit": "percentage_points",
+      "direction": "higher_is_worse",
+      "source": "https://www.bis.org/publ/qtrpdf/r_qt1209e.pdf",
+      "status": "candidate_requires_replay"
+    },
+    "real_house_price_yoy": {
+      "warning": "5",
+      "danger": "10",
+      "critical": "15",
+      "unit": "percent_yoy_absolute_move",
+      "direction": "two_sided",
+      "source": "https://www.bis.org/publ/qtrpdf/r_qt1409h.htm",
+      "status": "candidate_monitoring_bands_require_replay"
+    }
+  },
+  "causal_status": {
+    "provider_payload_is_current_bulk_revision": true,
+    "release_time_is_exact_for_historical_rows": false,
+    "quality_flag": "release_time_estimated",
+    "retrospective_history_eligible_for_causal_replay": false,
+    "future_live_collection_can_build_point_in_time_history": true
+  },
+  "source_contract": {
+    "official_https_hosts_allowlisted": true,
+    "archive_entry_exact": true,
+    "uncompressed_size_limit_bytes": 20000000,
+    "schema_dimensions_validated": true,
+    "units_validated": true,
+    "normal_free_observations_only": true,
+    "duplicate_periods_rejected": true,
+    "future_periods_rejected": true,
+    "bounded_timeout_retry_and_payload_size": true,
+    "offline_fixtures_and_degradation_tests": true
+  },
+  "safety": {
+    "new_indicators_enabled": false,
+    "candidate_v14_entered_live_snapshot_calculation": false,
+    "candidate_v10_changed": false,
+    "candidate_v11_changed": false,
+    "candidate_v12_changed": false,
+    "candidate_v13_changed": false,
+    "working_database_touched": false,
+    "production_database_touched": false,
+    "historical_bulk_rows_claimed_as_point_in_time": false,
+    "probability_emitted": false,
+    "raw_provider_archives_distributed": false
+  },
+  "limitations": [
+    "candidate-v14 is a disabled collection candidate and has not passed causal replay or promotion.",
+    "Current BIS bulk files do not expose an exact historical release vintage for every row, so downloaded history is not causal replay evidence.",
+    "House-price monitoring bands are candidate zones and cannot be interpreted as crisis probabilities.",
+    "Debt-service and housing channels deepen financial-cycle coverage but do not cover labor, sovereign, shipping, stablecoin or geopolitical shocks."
+  ]
+}

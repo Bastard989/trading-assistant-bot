@@ -14,6 +14,7 @@
 - shadow methodology: `candidate-v11`;
 - replay-only depth methodology: `candidate-v12`;
 - replay-only scenario-coverage methodology: `candidate-v13`;
+- disabled BIS depth collection methodology: `candidate-v14`;
 - indicator scoring: `indicator-score-v2-seed-1`;
 - stage: `independent-stage-v2-seed-1`;
 - dependency graph: `dependency-graph-v2-seed-1`;
@@ -109,11 +110,23 @@ probability=`null`. Sensitivity при coverage 0.70/0.75/0.80/0.85 и гори�
 15/30/90 дней также не прошла promotion. Это улучшение честности выборки, а не
 доказательство прогностического преимущества.
 
+`candidate-v14` добавляет двадцать отключённых официальных BIS-входов для десяти
+экономик: отклонение DSR частного нефинансового сектора от предшествующего
+60-квартального среднего и реальное годовое изменение цен на жильё. Архивные
+контракты проверяют точное имя файла, schema/dimensions, единицы, свободный
+normal-status, дубликаты, будущие периоды и размер распаковки. Текущий bulk-файл
+является текущей ревизией и не предоставляет точный historical release vintage,
+поэтому импортированная история помечается `release_time_estimated`, не считается
+causal replay evidence и не даёт права включить v14 в live. Регулярный сбор может
+накапливать point-in-time историю с момента подключения.
+
 ## Known limitations
 
 - causal history has insufficient breadth/depth for v11 promotion;
 - candidate-v13 has only three independent positive financial-stress episodes;
   it is replay-only and cannot emit a calibrated probability;
+- candidate-v14 BIS depth inputs are disabled; current bulk history lacks exact
+  historical release vintages and cannot be used as causal replay evidence;
 - global regions have unequal channel depth;
 - ten additional official FRED depth series are disabled live inputs with
   explicit thresholds only inside immutable replay-only `candidate-v12`; they
@@ -149,6 +162,7 @@ probability=`null`. Sensitivity при coverage 0.70/0.75/0.80/0.85 и гори�
 - calling candidate-v11 production-primary before replay and canary pass.
 - calling candidate-v12 live or promoted while its coverage gate fails.
 - calling candidate-v13 live or promoted while calibration and holdout gates fail.
+- calling candidate-v14 live or promoted before point-in-time replay and canary.
 
 ## Monitoring and rollback
 

@@ -32,7 +32,7 @@
 | 3. Dependency/group/stage v2 | completed (shadow) | Independent subchannels/clusters, intensity + systemic breadth, anchors, fail-closed coverage, v10/v11 comparison; tests |
 | 4. Signed OI | completed (shadow) | 1d/7d/30d signed OI, leverage build vs liquidation unwind, v10 absolute series preserved; boundary/API/service tests |
 | 5. Threshold registry v11 | completed (candidate) | Immutable metadata/checksum/source/role/profile/promotion evidence for v11; v10 untouched |
-| 6. Numeric depth | in_progress | 13 scoring FRED v11 series plus 10 disabled research series. All ten have verified causal initial-release history and are registered in immutable replay-only `candidate-v12`; all remain disabled for live. `candidate-v13` adds fixed scenario-group coverage and mandatory credit/market/funding plus US/other-advanced/emerging classes. Equal-value vintages are preserved and revision chains are rebuilt chronologically. US/market depth improved; independent non-US depth remains insufficient for production promotion |
+| 6. Numeric depth | in_progress | 13 scoring FRED v11 series plus 10 disabled causal FRED depth series. `candidate-v13` adds fixed scenario-group coverage and mandatory credit/market/funding plus US/other-advanced/emerging classes. Disabled `candidate-v14` adds official BIS debt-service and real-house-price channels for ten economies. Real contract parsing retained 480 DSR-gap and 1,656 housing observations. Current BIS bulk history lacks exact release vintages, so it is collection evidence rather than causal replay evidence. Non-US depth improved materially but labor, banking funding, sovereign, shipping and stablecoin depth remain incomplete |
 | 7. News coverage/lifecycle | in_progress | Separate news coverage, snapshot-time decay, immediate fusion recompute; all 12 configured official channels live-verified on 2026-08-11: 10 RSS, strict HKMA press-release JSON API for Hong Kong/Greater China and OFAC official GovDelivery topic `USTREAS_61` for sanctions events. Offline fixtures cover security-sensitive adapters. RBA rejected after reproducible HTTP 403; the retired native OFAC RSS is not used; broader filings/exchange coverage remains |
 | 8. Evidence memory profiles | completed (optional advanced) | Basic SQLite FTS5 works without embeddings. Advanced pgvector has schema, continuous ingestion, embedding queue/fallback, hybrid search, health API and a real local PostgreSQL/pgvector verification with relational evidence ID |
 | 9. Scenarios/recovery/diff | completed (shadow seed) | 11 Crisis Playbooks, causal chain, anchors, invalidation, recovery, evidence IDs and persisted causal diff; historical calibration remains stage 12 |
@@ -77,6 +77,9 @@ initial releases use their actual release dates.
 - `candidate-v13` является отдельно checksummed replay-only методикой с
   фиксированным scenario coverage contract. Она не входит в bootstrap live-сервиса
   и не может быть promoted при трёх независимых положительных эпизодах.
+- `candidate-v14` является отдельно checksummed disabled collection-кандидатом.
+  Его текущая BIS bulk-история не объявляется point-in-time и не может войти в
+  live до накопления/получения причинной истории, replay и canary.
 - Live probability остаётся `null` до победы над baseline.
 - Календарный 14-дневный canary нельзя объявлять завершённым заранее.
 
@@ -117,6 +120,9 @@ initial releases use their actual release dates.
 - Full regression after immutable `candidate-v13` scenario coverage, vintage
   preservation and chronological revision-chain hardening: `445 passed`, one
   known Starlette/httpx compatibility warning; Ruff passed.
+- Full regression after disabled `candidate-v14` BIS debt-service/housing depth
+  integration and live-source contract verification: `453 passed`, one known
+  Starlette/httpx compatibility warning; Ruff passed.
 - Source registry: 22 версионируемых контракта; offline contract gate проходит.
 - Live source contracts: 13/13 scoring FRED v11 series, 10/10 disabled
   next-methodology FRED research series and 12/12 configured official news
@@ -150,6 +156,14 @@ initial releases use their actual release dates.
   Evidence:
   `docs/evidence/crisis-radar-v13-financial-stress-replay-20260813.json` and
   `docs/evidence/crisis-radar-v13-replay-input-and-sensitivity-20260813.json`.
+- Disabled `candidate-v14` BIS depth candidate adds DSR deviations from the
+  preceding 60-quarter mean and real residential-property-price YoY moves for
+  US, Canada, UK, China, Hong Kong, Japan, Korea, India, Brazil and Mexico.
+  Official live bulk payloads passed strict schema/unit/status/duplicate/future
+  and archive-size contracts and produced 480 + 1,656 research observations.
+  They remain disabled because current bulk revisions do not prove historical
+  release time. Evidence:
+  `docs/evidence/crisis-radar-v14-bis-depth-contract-20260813.json`.
 - HKMA adapter rejects unsuccessful headers, malformed schema, duplicate/future
   records and URLs outside `www.hkma.gov.hk`; scheduled sync, CLI and news coverage
   use the same client/normalizer router.

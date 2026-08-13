@@ -17,6 +17,8 @@ from trading_bot.crisis_radar.sources.base import SourcePayloadError
 _WORLD_BANK_SERIES = "NY.GDP.MKTP.KD.ZG"
 _QUARTER = re.compile(r"^(\d{4})-Q([1-4])$")
 _BIS_CSV = "WS_CREDIT_GAP_csv_flat.csv"
+_BIS_DSR_CSV = "WS_DSR_csv_flat.csv"
+_BIS_SPP_CSV = "WS_SPP_csv_flat.csv"
 _BIS_MAX_UNCOMPRESSED_BYTES = 20_000_000
 _OECD_MONTH = re.compile(r"^(\d{4})-(0[1-9]|1[0-2])$")
 
@@ -44,6 +46,19 @@ _OECD_AREAS = {
     "KOR": "korea_cli_6m_change",
     "MEX": "mexico_cli_6m_change",
     "USA": "us_cli_6m_change",
+}
+
+_BIS_DEPTH_COUNTRIES = {
+    "US": "us",
+    "CA": "canada",
+    "GB": "uk",
+    "CN": "china",
+    "HK": "hong_kong",
+    "JP": "japan",
+    "KR": "korea",
+    "IN": "india",
+    "BR": "brazil",
+    "MX": "mexico",
 }
 
 
@@ -114,6 +129,24 @@ class WorldBankAdapter:
 class BisAdapter:
     source_code = "bis"
 
+    @staticmethod
+    def _flat_csv(payload: bytes, *, expected_name: str) -> csv.DictReader:
+        try:
+            archive = zipfile.ZipFile(io.BytesIO(payload))
+            entries = archive.infolist()
+            if len(entries) != 1 or entries[0].filename != expected_name:
+                archive.close()
+                raise SourcePayloadError("unexpected BIS archive contents")
+            entry = entries[0]
+            if entry.file_size > _BIS_MAX_UNCOMPRESSED_BYTES:
+                archive.close()
+                raise SourcePayloadError("BIS archive exceeds uncompressed size limit")
+            csv_payload = archive.read(entry)
+            archive.close()
+            return csv.DictReader(io.StringIO(csv_payload.decode("utf-8-sig")))
+        except (zipfile.BadZipFile, UnicodeDecodeError, csv.Error) as exc:
+            raise SourcePayloadError("invalid BIS bulk archive") from exc
+
     def normalize_credit_gaps(
         self, payload: bytes, *, fetched_at: datetime, include_global: bool = False
     ) -> list[Observation]:
@@ -141,6 +174,169 @@ class BisAdapter:
         if not observations:
             raise SourcePayloadError("BIS response contains no selected credit-gap observations")
         return sorted(observations, key=lambda item: (item.indicator_code, item.observed_at))
+
+    def normalize_debt_service_gaps(
+        self,
+        payload: bytes,
+        *,
+        fetched_at: datetime,
+        trailing_quarters: int = 60,
+    ) -> list[Observation]:
+        """Return DSR deviations using only the preceding 15 years at each quarter."""
+
+        if fetched_at.tzinfo is None or fetched_at.utcoffset() is None:
+            raise ValueError("fetched_at must be timezone-aware")
+        if trailing_quarters != 60:
+            raise ValueError("BIS DSR candidate requires a fixed 60-quarter baseline")
+        rows = self._flat_csv(payload, expected_name=_BIS_DSR_CSV)
+        required = {
+            "FREQ:Frequency",
+            "BORROWERS_CTY:Borrowers' country",
+            "DSR_BORROWERS:Borrowers",
+            "TIME_PERIOD:Time period or range",
+            "OBS_VALUE:Observation Value",
+            "UNIT_MEASURE:Unit of measure",
+            "OBS_STATUS:Observation Status",
+            "OBS_CONF:Observation confidentiality",
+        }
+        if rows.fieldnames is None or not required.issubset(rows.fieldnames):
+            raise SourcePayloadError("BIS DSR CSV is missing required columns")
+        values: dict[str, dict[int, Decimal]] = {
+            code: {} for code in _BIS_DEPTH_COUNTRIES
+        }
+        for row in rows:
+            country = row["BORROWERS_CTY:Borrowers' country"].split(":", 1)[0].strip()
+            if country not in values:
+                continue
+            if (
+                row["FREQ:Frequency"] != "Q: Quarterly"
+                or row["DSR_BORROWERS:Borrowers"]
+                != "P: Private non-financial sector"
+                or row["UNIT_MEASURE:Unit of measure"] != "367: Per cent"
+                or row["OBS_STATUS:Observation Status"] != "A: Normal value"
+                or row["OBS_CONF:Observation confidentiality"] != "F: Free"
+            ):
+                continue
+            match = _QUARTER.match(row["TIME_PERIOD:Time period or range"])
+            if not match:
+                raise SourcePayloadError("invalid BIS DSR quarter")
+            ordinal = int(match.group(1)) * 4 + int(match.group(2)) - 1
+            if ordinal in values[country]:
+                raise SourcePayloadError("duplicate BIS DSR observation")
+            try:
+                values[country][ordinal] = Decimal(row["OBS_VALUE:Observation Value"])
+            except InvalidOperation as exc:
+                raise SourcePayloadError("invalid BIS DSR value") from exc
+        content_hash = hashlib.sha256(payload).hexdigest()
+        vintage = f"{fetched_at.date().isoformat()}:{content_hash[:12]}"
+        result = []
+        for country, series in values.items():
+            for ordinal, current in sorted(series.items()):
+                prior = [series.get(item) for item in range(ordinal - trailing_quarters, ordinal)]
+                if any(value is None for value in prior):
+                    continue
+                baseline = sum((value for value in prior if value is not None), Decimal("0")) / Decimal(
+                    trailing_quarters
+                )
+                year, quarter_index = divmod(ordinal, 4)
+                quarter = quarter_index + 1
+                month = quarter * 3
+                observed_at = datetime(
+                    year, month, monthrange(year, month)[1], tzinfo=timezone.utc
+                )
+                if observed_at > fetched_at:
+                    continue
+                result.append(
+                    Observation(
+                        indicator_code=f"{_BIS_DEPTH_COUNTRIES[country]}_debt_service_gap",
+                        source_code=self.source_code,
+                        value=(current - baseline).quantize(Decimal("0.0001")),
+                        unit="percentage_points",
+                        observed_at=observed_at,
+                        released_at=fetched_at,
+                        fetched_at=fetched_at,
+                        vintage=vintage,
+                        quality_flags=frozenset({QualityFlag.RELEASE_TIME_ESTIMATED}),
+                        content_hash=content_hash,
+                    )
+                )
+        if not result:
+            raise SourcePayloadError("BIS DSR response contains no usable depth observations")
+        return sorted(result, key=lambda item: (item.indicator_code, item.observed_at))
+
+    def normalize_residential_property_prices(
+        self, payload: bytes, *, fetched_at: datetime
+    ) -> list[Observation]:
+        if fetched_at.tzinfo is None or fetched_at.utcoffset() is None:
+            raise ValueError("fetched_at must be timezone-aware")
+        rows = self._flat_csv(payload, expected_name=_BIS_SPP_CSV)
+        required = {
+            "FREQ:Frequency",
+            "REF_AREA:Reference area",
+            "VALUE:Value",
+            "UNIT_MEASURE:Unit of measure",
+            "TIME_PERIOD:Time period or range",
+            "OBS_VALUE:Observation Value",
+            "OBS_STATUS:Observation Status",
+            "OBS_CONF:Observation confidentiality",
+        }
+        if rows.fieldnames is None or not required.issubset(rows.fieldnames):
+            raise SourcePayloadError("BIS property-price CSV is missing required columns")
+        content_hash = hashlib.sha256(payload).hexdigest()
+        vintage = f"{fetched_at.date().isoformat()}:{content_hash[:12]}"
+        seen: set[tuple[str, int]] = set()
+        result = []
+        for row in rows:
+            country = row["REF_AREA:Reference area"].split(":", 1)[0].strip()
+            if country not in _BIS_DEPTH_COUNTRIES:
+                continue
+            if (
+                row["FREQ:Frequency"] != "Q: Quarterly"
+                or row["VALUE:Value"] != "R: Real"
+                or row["UNIT_MEASURE:Unit of measure"]
+                != "771: Year-on-year changes, in per cent"
+                or row["OBS_STATUS:Observation Status"] != "A: Normal value"
+                or row["OBS_CONF:Observation confidentiality"] != "F: Free"
+            ):
+                continue
+            match = _QUARTER.match(row["TIME_PERIOD:Time period or range"])
+            if not match:
+                raise SourcePayloadError("invalid BIS property-price quarter")
+            year, quarter = int(match.group(1)), int(match.group(2))
+            ordinal = year * 4 + quarter - 1
+            key = (country, ordinal)
+            if key in seen:
+                raise SourcePayloadError("duplicate BIS property-price observation")
+            seen.add(key)
+            try:
+                value = Decimal(row["OBS_VALUE:Observation Value"])
+            except InvalidOperation as exc:
+                raise SourcePayloadError("invalid BIS property-price value") from exc
+            month = quarter * 3
+            observed_at = datetime(
+                year, month, monthrange(year, month)[1], tzinfo=timezone.utc
+            )
+            if observed_at > fetched_at:
+                continue
+            result.append(
+                Observation(
+                    indicator_code=f"{_BIS_DEPTH_COUNTRIES[country]}_real_house_price_yoy",
+                    source_code=self.source_code,
+                    value=value,
+                    unit="percent_yoy",
+                    observed_at=observed_at,
+                    released_at=fetched_at,
+                    fetched_at=fetched_at,
+                    vintage=vintage,
+                    quality_flags=frozenset({QualityFlag.RELEASE_TIME_ESTIMATED}),
+                    content_hash=content_hash,
+                )
+            )
+        if not result:
+            raise SourcePayloadError(
+                "BIS property-price response contains no usable depth observations"
+            )
+        return sorted(result, key=lambda item: (item.indicator_code, item.observed_at))
 
     def _normalize_rows(
         self,

@@ -24,6 +24,7 @@ METHODOLOGY_GLOBAL_V2_VERSION = "candidate-v10"
 METHODOLOGY_V11_VERSION = "candidate-v11"
 METHODOLOGY_V12_VERSION = "candidate-v12"
 METHODOLOGY_V13_VERSION = "candidate-v13"
+METHODOLOGY_V14_VERSION = "candidate-v14"
 
 
 @dataclass(frozen=True)
@@ -1105,6 +1106,69 @@ BIS_GLOBAL_V2_INDICATORS = tuple(
     )
 )
 
+
+_BIS_V14_REGION_ROWS = (
+    ("us", "US", "United States", "США"),
+    ("canada", "CA", "Canada", "Канада"),
+    ("uk", "GB", "United Kingdom", "Великобритания"),
+    ("china", "CN", "China", "Китай"),
+    ("hong_kong", "HK", "Hong Kong SAR", "Гонконг"),
+    ("japan", "JP", "Japan", "Япония"),
+    ("korea", "KR", "Korea", "Южная Корея"),
+    ("india", "IN", "India", "Индия"),
+    ("brazil", "BR", "Brazil", "Бразилия"),
+    ("mexico", "MX", "Mexico", "Мексика"),
+)
+
+# Official BIS depth inputs are registered disabled in candidate-v14.  The DSR
+# transform follows the BIS early-warning construction: the current private
+# non-financial-sector debt-service ratio minus its trailing 15-year mean.  The
+# 2.5/4/6 pp thresholds are published BIS sensitivity levels, not probabilities.
+BIS_V14_CANDIDATE_INDICATORS = tuple(
+    indicator
+    for slug, iso, label, label_ru in _BIS_V14_REGION_ROWS
+    for indicator in (
+        IndicatorSeed(
+            code=f"{slug}_debt_service_gap",
+            provider_series_id=f"WS_DSR:{iso}:P:deviation_15y_mean",
+            name=f"{label} Private-Sector Debt-Service Gap",
+            name_ru=f"Отклонение долговой нагрузки частного сектора — {label_ru}",
+            group_code=f"{slug}_debt_service",
+            region_code=iso,
+            unit="percentage_points",
+            frequency="quarterly",
+            max_staleness_seconds=300 * 86400,
+            thresholds=IndicatorThresholds(
+                warning=Decimal("2.5"),
+                danger=Decimal("4"),
+                critical=Decimal("6"),
+                reference=Decimal("0"),
+                direction=RiskDirection.HIGHER_IS_WORSE,
+            ),
+            transform="deviation_from_prior_15y_mean",
+        ),
+        IndicatorSeed(
+            code=f"{slug}_real_house_price_yoy",
+            provider_series_id=f"WS_SPP:{iso}:R:771",
+            name=f"{label} Real Residential Property Price Growth",
+            name_ru=f"Рост реальных цен на жильё — {label_ru}",
+            group_code=f"{slug}_housing_cycle",
+            region_code=iso,
+            unit="percent_yoy",
+            frequency="quarterly",
+            max_staleness_seconds=220 * 86400,
+            thresholds=IndicatorThresholds(
+                warning=Decimal("5"),
+                danger=Decimal("10"),
+                critical=Decimal("15"),
+                reference=Decimal("0"),
+                direction=RiskDirection.TWO_SIDED,
+            ),
+            transform="real_yoy_change",
+        ),
+    )
+)
+
 OECD_INDICATORS = (
     IndicatorSeed(
         code="g20_cli_6m_change",
@@ -1398,6 +1462,7 @@ V11_INDICATORS = tuple(
 ) + FRED_V11_DEPTH_INDICATORS + BYBIT_SIGNED_V11_INDICATORS
 V12_INDICATORS = V11_INDICATORS + FRED_V12_CANDIDATE_INDICATORS
 V13_INDICATORS = V12_INDICATORS
+V14_INDICATORS = V13_INDICATORS + BIS_V14_CANDIDATE_INDICATORS
 
 _V11_SCENARIO_EXTRA_GROUPS = {
     "global_recession": ("housing_cre",),
@@ -1488,6 +1553,26 @@ V13_SCENARIOS = tuple(
         ),
     )
     for scenario in V12_SCENARIOS
+)
+
+_BIS_V14_DSR_GROUPS = tuple(
+    f"{slug}_debt_service" for slug, *_ in _BIS_V14_REGION_ROWS
+)
+_BIS_V14_HOUSING_GROUPS = tuple(
+    f"{slug}_housing_cycle" for slug, *_ in _BIS_V14_REGION_ROWS
+)
+V14_SCENARIOS = tuple(
+    replace(
+        scenario,
+        group_codes=(
+            scenario.group_codes + _BIS_V14_DSR_GROUPS + _BIS_V14_HOUSING_GROUPS
+            if scenario.code in {"financial_stress", "banking_crisis"}
+            else scenario.group_codes + _BIS_V14_HOUSING_GROUPS
+            if scenario.code == "regional_recession"
+            else scenario.group_codes
+        ),
+    )
+    for scenario in V13_SCENARIOS
 )
 
 _V2_THRESHOLD_RATIONALE = {
@@ -1581,6 +1666,36 @@ _V2_THRESHOLD_RATIONALE = {
     },
 }
 
+for _slug, _iso, _label, _label_ru in _BIS_V14_REGION_ROWS:
+    _V2_THRESHOLD_RATIONALE[f"{_slug}_debt_service_gap"] = {
+        "ru": (
+            "BIS рассматривает отклонение DSR от долгосрочного среднего как "
+            "ранний индикатор банковского стресса; 2,5/4/6 п.п. сохраняют "
+            "опубликованные уровни sensitivity, но требуют replay на нашей выборке."
+        ),
+        "en": (
+            "BIS treats the DSR deviation from its long-run mean as a banking-crisis "
+            "early-warning indicator; 2.5/4/6 pp retain published sensitivity levels "
+            "but still require replay on our sample."
+        ),
+        "source_url": "https://www.bis.org/publ/qtrpdf/r_qt1209e.pdf",
+        "operational_role": "regional_debt_service_vulnerability",
+    }
+    _V2_THRESHOLD_RATIONALE[f"{_slug}_real_house_price_yoy"] = {
+        "ru": (
+            "BIS показывает, что сильные движения реальных цен на жильё полезны "
+            "в сочетании с кредитом и DSR; симметричные 5/10/15% являются "
+            "кандидатными зонами мониторинга, а не готовой вероятностью."
+        ),
+        "en": (
+            "BIS finds large real house-price moves useful when combined with credit "
+            "and DSR; symmetric 5/10/15% bands are monitoring candidates, not a "
+            "calibrated probability."
+        ),
+        "source_url": "https://www.bis.org/publ/qtrpdf/r_qt1409h.htm",
+        "operational_role": "regional_housing_cycle",
+    }
+
 
 def methodology_checksum(
     *,
@@ -1627,6 +1742,7 @@ def methodology_checksum(
         METHODOLOGY_V11_VERSION,
         METHODOLOGY_V12_VERSION,
         METHODOLOGY_V13_VERSION,
+        METHODOLOGY_V14_VERSION,
     }:
         payload["indicator_scoring"] = {
             code: {key: str(value) for key, value in asdict(profile).items()}
@@ -1657,6 +1773,7 @@ def _source_code_for_indicator(code: str) -> str:
         (BYBIT, BYBIT_SIGNED_V11_INDICATORS),
         (WORLD_BANK, WORLD_BANK_GLOBAL_V2_INDICATORS),
         (BIS, BIS_GLOBAL_V2_INDICATORS),
+        (BIS, BIS_V14_CANDIDATE_INDICATORS),
         (OECD, OECD_GLOBAL_V2_INDICATORS),
     ):
         if any(item.code == code for item in indicators):
@@ -1688,6 +1805,8 @@ def _bootstrap_catalog(
             if version == METHODOLOGY_V12_VERSION
             else "2026-08-13T13:05:00+00:00"
             if version == METHODOLOGY_V13_VERSION
+            else "2026-08-13T17:25:00+00:00"
+            if version == METHODOLOGY_V14_VERSION
             else
             "2026-08-04T12:00:00+00:00"
             if version == METHODOLOGY_GLOBAL_V2_VERSION
@@ -1747,6 +1866,7 @@ def _bootstrap_catalog(
             METHODOLOGY_V11_VERSION,
             METHODOLOGY_V12_VERSION,
             METHODOLOGY_V13_VERSION,
+            METHODOLOGY_V14_VERSION,
         }
         profile = profile_for(
             frequency=item.frequency,
@@ -1767,6 +1887,7 @@ def _bootstrap_catalog(
                 METHODOLOGY_V11_VERSION,
                 METHODOLOGY_V12_VERSION,
                 METHODOLOGY_V13_VERSION,
+                METHODOLOGY_V14_VERSION,
             } else "legacy",
             promotion_status=promotion_status,
             rationale=rationale if version in {
@@ -1774,6 +1895,7 @@ def _bootstrap_catalog(
                 METHODOLOGY_V11_VERSION,
                 METHODOLOGY_V12_VERSION,
                 METHODOLOGY_V13_VERSION,
+                METHODOLOGY_V14_VERSION,
             } else {},
             source_url=(
                 rationale.get("source_url")
@@ -1797,6 +1919,8 @@ def _bootstrap_catalog(
                 if version == METHODOLOGY_V12_VERSION
                 else "2026-08-13T13:05:00+00:00"
                 if version == METHODOLOGY_V13_VERSION
+                else "2026-08-13T17:25:00+00:00"
+                if version == METHODOLOGY_V14_VERSION
                 else "2026-08-05T12:53:16+00:00"
                 if version == METHODOLOGY_V11_VERSION
                 else ""
@@ -1812,7 +1936,9 @@ def _bootstrap_catalog(
                 entity_type="indicator",
                 entity_code=item.code,
                 metadata_version=(
-                    "v13"
+                    "v14"
+                    if version == METHODOLOGY_V14_VERSION
+                    else "v13"
                     if version == METHODOLOGY_V13_VERSION
                     else "v12"
                     if version == METHODOLOGY_V12_VERSION
@@ -1833,7 +1959,9 @@ def _bootstrap_catalog(
                 entity_type="group",
                 entity_code=item.group_code,
                 metadata_version=(
-                    "v13"
+                    "v14"
+                    if version == METHODOLOGY_V14_VERSION
+                    else "v13"
                     if version == METHODOLOGY_V13_VERSION
                     else "v12"
                     if version == METHODOLOGY_V12_VERSION
@@ -1877,6 +2005,7 @@ def _bootstrap_catalog(
             METHODOLOGY_V11_VERSION,
             METHODOLOGY_V12_VERSION,
             METHODOLOGY_V13_VERSION,
+            METHODOLOGY_V14_VERSION,
         }:
             from trading_bot.crisis_radar.metadata_v11 import scenario_metadata
 
@@ -1884,7 +2013,9 @@ def _bootstrap_catalog(
                 entity_type="scenario",
                 entity_code=scenario.code,
                 metadata_version=(
-                    "v13"
+                    "v14"
+                    if version == METHODOLOGY_V14_VERSION
+                    else "v13"
                     if version == METHODOLOGY_V13_VERSION
                     else "v12"
                     if version == METHODOLOGY_V12_VERSION
@@ -1966,6 +2097,23 @@ def bootstrap_v13_catalog(repository: CrisisRadarRepository) -> dict[str, int | 
         version=METHODOLOGY_V13_VERSION,
         indicators=V13_INDICATORS,
         scenarios=V13_SCENARIOS,
+        promotion_status="candidate",
+        indicator_enabled_overrides={code: False for code in new_codes},
+    )
+
+
+def bootstrap_v14_catalog(repository: CrisisRadarRepository) -> dict[str, int | str]:
+    """Register official BIS depth inputs as disabled collection candidates."""
+
+    new_codes = {
+        item.code
+        for item in FRED_V12_CANDIDATE_INDICATORS + BIS_V14_CANDIDATE_INDICATORS
+    }
+    return _bootstrap_catalog(
+        repository,
+        version=METHODOLOGY_V14_VERSION,
+        indicators=V14_INDICATORS,
+        scenarios=V14_SCENARIOS,
         promotion_status="candidate",
         indicator_enabled_overrides={code: False for code in new_codes},
     )

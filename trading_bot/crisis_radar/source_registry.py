@@ -54,8 +54,8 @@ SOURCE_POLICIES = (
     ),
     SourcePolicy(
         "bis", "A", "https://www.bis.org/terms_conditions.htm", "official-bulk", "quarterly",
-        "quarterly publication lag", "one bounded archive per daily sync", None, "candidate",
-        "credit-cycle vulnerability; not a standalone crisis event",
+        "quarterly publication lag", "three allowlisted bounded archives per daily sync", None, "candidate",
+        "credit, debt-service and housing-cycle vulnerability; not a standalone crisis event",
     ),
     SourcePolicy(
         "oecd", "A", "https://www.oecd.org/en/about/terms-conditions.html", "official-sdmx", "monthly",
@@ -128,7 +128,7 @@ SOURCE_POLICIES = (
 
 def source_registry_payload() -> dict:
     return {
-        "version": "2026-08-11",
+        "version": "2026-08-13",
         "sources": [asdict(item) for item in SOURCE_POLICIES],
         "rules": {
             "official_first": True,

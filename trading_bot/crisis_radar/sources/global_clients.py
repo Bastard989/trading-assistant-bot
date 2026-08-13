@@ -105,6 +105,20 @@ class BisClient(_PublicClient):
             accept="application/zip",
         )
 
+    async def fetch_debt_service_ratios(self) -> bytes:
+        return await self._get(
+            "https://data.bis.org/static/bulk/WS_DSR_csv_flat.zip",
+            params={},
+            accept="application/zip",
+        )
+
+    async def fetch_residential_property_prices(self) -> bytes:
+        return await self._get(
+            "https://data.bis.org/static/bulk/WS_SPP_csv_flat.zip",
+            params={},
+            accept="application/zip",
+        )
+
 
 class OecdClient(_PublicClient):
     REFERENCE_AREAS = ("G20", "CHN", "CAN", "GBR", "JPN", "KOR", "IND", "BRA", "MEX", "USA")

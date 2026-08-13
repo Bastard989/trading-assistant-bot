@@ -27,6 +27,7 @@ from trading_bot.crisis_radar.catalog import (
     bootstrap_starter_catalog,
     bootstrap_v2_catalog,
     bootstrap_v11_catalog,
+    bootstrap_v14_catalog,
 )
 from trading_bot.crisis_radar.coverage import (
     DEFAULT_REQUIRED_REGIONS,
@@ -147,6 +148,7 @@ class CrisisRadarService:
         result["event_catalog_count"] = len(bootstrap_official_event_catalogs(self.repository))
         if self.feature_flags.scoring_v11:
             result["shadow_v11"] = bootstrap_v11_catalog(self.repository)
+            result["research_v14"] = bootstrap_v14_catalog(self.repository)
         return result
 
     def derive_crypto_event_catalog(
@@ -712,32 +714,60 @@ class CrisisRadarService:
         sync_run_id = self.repository.start_sync_run("bis", started_at=now)
         rows_fetched = 0
         rows_written = 0
-        error = ""
-        try:
-            payload = await client.fetch_credit_gaps()
-            observations = BisAdapter().normalize_credit_gaps(
-                payload,
-                fetched_at=now,
-                include_global=self.feature_flags.global_sources_v2,
+        errors = []
+        adapter = BisAdapter()
+        fetchers = [
+            (
+                "credit_gap",
+                client.fetch_credit_gaps,
+                lambda payload: adapter.normalize_credit_gaps(
+                    payload,
+                    fetched_at=now,
+                    include_global=self.feature_flags.global_sources_v2,
+                ),
             )
-            rows_fetched = len(observations)
+        ]
+        if self.feature_flags.scoring_v11:
+            fetchers.extend(
+                (
+                    (
+                        "debt_service",
+                        client.fetch_debt_service_ratios,
+                        lambda payload: adapter.normalize_debt_service_gaps(
+                            payload, fetched_at=now
+                        ),
+                    ),
+                    (
+                        "property_prices",
+                        client.fetch_residential_property_prices,
+                        lambda payload: adapter.normalize_residential_property_prices(
+                            payload, fetched_at=now
+                        ),
+                    ),
+                )
+            )
+        for dataset, fetch, normalize in fetchers:
+            try:
+                observations = normalize(await fetch())
+            except (GlobalSourceError, SourcePayloadError) as exc:
+                errors.append(f"{dataset}:{type(exc).__name__}")
+                continue
+            rows_fetched += len(observations)
             for observation in observations:
                 rows_written += int(
                     self.repository.save_observation(
                         observation, sync_run_id=sync_run_id
                     ).inserted
                 )
-        except (GlobalSourceError, SourcePayloadError) as exc:
-            error = type(exc).__name__
-        status = "failed" if error else "succeeded"
+        status = "failed" if errors and not rows_fetched else "partial" if errors else "succeeded"
         self.repository.finish_sync_run(
             sync_run_id,
             finished_at=datetime.now(timezone.utc),
             status=status,
             rows_fetched=rows_fetched,
             rows_written=rows_written,
-            error_code="source_error" if error else "",
-            error_detail=error,
+            error_code="source_errors" if errors else "",
+            error_detail=",".join(errors),
         )
         overview = self.recompute(snapshot_at=now) if rows_fetched and recompute_after else None
         return {

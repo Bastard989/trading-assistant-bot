@@ -38,7 +38,7 @@
 | 9. Scenarios/recovery/diff | completed (shadow seed) | 11 Crisis Playbooks, causal chain, anchors, invalidation, recovery, evidence IDs and persisted causal diff; historical calibration remains stage 12 |
 | 10. Exposure/scorecard | completed (shadow seed) | Read-only open-trade overlay and persistent signal lifecycle scorecards; outcome/reaction resolution needs live history |
 | 11. UI/help/navigation | completed | RU-first v11 metadata and bands, compact main view, journal subnavigation, models in tools, six analysis tabs, accessible help dialog, scenario expansion, exposure overlay; manually verified in in-app browser at desktop/mobile and automated authenticated Playwright E2E |
-| 12. Replay/calibration | implemented; gate failed honestly | Causal v10/v11 and v10/v12 comparison plus economic/historical/full/no-trend/no-events/no-contagion/no-dependency/base-rate variants; future-release regression tests. `candidate-v12` financial-stress replay evaluated 89 monthly cutoffs using 2–10 available new inputs, but full numeric coverage was only 2.44–12.20%, so all 89 cutoffs failed closed as `insufficient_data`. v11/v12 remain shadow and probability is null |
+| 12. Replay/calibration | implemented; gate failed honestly | Causal v10/v11 and v10/v12 comparison plus economic/historical/full/no-trend/no-events/no-contagion/no-dependency/base-rate variants; future-release regression tests. After merging an online copy of existing history and causally backfilling every verified FRED series, `candidate-v12` financial-stress replay evaluated 220 monthly cutoffs using 4–32 inputs. Full numeric coverage was still only 4.88–37.80%, so all 220 cutoffs failed closed as `insufficient_data`. v11/v12 remain shadow and probability is null |
 | 13. Packaging/E2E/security | completed for repository candidate | Authenticated RU/EN/mobile/degraded Playwright E2E; CI installs Chromium; overall coverage 80.20%; computational core 90.31%, runtime 90.09%, PostgreSQL memory 96.83%; self-host doctor, source contracts, guarded update/rollback, encrypted off-host backup and isolated restore drill are tested |
 | 14. Rollout/canary | in progress on target server | Initial release `7c87903` safely migrated the live DB v20→v23. Active immutable hotfix release `715384d` deduplicates persistent canary incidents; API/bot are active, external temporary HTTPS health is green and all 12 official news channels pass from the server. A fresh radar-specific systemd canary for the active release started `2026-08-11T20:08:48Z` and cannot complete before `2026-08-25T20:08:48Z`. Permanent HTTPS and a real encrypted off-host mount remain external blockers |
 
@@ -108,8 +108,9 @@ initial releases use their actual release dates.
   одно предупреждение совместимости Starlette/httpx, overall coverage `80.20%`.
 - Отдельные coverage gates: computational core `90.31%`,
   auth/config/main/jobs/migrations `90.09%`, PostgreSQL memory `96.83%`.
-- Full regression after immutable `candidate-v12` registry/replay integration:
-  `432 passed`, one known Starlette/httpx compatibility warning; Ruff passed.
+- Full regression after immutable `candidate-v12` registry/replay integration
+  and complete verified-FRED replay preparation: `436 passed`, one known
+  Starlette/httpx compatibility warning; Ruff passed.
 - Source registry: 22 версионируемых контракта; offline contract gate проходит.
 - Live source contracts: 13/13 scoring FRED v11 series, 10/10 disabled
   next-methodology FRED research series and 12/12 configured official news
@@ -123,10 +124,13 @@ initial releases use their actual release dates.
 - Immutable `candidate-v12` replay candidate: ten new causal FRED series have
   versioned RU/EN metadata, candidate thresholds, source rationale, dependency
   assignments and a distinct checksum. Real financial-stress replay over
-  2009-05-30–2016-09-01 produced 89 cutoffs; input count rose from 2 to 10, but
-  numeric coverage remained 0.0244–0.1220, therefore eligible cutoffs = 0,
+  1998-08-26–2016-09-01 produced 220 cutoffs after all 38 verified FRED series
+  were causally backfilled; input count rose from 4 to 32, but numeric coverage
+  remained 0.0488–0.3780, therefore eligible cutoffs = 0,
   every stage = `insufficient_data`, promotion = false and probability = null.
   Evidence: `docs/evidence/crisis-radar-v12-financial-stress-replay-20260813.json`.
+  Input preparation and isolation evidence:
+  `docs/evidence/crisis-radar-v12-replay-input-preparation-20260813.json`.
 - HKMA adapter rejects unsuccessful headers, malformed schema, duplicate/future
   records and URLs outside `www.hkma.gov.hk`; scheduled sync, CLI and news coverage
   use the same client/normalizer router.

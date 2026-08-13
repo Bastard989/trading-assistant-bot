@@ -194,6 +194,41 @@ def test_fred_initial_release_history_returns_empty_when_archive_has_no_vintage(
     assert calls == 1
 
 
+def test_fred_initial_release_history_skips_empty_trailing_single_day() -> None:
+    observation_ranges = []
+    vintage_calls = 0
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal vintage_calls
+        if request.url.path.endswith("/vintagedates"):
+            vintage_calls += 1
+            if vintage_calls == 1:
+                return httpx.Response(200, json={"vintage_dates": ["2010-08-11"]})
+            assert request.url.params["realtime_start"] == "2026-08-11"
+            assert request.url.params["realtime_end"] == "2026-08-11"
+            return httpx.Response(200, json={"vintage_dates": []})
+        observation_ranges.append(
+            (
+                request.url.params["realtime_start"],
+                request.url.params["realtime_end"],
+            )
+        )
+        return httpx.Response(200, json={"observations": []})
+
+    async def scenario() -> bytes:
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http_client:
+            return await FredClient("secret-key", client=http_client).fetch_history(
+                SeriesRequest("job_openings", "JTSJOL", "percent"),
+                observation_start=date(1990, 1, 1),
+                observation_end=date(2026, 8, 11),
+                initial_release=True,
+            )
+
+    assert json.loads(asyncio.run(scenario())) == {"observations": []}
+    assert vintage_calls == 2
+    assert observation_ranges[-1] == ("2022-08-11", "2026-08-10")
+
+
 def test_fred_adapter_drops_impossible_future_observation_from_causal_history() -> None:
     payload = _fred_history_payload(
         [("2020-01-02", "100"), ("2020-01-03", "101")],

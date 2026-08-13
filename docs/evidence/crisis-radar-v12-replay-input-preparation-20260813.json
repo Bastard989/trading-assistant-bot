@@ -1,0 +1,77 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-08-13T13:00:34.410400+00:00",
+  "purpose": "Prepare a disposable candidate-v12 causal replay database without changing working or production data.",
+  "base_depth_evidence": "docs/evidence/crisis-radar-fred-causal-backfill-20260813.json",
+  "existing_history_merge": {
+    "source_created_with_sqlite_online_backup": true,
+    "source_integrity_before_merge": "ok",
+    "rows_read": 59456,
+    "rows_inserted": 59429,
+    "rows_duplicate": 27,
+    "rows_excluded_retrospective_revised": 0,
+    "rows_unknown_indicator": 0,
+    "revision_links_created": 612,
+    "indicator_count": 78,
+    "destination_integrity_after_merge": "ok",
+    "foreign_key_violations_after_merge": 0,
+    "causal_eligibility_enforced_by_replay": true
+  },
+  "official_fred_initial_release_backfill": {
+    "requested_window": {
+      "start": "1990-01-01",
+      "end": "2026-08-11"
+    },
+    "primary_run": {
+      "status": "partial",
+      "rows_fetched": 49020,
+      "rows_written": 38297,
+      "errors": [
+        "us_job_openings_90d_change:FredClientError:FRED returned HTTP 400",
+        "us_quits_rate:FredClientError:FRED returned HTTP 400"
+      ]
+    },
+    "provider_boundary_fix": "Empty trailing one-day realtime windows are probed and omitted because they cannot contribute a vintage and FRED rejects them.",
+    "transient_retry": {
+      "status": "failed",
+      "rows_fetched": 0,
+      "rows_written": 0,
+      "error": "FRED returned HTTP 500 for both remaining series"
+    },
+    "bounded_final_retry": {
+      "window": {
+        "start": "2010-08-11",
+        "end": "2026-08-10"
+      },
+      "status": "succeeded",
+      "rows_fetched": 379,
+      "rows_written": 366,
+      "errors": []
+    }
+  },
+  "result": {
+    "manifest": "docs/evidence/crisis-radar-v12-financial-stress-replay-20260813.json",
+    "manifest_checksum": "ada50b5b54b4c14bfc95289bf345ec049d7d661e73543612a73e0b10cc82d773",
+    "cutoff_count": 220,
+    "eligible_cutoff_count": 0,
+    "input_count_min": 4,
+    "input_count_max": 32,
+    "numeric_coverage_min": "0.0488",
+    "numeric_coverage_max": "0.3780",
+    "promotion_passed": false,
+    "probability": null
+  },
+  "safety": {
+    "working_database_touched": false,
+    "production_database_touched": false,
+    "candidate_v12_live_indicators_enabled": false,
+    "coverage_denominator_reduced_to_force_eligibility": false,
+    "current_revisions_relabelled_as_historical_initial_releases": false,
+    "disposable_database_distributed": false
+  },
+  "limitations": [
+    "Existing non-FRED rows enter the disposable database, but causal replay still excludes retrospective revisions and late estimated releases.",
+    "Even after the complete verified FRED initial-release backfill, historical global numeric coverage remains below the 70% gate.",
+    "The remaining gap is primarily historical vintage depth outside the FRED contour; it cannot be solved honestly by lowering the denominator."
+  ]
+}

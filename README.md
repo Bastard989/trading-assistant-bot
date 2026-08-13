@@ -153,7 +153,7 @@ CRISIS_AGENT_COOLDOWN_SECONDS=120
 
 Ten deeper causal FRED series are defined in a distinct immutable
 `candidate-v12`, but remain disabled and replay-only. Its first real
-financial-stress replay failed closed: all 89 cutoffs had insufficient global
+financial-stress replay failed closed: all 220 cutoffs had insufficient global
 coverage, so v12 did not replace v10/v11 and did not create a probability.
 
 The repository is distributed as a self-hosted product, not a shared SaaS. The owner supplies Telegram/data credentials, keeps the database and media privately, and can choose `basic-local`, `advanced-local`, or `server`. The server profile requires a permanent HTTPS address, an immutable release ID, verified encrypted off-host backups, restore drills, and a real 14-day radar canary before the release may be called production-ready.

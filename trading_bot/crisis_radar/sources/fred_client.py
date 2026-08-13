@@ -166,6 +166,22 @@ class FredClient:
             chunk_start = max(observation_start, first_vintage)
             while chunk_start <= observation_end:
                 chunk_end = min(observation_end, chunk_start + timedelta(days=1460))
+                # FRED rejects an output_type=4 request whose real-time window
+                # contains a single day on which the series has no vintage.
+                # A trailing no-release day cannot contribute observations, so
+                # omit it instead of turning an otherwise valid history into
+                # an HTTP 400. Interior chunks stay unchanged.
+                if chunk_start == chunk_end:
+                    probe = json.loads(
+                        await self.fetch_vintage_dates(
+                            request.provider_series_id,
+                            realtime_start=chunk_start,
+                            realtime_end=chunk_end,
+                            limit=1,
+                        )
+                    )
+                    if not probe.get("vintage_dates"):
+                        break
                 realtime_ranges.append((chunk_start, chunk_end))
                 chunk_start = chunk_end + timedelta(days=1)
 

@@ -5,17 +5,17 @@
     "events_numeric_delta_expected": "zero: events do not alter numeric indicator/stage score"
   },
   "candidate_replay_diagnostics": {
-    "cutoff_count": 89,
+    "cutoff_count": 220,
     "eligibility_reason_counts": {
-      "insufficient_numeric_coverage": 89
+      "insufficient_numeric_coverage": 220
     },
     "eligible_cutoff_count": 0,
-    "input_count_max": 10,
-    "input_count_min": 2,
-    "numeric_coverage_max": "0.1220",
-    "numeric_coverage_min": "0.0244",
+    "input_count_max": 32,
+    "input_count_min": 4,
+    "numeric_coverage_max": "0.3780",
+    "numeric_coverage_min": "0.0488",
     "stage_counts": {
-      "insufficient_data": 89
+      "insufficient_data": 220
     }
   },
   "candidate_status": "shadow",
@@ -36,13 +36,13 @@
     "right_censoring": true
   },
   "checksums": {
-    "v10_replay": "860f9c1c6fc5b4faf1ede2fbf3f1fe237cbc4df487b926fbb1c9a332bafdd0fb",
-    "v12_replay": "462e1f000950ba432839787db5b3a7148031cf37231dd0d210fba28f2916a2b9"
+    "v10_replay": "7f1693459ae42c9fa5f96f910e88713b47a3ba1dd6f42a8ee54b912d7bb227f1",
+    "v12_replay": "10a38d3b3915f2f0bc7f6203bdb03a0ee6a0ca8f4aaea47f198c6be8eeb42ddd"
   },
-  "generated_at": "2026-08-13T11:49:00.214142+00:00",
+  "generated_at": "2026-08-13T13:00:34.410400+00:00",
   "live_probability": null,
   "live_probability_reason": "candidate-v12 remains shadow until all promotion gates pass",
-  "manifest_checksum": "890edc9d551f636236f38c01bd56945a344cc6d702fdcc643df49627fac81ff6",
+  "manifest_checksum": "ada50b5b54b4c14bfc95289bf345ec049d7d661e73543612a73e0b10cc82d773",
   "manifest_version": "crisis-radar-v12-comparison-v1",
   "methodology": "candidate-v12",
   "period": {
@@ -50,7 +50,7 @@
     "ended_at": "2016-09-01T23:59:59+00:00",
     "horizon_days": 30,
     "minimum_coverage": "0.70",
-    "started_at": "2009-05-30T00:00:00+00:00"
+    "started_at": "1998-08-26T00:00:00+00:00"
   },
   "promotion_gate": {
     "criteria": {},

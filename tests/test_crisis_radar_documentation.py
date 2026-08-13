@@ -39,6 +39,9 @@ CAUSAL_CAPABILITY_EVIDENCE_PATH = (
 V12_REPLAY_EVIDENCE_PATH = (
     ROOT / "docs" / "evidence" / "crisis-radar-v12-financial-stress-replay-20260813.json"
 )
+V12_REPLAY_INPUT_EVIDENCE_PATH = (
+    ROOT / "docs" / "evidence" / "crisis-radar-v12-replay-input-preparation-20260813.json"
+)
 
 
 def test_documented_runtime_versions_match_code() -> None:
@@ -177,12 +180,12 @@ def test_v12_replay_evidence_is_fail_closed_and_cannot_claim_promotion() -> None
     assert evidence["live_probability"] is None
     assert evidence["promotion_gate"]["passed"] is False
     diagnostics = evidence["candidate_replay_diagnostics"]
-    assert diagnostics["cutoff_count"] == 89
+    assert diagnostics["cutoff_count"] == 220
     assert diagnostics["eligible_cutoff_count"] == 0
-    assert diagnostics["stage_counts"] == {"insufficient_data": 89}
-    assert diagnostics["numeric_coverage_max"] == "0.1220"
+    assert diagnostics["stage_counts"] == {"insufficient_data": 220}
+    assert diagnostics["numeric_coverage_max"] == "0.3780"
     assert diagnostics["eligibility_reason_counts"] == {
-        "insufficient_numeric_coverage": 89
+        "insufficient_numeric_coverage": 220
     }
     assert len(evidence["checksums"]["v12_replay"]) == 64
     assert REPLAY_V12_ENGINE_VERSION == "causal-v12-replay-v1"
@@ -195,3 +198,24 @@ def test_v12_replay_evidence_is_fail_closed_and_cannot_claim_promotion() -> None
         default=str,
     ).encode()
     assert hashlib.sha256(canonical).hexdigest() == expected_checksum
+
+
+def test_v12_replay_input_preparation_is_isolated_and_does_not_weaken_gate() -> None:
+    evidence = json.loads(V12_REPLAY_INPUT_EVIDENCE_PATH.read_text(encoding="utf-8"))
+    replay = json.loads(V12_REPLAY_EVIDENCE_PATH.read_text(encoding="utf-8"))
+
+    assert evidence["official_fred_initial_release_backfill"]["bounded_final_retry"][
+        "status"
+    ] == "succeeded"
+    assert evidence["result"]["manifest_checksum"] == replay["manifest_checksum"]
+    assert evidence["result"]["eligible_cutoff_count"] == 0
+    assert evidence["result"]["numeric_coverage_max"] == "0.3780"
+    assert evidence["result"]["probability"] is None
+    assert evidence["safety"] == {
+        "working_database_touched": False,
+        "production_database_touched": False,
+        "candidate_v12_live_indicators_enabled": False,
+        "coverage_denominator_reduced_to_force_eligibility": False,
+        "current_revisions_relabelled_as_historical_initial_releases": False,
+        "disposable_database_distributed": False,
+    }

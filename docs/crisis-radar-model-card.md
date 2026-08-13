@@ -84,8 +84,9 @@ never executed.
 кредита, CRE/жилья, долларовой ликвидности, NASDAQ и энергоносителей. Он имеет
 собственные immutable-пороги, RU/EN metadata и dependency assignments, но новые
 индикаторы остаются выключенными для live. Replay `financial_stress` за
-2009-05-30—2016-09-01 проверил 89 месячных cutoff: использовалось от 2 до 10
-доступных входов, numeric coverage составил только 2,44–12,20%, поэтому все 89
+1998-08-26—2016-09-01 проверил 220 месячных cutoff после causal backfill всех
+проверенных FRED-рядов: использовалось от 4 до 32 доступных входов, numeric
+coverage составил только 4,88–37,80%, поэтому все 220
 точек получили `insufficient_data`, promotion не пройден и probability=`null`.
 
 ## Known limitations

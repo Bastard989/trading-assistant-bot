@@ -42,6 +42,7 @@ V11_REQUIRED_GROUPS = DEFAULT_REQUIRED_GROUPS + (
     "dollar_liquidity",
     "housing_cre",
 )
+V12_REQUIRED_GROUPS = V11_REQUIRED_GROUPS + ("technology_market",)
 
 DEFAULT_REQUIRED_REGIONS = ("US", "EU", "CHINA", "GLOBAL", "CRYPTO")
 GLOBAL_V2_REQUIRED_REGIONS = (

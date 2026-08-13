@@ -22,6 +22,7 @@ METHODOLOGY_VERSION = "starter-v8"
 METHODOLOGY_V2_VERSION = "candidate-v9"
 METHODOLOGY_GLOBAL_V2_VERSION = "candidate-v10"
 METHODOLOGY_V11_VERSION = "candidate-v11"
+METHODOLOGY_V12_VERSION = "candidate-v12"
 
 
 @dataclass(frozen=True)
@@ -720,6 +721,179 @@ FRED_HISTORICAL_BACKFILL_MODES = {
     "sp500_30d_drawdown": "live_only",
 }
 
+
+# The ten collection-only series above enter scoring only through this new,
+# immutable candidate.  Keeping separate IndicatorSeed objects makes every
+# threshold, direction, Russian label and dependency assignment checksum-bound
+# without mutating candidate-v11.
+FRED_V12_CANDIDATE_INDICATORS = (
+    IndicatorSeed(
+        code="us_initial_claims",
+        provider_series_id="ICSA",
+        name="US Initial Unemployment Claims",
+        name_ru="Первичные заявки на пособие по безработице в США",
+        group_code="labor",
+        region_code="US",
+        unit="persons",
+        frequency="weekly",
+        max_staleness_seconds=14 * 86400,
+        thresholds=IndicatorThresholds(
+            warning=Decimal("300000"), danger=Decimal("450000"),
+            critical=Decimal("650000"), reference=Decimal("220000"),
+            direction=RiskDirection.HIGHER_IS_WORSE,
+        ),
+    ),
+    IndicatorSeed(
+        code="us_unemployment_rate",
+        provider_series_id="UNRATE",
+        name="US Unemployment Rate",
+        name_ru="Уровень безработицы в США",
+        group_code="labor",
+        region_code="US",
+        unit="percent",
+        frequency="monthly",
+        max_staleness_seconds=45 * 86400,
+        thresholds=IndicatorThresholds(
+            warning=Decimal("4.5"), danger=Decimal("6"),
+            critical=Decimal("9"), reference=Decimal("3.5"),
+            direction=RiskDirection.HIGHER_IS_WORSE,
+        ),
+    ),
+    IndicatorSeed(
+        code="us_sloos_ci_tightening",
+        provider_series_id="DRTSCILM",
+        name="US Banks Tightening C&I Lending Standards",
+        name_ru="Доля банков США, ужесточающих стандарты C&I-кредитования",
+        group_code="credit",
+        region_code="US",
+        unit="percent",
+        frequency="quarterly",
+        max_staleness_seconds=120 * 86400,
+        thresholds=IndicatorThresholds(
+            warning=Decimal("20"), danger=Decimal("40"),
+            critical=Decimal("60"), reference=Decimal("0"),
+            direction=RiskDirection.HIGHER_IS_WORSE,
+        ),
+    ),
+    IndicatorSeed(
+        code="us_cre_delinquency_rate",
+        provider_series_id="DRCRELEXFACBS",
+        name="US Commercial Real Estate Loan Delinquency Rate",
+        name_ru="Просрочка по кредитам на коммерческую недвижимость США",
+        group_code="housing_cre",
+        region_code="US",
+        unit="percent",
+        frequency="quarterly",
+        max_staleness_seconds=120 * 86400,
+        thresholds=IndicatorThresholds(
+            warning=Decimal("2"), danger=Decimal("4"),
+            critical=Decimal("7"), reference=Decimal("1"),
+            direction=RiskDirection.HIGHER_IS_WORSE,
+        ),
+    ),
+    IndicatorSeed(
+        code="us_housing_starts_90d_change",
+        provider_series_id="HOUST",
+        name="US Housing Starts 90-Day Change",
+        name_ru="Изменение числа начатых строительств жилья в США за 90 дней",
+        group_code="housing_cre",
+        region_code="US",
+        unit="percent",
+        frequency="monthly",
+        max_staleness_seconds=45 * 86400,
+        thresholds=IndicatorThresholds(
+            warning=Decimal("-5"), danger=Decimal("-15"),
+            critical=Decimal("-30"), reference=Decimal("5"),
+            direction=RiskDirection.LOWER_IS_WORSE,
+        ),
+        transform="change_90d",
+    ),
+    IndicatorSeed(
+        code="fed_liquidity_swaps",
+        provider_series_id="SWPT",
+        name="Federal Reserve Central-Bank Liquidity Swaps",
+        name_ru="Свопы ликвидности ФРС с иностранными центральными банками",
+        group_code="dollar_liquidity",
+        region_code="GLOBAL",
+        unit="million_usd",
+        frequency="weekly",
+        max_staleness_seconds=14 * 86400,
+        thresholds=IndicatorThresholds(
+            warning=Decimal("1000"), danger=Decimal("10000"),
+            critical=Decimal("50000"), reference=Decimal("0"),
+            direction=RiskDirection.HIGHER_IS_WORSE,
+        ),
+    ),
+    IndicatorSeed(
+        code="nasdaq_composite_30d_drawdown",
+        provider_series_id="NASDAQCOM",
+        name="NASDAQ Composite 30-Day Drawdown",
+        name_ru="Просадка NASDAQ Composite от 30-дневного максимума",
+        group_code="technology_market",
+        region_code="US",
+        unit="percent",
+        frequency="daily",
+        max_staleness_seconds=4 * 86400,
+        thresholds=IndicatorThresholds(
+            warning=Decimal("-10"), danger=Decimal("-20"),
+            critical=Decimal("-35"), reference=Decimal("0"),
+            direction=RiskDirection.LOWER_IS_WORSE,
+        ),
+        transform="drawdown_30d",
+    ),
+    IndicatorSeed(
+        code="nasdaq_100_30d_drawdown",
+        provider_series_id="NASDAQ100",
+        name="NASDAQ-100 30-Day Drawdown",
+        name_ru="Просадка NASDAQ-100 от 30-дневного максимума",
+        group_code="technology_market",
+        region_code="US",
+        unit="percent",
+        frequency="daily",
+        max_staleness_seconds=4 * 86400,
+        thresholds=IndicatorThresholds(
+            warning=Decimal("-10"), danger=Decimal("-20"),
+            critical=Decimal("-35"), reference=Decimal("0"),
+            direction=RiskDirection.LOWER_IS_WORSE,
+        ),
+        transform="drawdown_30d",
+    ),
+    IndicatorSeed(
+        code="brent_90d_change",
+        provider_series_id="DCOILBRENTEU",
+        name="Brent Crude Oil Price 90-Day Change",
+        name_ru="Изменение цены нефти Brent за 90 дней",
+        group_code="inflation_commodities",
+        region_code="GLOBAL",
+        unit="percent",
+        frequency="daily",
+        max_staleness_seconds=10 * 86400,
+        thresholds=IndicatorThresholds(
+            warning=Decimal("25"), danger=Decimal("50"),
+            critical=Decimal("100"), reference=Decimal("0"),
+            direction=RiskDirection.TWO_SIDED,
+        ),
+        transform="change_90d",
+    ),
+    IndicatorSeed(
+        code="henry_hub_gas_90d_change",
+        provider_series_id="DHHNGSP",
+        name="Henry Hub Natural Gas Price 90-Day Change",
+        name_ru="Изменение цены газа Henry Hub за 90 дней",
+        group_code="inflation_commodities",
+        region_code="GLOBAL",
+        unit="percent",
+        frequency="daily",
+        max_staleness_seconds=10 * 86400,
+        thresholds=IndicatorThresholds(
+            warning=Decimal("30"), danger=Decimal("75"),
+            critical=Decimal("150"), reference=Decimal("0"),
+            direction=RiskDirection.TWO_SIDED,
+        ),
+        transform="change_90d",
+    ),
+)
+
 BEA_INDICATORS = (
     IndicatorSeed(
         code="us_real_gdp_qoq",
@@ -1221,6 +1395,7 @@ GLOBAL_V2_INDICATORS = (
 V11_INDICATORS = tuple(
     item for item in GLOBAL_V2_INDICATORS if not item.code.endswith("_oi_7d_abs_change")
 ) + FRED_V11_DEPTH_INDICATORS + BYBIT_SIGNED_V11_INDICATORS
+V12_INDICATORS = V11_INDICATORS + FRED_V12_CANDIDATE_INDICATORS
 
 _V11_SCENARIO_EXTRA_GROUPS = {
     "global_recession": ("housing_cre",),
@@ -1241,6 +1416,22 @@ V11_SCENARIOS = tuple(
         ),
     )
     for scenario in V2_SCENARIOS
+)
+V12_SCENARIOS = tuple(
+    replace(
+        scenario,
+        group_codes=(
+            scenario.group_codes + ("technology_market",)
+            if scenario.code == "tech_ai_repricing"
+            else scenario.group_codes
+        ),
+        anchor_groups=(
+            scenario.anchor_groups + ("technology_market",)
+            if scenario.code == "tech_ai_repricing"
+            else scenario.anchor_groups
+        ),
+    )
+    for scenario in V11_SCENARIOS
 )
 
 _V2_THRESHOLD_RATIONALE = {
@@ -1271,6 +1462,66 @@ _V2_THRESHOLD_RATIONALE = {
         "ru": "Сжатие — уязвимость ликвидности; экстренное расширение будет отдельным реактивным признаком.",
         "en": "Contraction is a liquidity vulnerability; emergency expansion is a separate reaction feature.",
         "operational_role": "liquidity_context",
+    },
+    "us_initial_claims": {
+        "ru": "300/450/650 тыс. отделяют раннее ухудшение труда от рецессионного и кризисного потока заявок; уровни являются кандидатами для replay.",
+        "en": "300k/450k/650k separate early labor deterioration from recessionary and crisis claims flows; levels remain replay candidates.",
+        "source_url": "https://fred.stlouisfed.org/series/ICSA",
+        "operational_role": "leading_labor_stress",
+    },
+    "us_unemployment_rate": {
+        "ru": "4,5/6/9% описывают напряжение, рецессионную слабость и тяжёлый стресс; динамика и Sahm Rule остаются независимыми подтверждениями.",
+        "en": "4.5%/6%/9% represent tension, recessionary weakness and severe stress; momentum and the Sahm Rule remain separate confirmations.",
+        "source_url": "https://fred.stlouisfed.org/series/UNRATE",
+        "operational_role": "lagging_labor_confirmation",
+    },
+    "us_sloos_ci_tightening": {
+        "ru": "20/40/60% net tightening — внутренние кандидатные уровни ограничений предложения корпоративного кредита.",
+        "en": "20%/40%/60% net tightening are internal candidate levels for constrained corporate credit supply.",
+        "source_url": "https://fred.stlouisfed.org/series/DRTSCILM",
+        "operational_role": "credit_supply_confirmation",
+    },
+    "us_cre_delinquency_rate": {
+        "ru": "2/4/7% — кандидатные уровни растущей просрочки CRE; ряд квартальный и не используется как быстрый одиночный триггер.",
+        "en": "2%/4%/7% are candidate CRE delinquency bands; the quarterly series is not a fast standalone trigger.",
+        "source_url": "https://fred.stlouisfed.org/series/DRCRELEXFACBS",
+        "operational_role": "cre_credit_confirmation",
+    },
+    "us_housing_starts_90d_change": {
+        "ru": "−5/−15/−30% — кандидатные уровни охлаждения чувствительного к ставкам жилищного цикла.",
+        "en": "-5%/-15%/-30% are candidate levels for deterioration in the rate-sensitive housing cycle.",
+        "source_url": "https://fred.stlouisfed.org/series/HOUST",
+        "operational_role": "leading_housing_activity",
+    },
+    "fed_liquidity_swaps": {
+        "ru": "$1/10/50 млрд — кандидатные уровни реактивного спроса иностранных центральных банков на долларовую ликвидность.",
+        "en": "$1bn/$10bn/$50bn are candidate levels of reactive foreign-central-bank demand for dollar liquidity.",
+        "source_url": "https://fred.stlouisfed.org/series/SWPT",
+        "operational_role": "emergency_dollar_liquidity",
+    },
+    "nasdaq_composite_30d_drawdown": {
+        "ru": "−10/−20/−35% — candidate drawdown bands; NASDAQ-100 находится в том же dependency-подканале и не удваивает ширину.",
+        "en": "-10%/-20%/-35% are candidate drawdown bands; NASDAQ-100 shares the same dependency subchannel and cannot double breadth.",
+        "source_url": "https://fred.stlouisfed.org/series/NASDAQCOM",
+        "operational_role": "technology_market_stress",
+    },
+    "nasdaq_100_30d_drawdown": {
+        "ru": "−10/−20/−35% — candidate drawdown bands; сигнал подтверждает, но не дублирует NASDAQ Composite.",
+        "en": "-10%/-20%/-35% are candidate drawdown bands; the signal confirms but does not duplicate NASDAQ Composite.",
+        "source_url": "https://fred.stlouisfed.org/series/NASDAQ100",
+        "operational_role": "technology_market_confirmation",
+    },
+    "brent_90d_change": {
+        "ru": "Абсолютные изменения 25/50/100% отмечают как инфляционный скачок, так и рецессионный обвал; направление объясняется сценарием.",
+        "en": "Absolute 25%/50%/100% changes capture both inflationary spikes and recessionary collapses; scenario context explains direction.",
+        "source_url": "https://fred.stlouisfed.org/series/DCOILBRENTEU",
+        "operational_role": "two_sided_energy_shock",
+    },
+    "henry_hub_gas_90d_change": {
+        "ru": "Абсолютные изменения 30/75/150% — кандидатные уровни более волатильного газового шока; нулевая база исключается.",
+        "en": "Absolute 30%/75%/150% changes are candidate levels for the more volatile gas shock; zero bases are excluded.",
+        "source_url": "https://fred.stlouisfed.org/series/DHHNGSP",
+        "operational_role": "two_sided_energy_shock",
     },
 }
 
@@ -1316,7 +1567,7 @@ def methodology_checksum(
             "recovery_fraction": str(STABILITY_POLICY.recovery_fraction),
         },
     }
-    if version == METHODOLOGY_V11_VERSION:
+    if version in {METHODOLOGY_V11_VERSION, METHODOLOGY_V12_VERSION}:
         payload["indicator_scoring"] = {
             code: {key: str(value) for key, value in asdict(profile).items()}
             for code, profile in PROFILES.items()
@@ -1332,6 +1583,7 @@ def _source_code_for_indicator(code: str) -> str:
         (FRED, FRED_INDICATORS),
         (FRED, FRED_GLOBAL_V2_INDICATORS),
         (FRED, FRED_V11_DEPTH_INDICATORS),
+        (FRED, FRED_V12_CANDIDATE_INDICATORS),
         (BEA, BEA_INDICATORS),
         (EIA, EIA_INDICATORS),
         (ECB, ECB_INDICATORS),
@@ -1357,6 +1609,7 @@ def _bootstrap_catalog(
     indicators: tuple[IndicatorSeed, ...],
     scenarios: tuple[ScenarioDefinition, ...],
     promotion_status: str,
+    indicator_enabled_overrides: dict[str, bool] | None = None,
 ) -> dict[str, int | str]:
     methodology_id = repository.register_methodology(
         METHODOLOGY_CODE,
@@ -1369,6 +1622,8 @@ def _bootstrap_catalog(
         effective_from=(
             "2026-08-05T12:53:16+00:00"
             if version == METHODOLOGY_V11_VERSION
+            else "2026-08-13T11:27:28+00:00"
+            if version == METHODOLOGY_V12_VERSION
             else
             "2026-08-04T12:00:00+00:00"
             if version == METHODOLOGY_GLOBAL_V2_VERSION
@@ -1414,6 +1669,7 @@ def _bootstrap_catalog(
             provider_series_id=item.provider_series_id,
             transform=item.transform,
             max_staleness_seconds=item.max_staleness_seconds,
+            enabled=(indicator_enabled_overrides or {}).get(item.code, True),
         )
         rationale = _V2_THRESHOLD_RATIONALE.get(
             item.code,
@@ -1423,7 +1679,7 @@ def _bootstrap_catalog(
                 "operational_role": "candidate_signal",
             },
         )
-        is_v11 = version == METHODOLOGY_V11_VERSION
+        is_advanced = version in {METHODOLOGY_V11_VERSION, METHODOLOGY_V12_VERSION}
         profile = profile_for(
             frequency=item.frequency,
             direction=item.thresholds.direction,
@@ -1438,9 +1694,17 @@ def _bootstrap_catalog(
             indicator_id,
             methodology_id,
             item.thresholds,
-            basis="hybrid" if version in {METHODOLOGY_V2_VERSION, METHODOLOGY_V11_VERSION} else "legacy",
+            basis="hybrid" if version in {
+                METHODOLOGY_V2_VERSION,
+                METHODOLOGY_V11_VERSION,
+                METHODOLOGY_V12_VERSION,
+            } else "legacy",
             promotion_status=promotion_status,
-            rationale=rationale if version in {METHODOLOGY_V2_VERSION, METHODOLOGY_V11_VERSION} else {},
+            rationale=rationale if version in {
+                METHODOLOGY_V2_VERSION,
+                METHODOLOGY_V11_VERSION,
+                METHODOLOGY_V12_VERSION,
+            } else {},
             source_url=(
                 rationale.get("source_url")
                 or (
@@ -1448,16 +1712,25 @@ def _bootstrap_catalog(
                     if source_code == FRED.code and ":" not in item.provider_series_id
                     else source.base_url
                 )
-            ) if is_v11 else "",
-            operational_role=str(rationale.get("operational_role") or "candidate_signal") if is_v11 else "",
-            profile=profile.code if is_v11 else "",
+            ) if is_advanced else "",
+            operational_role=(
+                str(rationale.get("operational_role") or "candidate_signal")
+                if is_advanced else ""
+            ),
+            profile=profile.code if is_advanced else "",
             promotion_evidence={
                 "status": "not_promoted",
                 "required": ["causal_replay", "sensitivity", "live_canary"],
-            } if is_v11 else {},
-            introduced_at="2026-08-05T12:53:16+00:00" if is_v11 else "",
+            } if is_advanced else {},
+            introduced_at=(
+                "2026-08-13T11:27:28+00:00"
+                if version == METHODOLOGY_V12_VERSION
+                else "2026-08-05T12:53:16+00:00"
+                if version == METHODOLOGY_V11_VERSION
+                else ""
+            ),
         )
-        if is_v11:
+        if is_advanced:
             from trading_bot.crisis_radar.metadata_v11 import (
                 group_metadata,
                 indicator_metadata,
@@ -1466,7 +1739,7 @@ def _bootstrap_catalog(
             repository.register_entity_metadata(
                 entity_type="indicator",
                 entity_code=item.code,
-                metadata_version="v11",
+                metadata_version=("v12" if version == METHODOLOGY_V12_VERSION else "v11"),
                 payload=indicator_metadata(item, source_name=source.name),
             )
             repository.register_dependency_assignment(
@@ -1481,7 +1754,7 @@ def _bootstrap_catalog(
             repository.register_entity_metadata(
                 entity_type="group",
                 entity_code=item.group_code,
-                metadata_version="v11",
+                metadata_version=("v12" if version == METHODOLOGY_V12_VERSION else "v11"),
                 payload=group_metadata(item.group_code),
             )
     active_indicator_codes = {indicator.code for indicator in indicators}
@@ -1516,13 +1789,13 @@ def _bootstrap_catalog(
             group_codes=scenario.group_codes,
             anchor_groups=scenario.anchor_groups,
         )
-        if version == METHODOLOGY_V11_VERSION:
+        if version in {METHODOLOGY_V11_VERSION, METHODOLOGY_V12_VERSION}:
             from trading_bot.crisis_radar.metadata_v11 import scenario_metadata
 
             repository.register_entity_metadata(
                 entity_type="scenario",
                 entity_code=scenario.code,
-                metadata_version="v11",
+                metadata_version=("v12" if version == METHODOLOGY_V12_VERSION else "v11"),
                 payload=scenario_metadata(scenario),
             )
     return {
@@ -1573,4 +1846,18 @@ def bootstrap_v11_catalog(repository: CrisisRadarRepository) -> dict[str, int | 
         indicators=V11_INDICATORS,
         scenarios=V11_SCENARIOS,
         promotion_status="candidate",
+    )
+
+
+def bootstrap_v12_catalog(repository: CrisisRadarRepository) -> dict[str, int | str]:
+    """Register a replay-only candidate without enabling its new live inputs."""
+
+    new_codes = {item.code for item in FRED_V12_CANDIDATE_INDICATORS}
+    return _bootstrap_catalog(
+        repository,
+        version=METHODOLOGY_V12_VERSION,
+        indicators=V12_INDICATORS,
+        scenarios=V12_SCENARIOS,
+        promotion_status="candidate",
+        indicator_enabled_overrides={code: False for code in new_codes},
     )

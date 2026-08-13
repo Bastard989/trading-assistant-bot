@@ -151,6 +151,11 @@ CRISIS_AGENT_COOLDOWN_SECONDS=120
 
 `starter-v8` is retained as an immutable baseline and `candidate-v10` remains the production-primary deterministic output. `candidate-v11` is implemented beside it as a shadow methodology: `indicator-score-v2`, signed OI states, dependency-cluster deduplication, intensity plus independent-systemic-breadth stage, numeric/news coverage gates, event decay, recovery, causal diff, exposure overlay and live scorecards are calculated and persisted without rewriting v10 snapshots. v11 is deliberately not promoted: the current causal replay has zero eligible historical signals after its fail-closed coverage gate, so live probability remains `null`. The exact contract and evidence are in [`docs/crisis-radar-v2-production-plan.md`](docs/crisis-radar-v2-production-plan.md), [`docs/crisis-radar-v2-production-progress.md`](docs/crisis-radar-v2-production-progress.md), [`docs/crisis-radar-v2-runtime-contract.json`](docs/crisis-radar-v2-runtime-contract.json), and [`docs/crisis-radar-model-card.md`](docs/crisis-radar-model-card.md).
 
+Ten deeper causal FRED series are defined in a distinct immutable
+`candidate-v12`, but remain disabled and replay-only. Its first real
+financial-stress replay failed closed: all 89 cutoffs had insufficient global
+coverage, so v12 did not replace v10/v11 and did not create a probability.
+
 The repository is distributed as a self-hosted product, not a shared SaaS. The owner supplies Telegram/data credentials, keeps the database and media privately, and can choose `basic-local`, `advanced-local`, or `server`. The server profile requires a permanent HTTPS address, an immutable release ID, verified encrypted off-host backups, restore drills, and a real 14-day radar canary before the release may be called production-ready.
 
 `starter-v8` preserves the temporal-stability rules added in v6 without hiding the raw threshold result. Daily, weekly, and intraday non-critical escalations require two distinct observations; monthly, quarterly, and annual releases remain immediate, and critical crossings are never delayed. A 10% recovery margin prevents threshold flicker. The detailed UI exposes raw/effective bands, distinct-point confirmation, and hysteresis holds. Scenario notifications use a six-hour cooldown, while a more severe critical escalation bypasses it.

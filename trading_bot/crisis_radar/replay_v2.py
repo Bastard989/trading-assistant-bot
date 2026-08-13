@@ -9,12 +9,16 @@ from decimal import Decimal
 from trading_bot.crisis_radar.catalog import (
     METHODOLOGY_CODE,
     METHODOLOGY_V11_VERSION,
+    METHODOLOGY_V12_VERSION,
     V11_INDICATORS,
     V11_SCENARIOS,
+    V12_INDICATORS,
+    V12_SCENARIOS,
 )
 from trading_bot.crisis_radar.coverage import (
     GLOBAL_V2_REQUIRED_REGIONS,
     V11_REQUIRED_GROUPS,
+    V12_REQUIRED_GROUPS,
     ExpectedIndicator,
     assess_coverage,
 )
@@ -32,6 +36,7 @@ from trading_bot.crisis_radar.trends import calculate_indicator_features
 
 
 REPLAY_V2_ENGINE_VERSION = "causal-v11-replay-v1"
+REPLAY_V12_ENGINE_VERSION = "causal-v12-replay-v1"
 ZERO = Decimal("0")
 
 
@@ -75,6 +80,8 @@ class V11VariantSignal:
 
 @dataclass(frozen=True)
 class V11ReplayResult:
+    methodology_version: str
+    engine_version: str
     scenario_code: str
     started_at: datetime
     ended_at: datetime
@@ -85,8 +92,8 @@ class V11ReplayResult:
     @property
     def checksum(self) -> str:
         payload = {
-            "engine": REPLAY_V2_ENGINE_VERSION,
-            "methodology": [METHODOLOGY_CODE, METHODOLOGY_V11_VERSION],
+            "engine": self.engine_version,
+            "methodology": [METHODOLOGY_CODE, self.methodology_version],
             "scenario_code": self.scenario_code,
             "started_at": self.started_at.isoformat(),
             "ended_at": self.ended_at.isoformat(),
@@ -110,29 +117,36 @@ def _uncorrected_assignments(assignments):
     }
 
 
-def v11_signals_as_of(
+def _candidate_signals_as_of(
     repository: CrisisRadarRepository,
     *,
+    methodology_version: str,
+    engine_version: str,
+    indicators: tuple,
+    scenarios: tuple,
+    required_groups: tuple[str, ...],
+    include_disabled: bool,
     scenario_code: str,
     snapshot_at: datetime,
     minimum_coverage: Decimal = Decimal(".70"),
     previous_context: dict[str, tuple[str | None, Decimal | None]] | None = None,
 ) -> tuple[V11VariantSignal, ...]:
-    """Calculate all v11 replay variants from information released by ``snapshot_at``."""
+    """Calculate candidate variants using only information released by the cutoff."""
     if snapshot_at.tzinfo is None or snapshot_at.utcoffset() is None:
         raise ValueError("snapshot_at must be timezone-aware")
     if not ZERO <= minimum_coverage <= Decimal("1"):
         raise ValueError("minimum_coverage must be between zero and one")
-    definition = next((item for item in V11_SCENARIOS if item.code == scenario_code), None)
+    definition = next((item for item in scenarios if item.code == scenario_code), None)
     if definition is None:
-        raise ValueError("unknown v11 scenario_code")
+        raise ValueError("unknown candidate scenario_code")
     inputs = [
         item
         for item in repository.analysis_inputs_as_of(
             METHODOLOGY_CODE,
-            METHODOLOGY_V11_VERSION,
+            methodology_version,
             as_of=snapshot_at,
             causal_only=True,
+            include_disabled=include_disabled,
         )
         if QualityFlag.RETROSPECTIVE_REVISED not in item.observation.quality_flags
     ]
@@ -179,7 +193,7 @@ def v11_signals_as_of(
                 }[state.freshness.value],
             )
         )
-        seed = next(seed for seed in V11_INDICATORS if seed.code == item.observation.indicator_code)
+        seed = next(seed for seed in indicators if seed.code == item.observation.indicator_code)
         assignments[seed.code] = dependency_for(
             code=seed.code,
             group_code=seed.group_code,
@@ -193,9 +207,9 @@ def v11_signals_as_of(
                 group_code=seed.group_code,
                 region_code=seed.region_code,
             )
-            for seed in V11_INDICATORS
+            for seed in indicators
         ),
-        required_groups=V11_REQUIRED_GROUPS,
+        required_groups=required_groups,
         required_regions=GLOBAL_V2_REQUIRED_REGIONS,
     )
     events = tuple(
@@ -245,7 +259,7 @@ def v11_signals_as_of(
             else "insufficient_numeric_coverage"
         )
         checksum_payload = {
-            "engine": REPLAY_V2_ENGINE_VERSION,
+            "engine": engine_version,
             "scenario": scenario.input_checksum,
             "stage": stage.input_checksum,
             "variant": variant,
@@ -276,10 +290,59 @@ def v11_signals_as_of(
     return tuple(results)
 
 
-def replay_v11_scenario(
+def v11_signals_as_of(
+    repository: CrisisRadarRepository,
+    *,
+    scenario_code: str,
+    snapshot_at: datetime,
+    minimum_coverage: Decimal = Decimal(".70"),
+    previous_context: dict[str, tuple[str | None, Decimal | None]] | None = None,
+) -> tuple[V11VariantSignal, ...]:
+    return _candidate_signals_as_of(
+        repository,
+        methodology_version=METHODOLOGY_V11_VERSION,
+        engine_version=REPLAY_V2_ENGINE_VERSION,
+        indicators=V11_INDICATORS,
+        scenarios=V11_SCENARIOS,
+        required_groups=V11_REQUIRED_GROUPS,
+        include_disabled=False,
+        scenario_code=scenario_code,
+        snapshot_at=snapshot_at,
+        minimum_coverage=minimum_coverage,
+        previous_context=previous_context,
+    )
+
+
+def v12_signals_as_of(
+    repository: CrisisRadarRepository,
+    *,
+    scenario_code: str,
+    snapshot_at: datetime,
+    minimum_coverage: Decimal = Decimal(".70"),
+    previous_context: dict[str, tuple[str | None, Decimal | None]] | None = None,
+) -> tuple[V11VariantSignal, ...]:
+    return _candidate_signals_as_of(
+        repository,
+        methodology_version=METHODOLOGY_V12_VERSION,
+        engine_version=REPLAY_V12_ENGINE_VERSION,
+        indicators=V12_INDICATORS,
+        scenarios=V12_SCENARIOS,
+        required_groups=V12_REQUIRED_GROUPS,
+        include_disabled=True,
+        scenario_code=scenario_code,
+        snapshot_at=snapshot_at,
+        minimum_coverage=minimum_coverage,
+        previous_context=previous_context,
+    )
+
+
+def _replay_candidate_scenario(
     repository: CrisisRadarRepository,
     scenario_code: str,
     *,
+    methodology_version: str,
+    engine_version: str,
+    signal_builder,
     started_at: datetime,
     ended_at: datetime,
     step: timedelta,
@@ -302,7 +365,7 @@ def replay_v11_scenario(
     previous: dict[str, tuple[str | None, Decimal | None]] = {}
     signal_at = started_at
     while signal_at <= ended_at:
-        current = v11_signals_as_of(
+        current = signal_builder(
             repository,
             scenario_code=scenario_code,
             snapshot_at=signal_at,
@@ -315,10 +378,60 @@ def replay_v11_scenario(
             previous[item.variant] = (item.market_stage, max(prior_peak, item.intensity))
         signal_at += step
     return V11ReplayResult(
+        methodology_version=methodology_version,
+        engine_version=engine_version,
         scenario_code=scenario_code,
         started_at=started_at,
         ended_at=ended_at,
         step=step,
         minimum_coverage=minimum_coverage,
         signals=tuple(signals),
+    )
+
+
+def replay_v11_scenario(
+    repository: CrisisRadarRepository,
+    scenario_code: str,
+    *,
+    started_at: datetime,
+    ended_at: datetime,
+    step: timedelta,
+    minimum_coverage: Decimal = Decimal(".70"),
+    max_points: int = 20000,
+) -> V11ReplayResult:
+    return _replay_candidate_scenario(
+        repository,
+        scenario_code,
+        methodology_version=METHODOLOGY_V11_VERSION,
+        engine_version=REPLAY_V2_ENGINE_VERSION,
+        signal_builder=v11_signals_as_of,
+        started_at=started_at,
+        ended_at=ended_at,
+        step=step,
+        minimum_coverage=minimum_coverage,
+        max_points=max_points,
+    )
+
+
+def replay_v12_scenario(
+    repository: CrisisRadarRepository,
+    scenario_code: str,
+    *,
+    started_at: datetime,
+    ended_at: datetime,
+    step: timedelta,
+    minimum_coverage: Decimal = Decimal(".70"),
+    max_points: int = 20000,
+) -> V11ReplayResult:
+    return _replay_candidate_scenario(
+        repository,
+        scenario_code,
+        methodology_version=METHODOLOGY_V12_VERSION,
+        engine_version=REPLAY_V12_ENGINE_VERSION,
+        signal_builder=v12_signals_as_of,
+        started_at=started_at,
+        ended_at=ended_at,
+        step=step,
+        minimum_coverage=minimum_coverage,
+        max_points=max_points,
     )

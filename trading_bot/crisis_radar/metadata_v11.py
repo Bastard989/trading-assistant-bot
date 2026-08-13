@@ -26,6 +26,10 @@ GROUP_CONTEXT = {
         "Сырьевой шок может одновременно усилить инфляцию и ослабить рост.",
         "A commodity shock can raise inflation while weakening growth.",
     ),
+    "technology_market": (
+        "Технологические индексы показывают, распространяется ли переоценка на сектор роста и AI.",
+        "Technology indices show whether repricing is spreading through growth and AI assets.",
+    ),
     "banking_stress": (
         "Депозиты и экстренное фондирование показывают, теряют ли банки устойчивую базу ресурсов.",
         "Deposits and emergency funding show whether banks are losing stable funding.",
@@ -57,6 +61,7 @@ _GROUP_NAMES = {
     "crypto_leverage": ("Плечи крипторынка", "Crypto leverage"),
     "crypto_price_stress": ("Ценовой стресс крипторынка", "Crypto price stress"),
     "inflation_commodities": ("Инфляция и сырьё", "Inflation and commodities"),
+    "technology_market": ("Технологический рынок США", "US technology market"),
     "real_economy": ("Реальная экономика США", "US real economy"),
     "euro_growth": ("Экономический рост еврозоны", "Euro-area growth"),
     "euro_financial_stress": ("Финансовый стресс еврозоны", "Euro-area financial stress"),

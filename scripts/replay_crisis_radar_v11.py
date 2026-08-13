@@ -5,10 +5,14 @@ import hashlib
 import json
 import os
 import sqlite3
+import sys
 from dataclasses import asdict
 from datetime import datetime, time, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
+
+if __package__ in {None, ""}:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from dotenv import load_dotenv
 
@@ -17,9 +21,13 @@ from trading_bot.crisis_radar.backtest import (
     build_labeled_samples,
     walk_forward_calibrate,
 )
-from trading_bot.crisis_radar.catalog import METHODOLOGY_V11_VERSION
+from trading_bot.crisis_radar.catalog import (
+    METHODOLOGY_V11_VERSION,
+    METHODOLOGY_V12_VERSION,
+    bootstrap_v12_catalog,
+)
 from trading_bot.crisis_radar.replay import replay_scenario
-from trading_bot.crisis_radar.replay_v2 import replay_v11_scenario
+from trading_bot.crisis_radar.replay_v2 import replay_v11_scenario, replay_v12_scenario
 from trading_bot.crisis_radar.repositories import CrisisRadarRepository
 from trading_bot.crisis_radar.validation import (
     evaluate_calibration_gate,
@@ -96,9 +104,13 @@ def _evaluate_signals(
     return payload, result
 
 
-def execute_v11_comparison(
+def _execute_candidate_comparison(
     repository: CrisisRadarRepository,
     *,
+    methodology_version: str,
+    replay_candidate,
+    manifest_version: str,
+    replay_checksum_key: str,
     scenario_code: str,
     started_at: datetime,
     ended_at: datetime,
@@ -130,7 +142,7 @@ def execute_v11_comparison(
         step=step,
         minimum_coverage=minimum_coverage,
     )
-    v11 = replay_v11_scenario(
+    candidate = replay_candidate(
         repository,
         scenario_code,
         started_at=effective_start,
@@ -138,6 +150,15 @@ def execute_v11_comparison(
         step=step,
         minimum_coverage=minimum_coverage,
     )
+    full_signals = tuple(item for item in candidate.signals if item.variant == "full")
+    eligibility_reasons = {
+        reason: sum(item.eligibility_reason == reason for item in full_signals)
+        for reason in sorted({item.eligibility_reason for item in full_signals})
+    }
+    stage_counts = {
+        stage: sum(item.market_stage == stage for item in full_signals)
+        for stage in sorted({item.market_stage for item in full_signals})
+    }
     events = repository.event_catalog_events(catalog["catalog_id"])
     results: dict[str, dict] = {}
     evaluated = {}
@@ -152,7 +173,7 @@ def execute_v11_comparison(
     for variant in VARIANT_ORDER[1:-1]:
         points = tuple(
             SignalPoint(scenario_code, item.signal_at, item.signal_score)
-            for item in v11.signals
+            for item in candidate.signals
             if item.variant == variant and item.backtest_eligible
         )
         results[variant], evaluated[variant] = _evaluate_signals(
@@ -204,9 +225,9 @@ def execute_v11_comparison(
             crisis_holdout_passed=False,
         )
     payload = {
-        "manifest_version": "crisis-radar-v11-comparison-v1",
+        "manifest_version": manifest_version,
         "generated_at": datetime.now(UTC).isoformat(),
-        "methodology": METHODOLOGY_V11_VERSION,
+        "methodology": methodology_version,
         "candidate_status": "shadow",
         "scenario_code": scenario_code,
         "period": {
@@ -230,11 +251,32 @@ def execute_v11_comparison(
             "event_count": len(catalog["labels"]),
             "regions": sorted({item["region_code"] for item in catalog["labels"]}),
         },
-        "checksums": {"v10_replay": v10.checksum, "v11_replay": v11.checksum},
+        "checksums": {
+            "v10_replay": v10.checksum,
+            replay_checksum_key: candidate.checksum,
+        },
+        "candidate_replay_diagnostics": {
+            "cutoff_count": len(full_signals),
+            "eligible_cutoff_count": sum(item.backtest_eligible for item in full_signals),
+            "input_count_min": min((item.input_count for item in full_signals), default=0),
+            "input_count_max": max((item.input_count for item in full_signals), default=0),
+            "numeric_coverage_min": format(
+                min((item.numeric_coverage for item in full_signals), default=Decimal("0")),
+                "f",
+            ),
+            "numeric_coverage_max": format(
+                max((item.numeric_coverage for item in full_signals), default=Decimal("0")),
+                "f",
+            ),
+            "stage_counts": stage_counts,
+            "eligibility_reason_counts": eligibility_reasons,
+        },
         "results": {name: results[name] for name in VARIANT_ORDER},
         "ablation_findings": {
             "events_numeric_delta_expected": "zero: events do not alter numeric indicator/stage score",
-            "contagion_numeric_delta_expected": "zero: contagion is diagnostic in candidate-v11",
+            "contagion_numeric_delta_expected": (
+                f"zero: contagion is diagnostic in {methodology_version}"
+            ),
             "dependency_correction": "tested by treating every indicator/group as independent",
         },
         "threshold_sensitivity": sensitivity,
@@ -252,13 +294,67 @@ def execute_v11_comparison(
             }
         ),
         "live_probability": None,
-        "live_probability_reason": "candidate-v11 remains shadow until all promotion gates pass",
+        "live_probability_reason": (
+            f"{methodology_version} remains shadow until all promotion gates pass"
+        ),
     }
     checksum_payload = json.dumps(
         payload, ensure_ascii=True, sort_keys=True, separators=(",", ":"), default=str
     ).encode()
     payload["manifest_checksum"] = hashlib.sha256(checksum_payload).hexdigest()
     return payload
+
+
+def execute_v11_comparison(
+    repository: CrisisRadarRepository,
+    *,
+    scenario_code: str,
+    started_at: datetime,
+    ended_at: datetime,
+    cadence_days: int,
+    horizon_days: int,
+    minimum_coverage: Decimal = Decimal(".70"),
+) -> dict:
+    return _execute_candidate_comparison(
+        repository,
+        methodology_version=METHODOLOGY_V11_VERSION,
+        replay_candidate=replay_v11_scenario,
+        manifest_version="crisis-radar-v11-comparison-v1",
+        replay_checksum_key="v11_replay",
+        scenario_code=scenario_code,
+        started_at=started_at,
+        ended_at=ended_at,
+        cadence_days=cadence_days,
+        horizon_days=horizon_days,
+        minimum_coverage=minimum_coverage,
+    )
+
+
+def execute_v12_comparison(
+    repository: CrisisRadarRepository,
+    *,
+    scenario_code: str,
+    started_at: datetime,
+    ended_at: datetime,
+    cadence_days: int,
+    horizon_days: int,
+    minimum_coverage: Decimal = Decimal(".70"),
+) -> dict:
+    """Compare replay-only v12 with v10 without changing the live methodology."""
+
+    return _execute_candidate_comparison(
+        repository,
+        methodology_version=METHODOLOGY_V12_VERSION,
+        replay_candidate=replay_v12_scenario,
+        manifest_version="crisis-radar-v12-comparison-v1",
+        replay_checksum_key="v12_replay",
+        scenario_code=scenario_code,
+        started_at=started_at,
+        ended_at=ended_at,
+        cadence_days=cadence_days,
+        horizon_days=horizon_days,
+        minimum_coverage=minimum_coverage,
+    )
 
 
 def _require_current_schema(database: Database) -> None:
@@ -276,7 +372,15 @@ def _require_current_schema(database: Database) -> None:
 def main() -> None:
     load_dotenv()
     parser = argparse.ArgumentParser(
-        description="Causally compare candidate-v11, its ablations, v10 and a naive base rate"
+        description=(
+            "Causally compare a shadow candidate, its ablations, v10 and a naive base rate"
+        )
+    )
+    parser.add_argument(
+        "--methodology",
+        choices=(METHODOLOGY_V11_VERSION, METHODOLOGY_V12_VERSION),
+        default=METHODOLOGY_V11_VERSION,
+        help="Shadow candidate to replay; candidate-v12 is registered disabled/replay-only.",
     )
     parser.add_argument("--scenario", required=True)
     parser.add_argument("--from", dest="started_at", required=True)
@@ -294,7 +398,12 @@ def main() -> None:
     database = Database(Path(args.database).expanduser(), auto_migrate=False)
     _require_current_schema(database)
     repository = CrisisRadarRepository(database)
-    payload = execute_v11_comparison(
+    if args.methodology == METHODOLOGY_V12_VERSION:
+        bootstrap_v12_catalog(repository)
+        comparison = execute_v12_comparison
+    else:
+        comparison = execute_v11_comparison
+    payload = comparison(
         repository,
         scenario_code=args.scenario,
         started_at=_aware_date(args.started_at, "from"),

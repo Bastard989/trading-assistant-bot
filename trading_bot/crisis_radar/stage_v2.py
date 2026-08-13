@@ -120,17 +120,21 @@ def dependency_for(*, code: str, group_code: str, region_code: str) -> Dependenc
         subchannel = (
             "bank_deposits" if "deposits" in code
             else "emergency_borrowing" if "primary_credit" in code
+            else "central_bank_swap_lines" if "liquidity_swaps" in code
             else "yield_curve" if "10y2y" in code
             else "real_yields" if "real_yield" in code
             else "central_bank_balance_sheet" if "fed_assets" in code
             else "broad_dollar" if "broad_usd" in code
             else group_code
         )
-    elif group_code in {"market_stress", "equity_market_stress"} or group_code.endswith("_market_conditions"):
+    elif group_code in {
+        "market_stress", "equity_market_stress", "technology_market"
+    } or group_code.endswith("_market_conditions"):
         cluster, anchor = "markets_fx", "market"
         subchannel = (
             "implied_volatility" if code == "vix"
             else "financial_stress_composite" if "financial_stress_index" in code
+            else "technology_equity_drawdown" if group_code == "technology_market"
             else "equity_drawdown" if "drawdown" in code
             else group_code
         )
@@ -147,7 +151,9 @@ def dependency_for(*, code: str, group_code: str, region_code: str) -> Dependenc
         subchannel = group_code
     elif group_code == "housing_cre":
         cluster, anchor = "housing_cre", None
-        subchannel = "housing_activity"
+        subchannel = (
+            "cre_delinquency" if "delinquency" in code else "housing_activity"
+        )
     elif group_code in {"real_economy", "global_growth", "euro_growth", "china_growth"} or group_code.endswith("_growth"):
         cluster, anchor = "real_economy", None
         subchannel = group_code

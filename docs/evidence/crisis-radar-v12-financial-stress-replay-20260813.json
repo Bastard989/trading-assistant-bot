@@ -1,0 +1,118 @@
+{
+  "ablation_findings": {
+    "contagion_numeric_delta_expected": "zero: contagion is diagnostic in candidate-v12",
+    "dependency_correction": "tested by treating every indicator/group as independent",
+    "events_numeric_delta_expected": "zero: events do not alter numeric indicator/stage score"
+  },
+  "candidate_replay_diagnostics": {
+    "cutoff_count": 89,
+    "eligibility_reason_counts": {
+      "insufficient_numeric_coverage": 89
+    },
+    "eligible_cutoff_count": 0,
+    "input_count_max": 10,
+    "input_count_min": 2,
+    "numeric_coverage_max": "0.1220",
+    "numeric_coverage_min": "0.0244",
+    "stage_counts": {
+      "insufficient_data": 89
+    }
+  },
+  "candidate_status": "shadow",
+  "catalog": {
+    "checksum": "4dd9396b5a9a251f7da1e2c850f13bdd90fbf16d9df0c9880bfe4b535cd1dc2e",
+    "event_count": 17,
+    "regions": [
+      "GLOBAL"
+    ],
+    "version": "ofr-policy-interventions-2017-v1"
+  },
+  "causal_contract": {
+    "active_events_excluded": true,
+    "future_observations_allowed": false,
+    "observed_at_lte_cutoff": true,
+    "released_at_lte_cutoff": true,
+    "retrospective_revisions_excluded": true,
+    "right_censoring": true
+  },
+  "checksums": {
+    "v10_replay": "860f9c1c6fc5b4faf1ede2fbf3f1fe237cbc4df487b926fbb1c9a332bafdd0fb",
+    "v12_replay": "462e1f000950ba432839787db5b3a7148031cf37231dd0d210fba28f2916a2b9"
+  },
+  "generated_at": "2026-08-13T11:49:00.214142+00:00",
+  "live_probability": null,
+  "live_probability_reason": "candidate-v12 remains shadow until all promotion gates pass",
+  "manifest_checksum": "890edc9d551f636236f38c01bd56945a344cc6d702fdcc643df49627fac81ff6",
+  "manifest_version": "crisis-radar-v12-comparison-v1",
+  "methodology": "candidate-v12",
+  "period": {
+    "cadence_days": 30,
+    "ended_at": "2016-09-01T23:59:59+00:00",
+    "horizon_days": 30,
+    "minimum_coverage": "0.70",
+    "started_at": "2009-05-30T00:00:00+00:00"
+  },
+  "promotion_gate": {
+    "criteria": {},
+    "passed": false,
+    "reasons": [
+      "insufficient_resolved_samples"
+    ]
+  },
+  "results": {
+    "economic_only": {
+      "eligible_signal_count": 0,
+      "probability": null,
+      "sample_count": 0,
+      "status": "insufficient_resolved_samples"
+    },
+    "full": {
+      "eligible_signal_count": 0,
+      "probability": null,
+      "sample_count": 0,
+      "status": "insufficient_resolved_samples"
+    },
+    "historical_only": {
+      "eligible_signal_count": 0,
+      "probability": null,
+      "sample_count": 0,
+      "status": "insufficient_resolved_samples"
+    },
+    "naive_base_rate": {
+      "brier_score": null,
+      "probability": null,
+      "status": "insufficient_resolved_samples"
+    },
+    "v10_baseline": {
+      "probability": null,
+      "sample_count": 0,
+      "status": "insufficient_resolved_samples"
+    },
+    "without_contagion": {
+      "eligible_signal_count": 0,
+      "probability": null,
+      "sample_count": 0,
+      "status": "insufficient_resolved_samples"
+    },
+    "without_dependency_correction": {
+      "eligible_signal_count": 0,
+      "probability": null,
+      "sample_count": 0,
+      "status": "insufficient_resolved_samples"
+    },
+    "without_events": {
+      "eligible_signal_count": 0,
+      "probability": null,
+      "sample_count": 0,
+      "status": "insufficient_resolved_samples"
+    },
+    "without_trend": {
+      "eligible_signal_count": 0,
+      "probability": null,
+      "sample_count": 0,
+      "status": "insufficient_resolved_samples"
+    }
+  },
+  "scenario_code": "financial_stress",
+  "threshold_sensitivity": []
+}

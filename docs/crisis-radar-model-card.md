@@ -12,12 +12,14 @@
 
 - основной live baseline: `candidate-v10`;
 - shadow methodology: `candidate-v11`;
+- replay-only depth methodology: `candidate-v12`;
 - indicator scoring: `indicator-score-v2-seed-1`;
 - stage: `independent-stage-v2-seed-1`;
 - dependency graph: `dependency-graph-v2-seed-1`;
 - playbook: `crisis-playbook-v2-seed-1`;
 - v10 replay: `historical-replay-v1`;
 - v11 comparison replay: `causal-v11-replay-v1`.
+- v12 comparison replay: `causal-v12-replay-v1`.
 
 ## Входы и выходы
 
@@ -78,13 +80,22 @@ never executed.
 Это означает: код причинного replay работает, но прогностическое преимущество v11
 не доказано. v11 остаётся shadow; v10 не переписан.
 
+Отдельный `candidate-v12` добавляет десять причинно доступных рядов рынка труда,
+кредита, CRE/жилья, долларовой ликвидности, NASDAQ и энергоносителей. Он имеет
+собственные immutable-пороги, RU/EN metadata и dependency assignments, но новые
+индикаторы остаются выключенными для live. Replay `financial_stress` за
+2009-05-30—2016-09-01 проверил 89 месячных cutoff: использовалось от 2 до 10
+доступных входов, numeric coverage составил только 2,44–12,20%, поэтому все 89
+точек получили `insufficient_data`, promotion не пройден и probability=`null`.
+
 ## Known limitations
 
 - causal history has insufficient breadth/depth for v11 promotion;
 - global regions have unequal channel depth;
-- ten additional official FRED depth series are collection-only research inputs;
-  they have no v11 thresholds and cannot affect the live stage until a new
-  immutable methodology passes replay, sensitivity and canary gates; their
+- ten additional official FRED depth series are disabled live inputs with
+  explicit thresholds only inside immutable replay-only `candidate-v12`; they
+  cannot affect the live stage until that methodology passes replay, sensitivity
+  and canary gates; their
   collection failures are isolated from required FRED source health; an
   isolated ALFRED backfill now provides 15,619 causal initial-release points
   across all ten series, but this improves evidence availability rather than
@@ -111,6 +122,7 @@ never executed.
 - a single headline or vector match treated as a crisis;
 - `stable` when mandatory data coverage is insufficient;
 - calling candidate-v11 production-primary before replay and canary pass.
+- calling candidate-v12 live or promoted while its coverage gate fails.
 
 ## Monitoring and rollback
 

@@ -1477,6 +1477,7 @@ class CrisisRadarRepository:
         *,
         as_of: datetime,
         causal_only: bool = False,
+        include_disabled: bool = False,
     ) -> list[AnalysisInput]:
         if as_of.tzinfo is None or as_of.utcoffset() is None:
             raise ValueError("as_of must be timezone-aware")
@@ -1536,7 +1537,8 @@ class CrisisRadarRepository:
                              latest.fetched_at DESC, latest.id DESC
                     LIMIT 1
                 )
-                WHERE methodology.code = ? AND methodology.version = ? AND indicator.enabled = 1
+                WHERE methodology.code = ? AND methodology.version = ?
+                  AND (? = 1 OR indicator.enabled = 1)
                 ORDER BY indicator.code
                 """,
                 (
@@ -1545,6 +1547,7 @@ class CrisisRadarRepository:
                     int(causal_only),
                     methodology_code,
                     methodology_version,
+                    int(include_disabled),
                 ),
             ).fetchall()
         return _analysis_inputs_from_rows(rows)

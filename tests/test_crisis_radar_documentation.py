@@ -1,11 +1,18 @@
 import json
+import hashlib
 from pathlib import Path
 
-from trading_bot.crisis_radar.catalog import METHODOLOGY_V11_VERSION
+from trading_bot.crisis_radar.catalog import (
+    METHODOLOGY_V11_VERSION,
+    METHODOLOGY_V12_VERSION,
+)
 from trading_bot.crisis_radar.methodology_contract import (
     runtime_methodology_contract,
 )
-from trading_bot.crisis_radar.replay_v2 import REPLAY_V2_ENGINE_VERSION
+from trading_bot.crisis_radar.replay_v2 import (
+    REPLAY_V2_ENGINE_VERSION,
+    REPLAY_V12_ENGINE_VERSION,
+)
 from trading_bot.crisis_radar.scoring_v2 import PROFILES, SCORING_VERSION
 from trading_bot.crisis_radar.stage_v2 import (
     DEPENDENCY_GRAPH_VERSION,
@@ -28,6 +35,9 @@ CAUSAL_DEPTH_EVIDENCE_PATH = (
 )
 CAUSAL_CAPABILITY_EVIDENCE_PATH = (
     ROOT / "docs" / "evidence" / "crisis-radar-fred-causal-capability-20260812.json"
+)
+V12_REPLAY_EVIDENCE_PATH = (
+    ROOT / "docs" / "evidence" / "crisis-radar-v12-financial-stress-replay-20260813.json"
 )
 
 
@@ -156,3 +166,32 @@ def test_new_depth_history_is_causal_but_remains_disabled_and_unpromoted() -> No
         if item["contract_status"] == "live_only"
     ]
     assert live_only == ["sp500_30d_drawdown"]
+
+
+def test_v12_replay_evidence_is_fail_closed_and_cannot_claim_promotion() -> None:
+    evidence = json.loads(V12_REPLAY_EVIDENCE_PATH.read_text(encoding="utf-8"))
+
+    assert evidence["methodology"] == METHODOLOGY_V12_VERSION
+    assert evidence["manifest_version"] == "crisis-radar-v12-comparison-v1"
+    assert evidence["candidate_status"] == "shadow"
+    assert evidence["live_probability"] is None
+    assert evidence["promotion_gate"]["passed"] is False
+    diagnostics = evidence["candidate_replay_diagnostics"]
+    assert diagnostics["cutoff_count"] == 89
+    assert diagnostics["eligible_cutoff_count"] == 0
+    assert diagnostics["stage_counts"] == {"insufficient_data": 89}
+    assert diagnostics["numeric_coverage_max"] == "0.1220"
+    assert diagnostics["eligibility_reason_counts"] == {
+        "insufficient_numeric_coverage": 89
+    }
+    assert len(evidence["checksums"]["v12_replay"]) == 64
+    assert REPLAY_V12_ENGINE_VERSION == "causal-v12-replay-v1"
+    expected_checksum = evidence.pop("manifest_checksum")
+    canonical = json.dumps(
+        evidence,
+        ensure_ascii=True,
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    ).encode()
+    assert hashlib.sha256(canonical).hexdigest() == expected_checksum

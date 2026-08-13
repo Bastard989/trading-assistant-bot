@@ -8,6 +8,7 @@ from trading_bot.crisis_radar.catalog import (
     BYBIT_INDICATORS,
     BYBIT_RESEARCH_INDICATORS,
     BYBIT_SIGNED_V11_INDICATORS,
+    BYBIT_STABLECOIN_RESEARCH,
     FRED_INDICATORS,
     FRED_GLOBAL_V2_INDICATORS,
     FRED_HISTORICAL_BACKFILL_MODES,
@@ -163,6 +164,17 @@ class CrisisRadarService:
             result["research_v14"] = bootstrap_v14_catalog(self.repository)
             result["research_v15"] = bootstrap_v15_catalog(self.repository)
             result["research_v16"] = bootstrap_v16_catalog(self.repository)
+            result["research_bybit_health_source_id"] = self.repository.register_source(
+                BYBIT_STABLECOIN_RESEARCH.code,
+                BYBIT_STABLECOIN_RESEARCH.name,
+                base_url=BYBIT_STABLECOIN_RESEARCH.base_url,
+                terms_url=BYBIT_STABLECOIN_RESEARCH.terms_url,
+                access_type="research_candidate",
+                expected_frequency=BYBIT_STABLECOIN_RESEARCH.expected_frequency,
+                max_staleness_seconds=(
+                    BYBIT_STABLECOIN_RESEARCH.max_staleness_seconds
+                ),
+            )
         return result
 
     def derive_crypto_event_catalog(
@@ -893,6 +905,61 @@ class CrisisRadarService:
             "stage": None,
         }
 
+    async def sync_bybit_stablecoin(
+        self,
+        client: BybitClient,
+        *,
+        fetched_at: datetime | None = None,
+        recompute_after: bool = False,
+    ) -> dict[str, int | str | None]:
+        """Collect disabled Bybit USDC/USDT evidence with isolated health."""
+
+        self.bootstrap()
+        if recompute_after:
+            raise ValueError("disabled stablecoin research cannot recompute live stage")
+        now = fetched_at or datetime.now(timezone.utc)
+        if now.tzinfo is None or now.utcoffset() is None:
+            raise ValueError("fetched_at must be timezone-aware")
+        sync_run_id = self.repository.start_sync_run(
+            BYBIT_STABLECOIN_RESEARCH.code,
+            started_at=now,
+        )
+        rows_fetched = 0
+        rows_written = 0
+        error = ""
+        try:
+            observation = StablecoinDislocationAdapter().normalize_bybit(
+                await client.fetch_spot_ticker("USDCUSDT"),
+                fetched_at=now,
+            )
+            rows_fetched = 1
+            rows_written = int(
+                self.repository.save_observation(
+                    observation,
+                    sync_run_id=sync_run_id,
+                    preserve_vintage=True,
+                ).inserted
+            )
+        except (BybitSourceError, SourcePayloadError) as exc:
+            error = type(exc).__name__
+        status = "failed" if error else "succeeded"
+        self.repository.finish_sync_run(
+            sync_run_id,
+            finished_at=datetime.now(timezone.utc),
+            status=status,
+            rows_fetched=rows_fetched,
+            rows_written=rows_written,
+            error_code="source_error" if error else "",
+            error_detail=error,
+        )
+        return {
+            "sync_run_id": sync_run_id,
+            "status": status,
+            "rows_fetched": rows_fetched,
+            "rows_written": rows_written,
+            "stage": None,
+        }
+
     async def sync_oecd(
         self,
         client: OecdClient,
@@ -1087,7 +1154,7 @@ class CrisisRadarService:
         *,
         fetched_at: datetime | None = None,
         recompute_after: bool = True,
-    ) -> dict[str, int | str | None | list[str]]:
+    ) -> dict[str, int | str | None]:
         self.bootstrap()
         now = fetched_at or datetime.now(timezone.utc)
         if now.tzinfo is None or now.utcoffset() is None:
@@ -1097,7 +1164,6 @@ class CrisisRadarService:
         rows_fetched = 0
         rows_written = 0
         errors: list[str] = []
-        research_errors: list[str] = []
         for symbol in ("BTCUSDT", "ETHUSDT"):
             try:
                 funding_payload = await client.fetch_funding(symbol)
@@ -1132,25 +1198,6 @@ class CrisisRadarService:
                         )
             except (BybitSourceError, SourcePayloadError) as exc:
                 errors.append(f"{symbol}:{type(exc).__name__}")
-        live_rows_fetched = rows_fetched
-        if self.feature_flags.scoring_v11:
-            try:
-                observation = StablecoinDislocationAdapter().normalize_bybit(
-                    await client.fetch_spot_ticker("USDCUSDT"),
-                    fetched_at=now,
-                )
-                rows_fetched += 1
-                rows_written += int(
-                    self.repository.save_observation(
-                        observation,
-                        sync_run_id=sync_run_id,
-                        preserve_vintage=True,
-                    ).inserted
-                )
-            except (BybitSourceError, SourcePayloadError) as exc:
-                research_errors.append(
-                    f"USDCUSDT:{type(exc).__name__}"
-                )
         status = "failed" if len(errors) == 2 else "partial" if errors else "succeeded"
         self.repository.finish_sync_run(
             sync_run_id,
@@ -1161,23 +1208,14 @@ class CrisisRadarService:
             error_code="source_errors" if errors else "",
             error_detail=",".join(errors),
         )
-        overview = (
-            self.recompute(snapshot_at=now)
-            if live_rows_fetched and recompute_after
-            else None
-        )
-        result: dict[str, int | str | None | list[str]] = {
+        overview = self.recompute(snapshot_at=now) if rows_fetched and recompute_after else None
+        return {
             "sync_run_id": sync_run_id,
             "status": status,
             "rows_fetched": rows_fetched,
             "rows_written": rows_written,
             "stage": None if overview is None else overview.stage.value,
         }
-        if research_errors:
-            result["research_errors"] = research_errors
-        if self.feature_flags.scoring_v11:
-            result["research_rows_fetched"] = int(not research_errors)
-        return result
 
     async def backfill_bybit(
         self,

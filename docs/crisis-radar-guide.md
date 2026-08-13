@@ -488,9 +488,9 @@ Canary должен набрать минимум 1210 успешных пятн
 календарных дней. Он проверяет HTTP, snapshot lag, false stable, numeric/news
 coverage, source failures, delivery queues, backup checksum/age и disk size.
 Сбои обязательных, discovery-only и отключённых research-источников учитываются
-раздельно: поломка GSCPI или Binance-кандидата видна, но не изображает отказ
-live-радара; ошибка Bybit stablecoin-котировки также отделена от обязательных
-BTC/ETH price/OI/funding входов.
+раздельно: поломка GSCPI, Binance или Bybit stablecoin-кандидата видна в
+долговременном source health/canary, но не изображает отказ live-радара и не
+ухудшает обязательные BTC/ETH price/OI/funding входы.
 
 ## 12. Ограничения
 

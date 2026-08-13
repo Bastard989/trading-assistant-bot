@@ -155,7 +155,11 @@ initial releases use their actual release dates.
   warning; overall coverage `80.95%`, computational core `92.64%`, runtime
   `90.04%`, PostgreSQL memory `96.83%`; Ruff, diff, repeated migration,
   26-source registry and dependency audit passed.
-- Source registry: 26 версионируемых контрактов; offline contract gate проходит.
+- Source registry: 27 версионируемых контрактов; offline contract gate проходит.
+  После post-commit аудита Bybit stablecoin collector получил отдельную
+  `research_candidate` health identity: его ошибка теперь сохраняется в sync
+  journal и попадает в canary, не меняя immutable checksum `candidate-v16` и не
+  ухудшая обязательный Bybit BTC/ETH-контур.
 - Live source contracts: 13/13 scoring FRED v11 series, 10/10 disabled
   next-methodology FRED research series and the previous 12/12 official-news
   server channels returned valid data on 2026-08-11. The 13th repository channel,

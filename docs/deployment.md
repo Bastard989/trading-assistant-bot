@@ -92,7 +92,8 @@ Required-source, discovery-only aggregator and disabled research-collector
 failures are recorded as separate incident codes. A GDELT, GSCPI or Binance
 stablecoin candidate outage therefore remains visible but cannot be misread as
 failure of an official live coverage channel. Bybit stablecoin collection is
-also isolated from required BTC/ETH health through `research_errors`. Clients
-use bounded retries; stored failure reasons are sanitized.
+also persisted under its own `research_candidate` health identity instead of the
+required BTC/ETH sync run. Clients use bounded retries; stored failure reasons
+are sanitized.
 
 For the first 24 hours, inspect authenticated Crisis Radar source health after each scheduled macro/global sync and confirm that the snapshot timestamp advances without duplicate alert deliveries. For fourteen days, review backup sidecars, source failures, restart counts, Telegram delivery retries, and disk growth daily. A future observation period cannot be claimed as passed in advance; record its actual start/end and incidents in the private operations log.

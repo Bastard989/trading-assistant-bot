@@ -19,6 +19,7 @@ from trading_bot.crisis_radar.catalog import (
     bootstrap_v16_catalog,
     methodology_checksum,
 )
+from trading_bot.crisis_radar.canary import collect_database_metrics
 from trading_bot.crisis_radar.feature_flags import CrisisRadarFeatureFlags
 from trading_bot.crisis_radar.repositories import CrisisRadarRepository
 from trading_bot.crisis_radar.service import CrisisRadarService
@@ -296,19 +297,6 @@ def test_stablecoin_collection_is_disabled_and_does_not_recompute_live_stage(
 
 def test_bybit_research_failure_does_not_degrade_required_bybit_health(tmp_path) -> None:
     class StubClient:
-        @staticmethod
-        def _payload(name: str, symbol: str) -> bytes:
-            return (FIXTURES / name).read_bytes().replace(b"BTCUSDT", symbol.encode())
-
-        async def fetch_funding(self, symbol: str) -> bytes:
-            return self._payload("bybit_funding.json", symbol)
-
-        async def fetch_open_interest(self, symbol: str) -> bytes:
-            return self._payload("bybit_open_interest.json", symbol)
-
-        async def fetch_daily_klines(self, symbol: str) -> bytes:
-            return self._payload("bybit_klines.json", symbol)
-
         async def fetch_spot_ticker(self, symbol: str) -> bytes:
             assert symbol == "USDCUSDT"
             return b"{}"
@@ -323,44 +311,53 @@ def test_bybit_research_failure_does_not_degrade_required_bybit_health(tmp_path)
         ),
     )
 
-    result = asyncio.run(service.sync_bybit(StubClient(), fetched_at=NOW))
+    result = asyncio.run(
+        service.sync_bybit_stablecoin(StubClient(), fetched_at=NOW)
+    )
 
-    assert result["status"] == "succeeded"
-    assert result["research_errors"] == ["USDCUSDT:SourcePayloadError"]
-    assert result["research_rows_fetched"] == 0
+    assert result["status"] == "failed"
+    assert result["rows_fetched"] == 0
     with database.connect() as connection:
         run = connection.execute(
             """
             SELECT status, error_code, error_detail
             FROM cr_sync_runs WHERE source_id=(
-                SELECT id FROM cr_sources WHERE code='bybit'
+                SELECT id FROM cr_sources WHERE code='bybit_stablecoin_research'
             ) ORDER BY id DESC LIMIT 1
             """
         ).fetchone()
     assert dict(run) == {
-        "status": "succeeded",
-        "error_code": "",
-        "error_detail": "",
+        "status": "failed",
+        "error_code": "source_error",
+        "error_detail": "SourcePayloadError",
     }
+    health = service.source_health(locale="en", as_of=NOW)
+    bybit = next(item for item in health["sources"] if item["code"] == "bybit")
+    research = next(
+        item
+        for item in health["sources"]
+        if item["code"] == "bybit_stablecoin_research"
+    )
+    assert bybit["status"] == "never_synced"
+    assert research["status"] == "failed"
+    assert research["access_type"] == "research_candidate"
+    backup_directory = tmp_path / "backups"
+    backup_directory.mkdir()
+    metrics = collect_database_metrics(
+        database.path,
+        backup_directory=backup_directory,
+        now=NOW,
+    )
+    assert metrics["source_failures"] == 0
+    assert metrics["research_source_failure_codes"] == [
+        "bybit_stablecoin_research"
+    ]
 
 
 def test_bybit_research_success_writes_disabled_input_without_extra_snapshot(
     tmp_path,
 ) -> None:
     class StubClient:
-        @staticmethod
-        def _payload(name: str, symbol: str) -> bytes:
-            return (FIXTURES / name).read_bytes().replace(b"BTCUSDT", symbol.encode())
-
-        async def fetch_funding(self, symbol: str) -> bytes:
-            return self._payload("bybit_funding.json", symbol)
-
-        async def fetch_open_interest(self, symbol: str) -> bytes:
-            return self._payload("bybit_open_interest.json", symbol)
-
-        async def fetch_daily_klines(self, symbol: str) -> bytes:
-            return self._payload("bybit_klines.json", symbol)
-
         async def fetch_spot_ticker(self, symbol: str) -> bytes:
             assert symbol == "USDCUSDT"
             return BYBIT_FIXTURE.read_bytes()
@@ -376,7 +373,7 @@ def test_bybit_research_success_writes_disabled_input_without_extra_snapshot(
     )
 
     result = asyncio.run(
-        service.sync_bybit(
+        service.sync_bybit_stablecoin(
             StubClient(),
             fetched_at=NOW,
             recompute_after=False,
@@ -384,8 +381,7 @@ def test_bybit_research_success_writes_disabled_input_without_extra_snapshot(
     )
 
     assert result["status"] == "succeeded"
-    assert result["research_rows_fetched"] == 1
-    assert "research_errors" not in result
+    assert result["rows_fetched"] == result["rows_written"] == 1
     with database.connect() as connection:
         stored = connection.execute(
             """
@@ -401,3 +397,9 @@ def test_bybit_research_success_writes_disabled_input_without_extra_snapshot(
         ).fetchone()[0]
     assert dict(stored) == {"value_text": "0.4400", "enabled": 0}
     assert snapshots == 0
+    with pytest.raises(ValueError, match="cannot recompute"):
+        asyncio.run(
+            service.sync_bybit_stablecoin(
+                StubClient(), fetched_at=NOW, recompute_after=True
+            )
+        )

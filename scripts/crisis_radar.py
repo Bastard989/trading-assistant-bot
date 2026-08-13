@@ -84,6 +84,7 @@ def main() -> None:
             "bis",
             "oecd",
             "new_york_fed",
+            "bybit_stablecoin_research",
             "binance_market",
             "news",
             "fed_news",
@@ -194,6 +195,19 @@ def main() -> None:
                     BinanceMarketClient(), recompute_after=False
                 )
             elif args.source == "binance_market":
+                raise RuntimeError(
+                    "CRISIS_RADAR_SCORING_V11 must be enabled for the stablecoin research collector"
+                )
+            if (
+                args.source in {"all", "bybit_stablecoin_research"}
+                and service.feature_flags.scoring_v11
+            ):
+                results["bybit_stablecoin_research"] = (
+                    await service.sync_bybit_stablecoin(
+                        BybitClient(), recompute_after=False
+                    )
+                )
+            elif args.source == "bybit_stablecoin_research":
                 raise RuntimeError(
                     "CRISIS_RADAR_SCORING_V11 must be enabled for the stablecoin research collector"
                 )

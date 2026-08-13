@@ -69,6 +69,13 @@ class FakeService:
         self.calls.append("binance_market")
         return {"status": "succeeded"}
 
+    async def sync_bybit_stablecoin(
+        self, client, *, recompute_after: bool = False
+    ) -> dict:
+        assert recompute_after is False
+        self.calls.append("bybit_stablecoin_research")
+        return {"status": "succeeded"}
+
     async def sync_news(self, client) -> dict:
         self.calls.append(client.source_code)
         return {"status": "succeeded"}
@@ -356,6 +363,7 @@ def test_hourly_sync_collects_disabled_stablecoin_candidate_when_v11_is_enabled(
         "ecb",
         "eurostat",
         "bybit",
+        "bybit_stablecoin_research",
         "binance_market",
         "market",
     ]

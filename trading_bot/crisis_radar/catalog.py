@@ -178,6 +178,19 @@ BINANCE_MARKET = SourceSeed(
     max_staleness_seconds=2 * 3600,
 )
 
+# Operational health identity for the disabled Bybit stablecoin collector. It is
+# deliberately excluded from methodology_checksum: observations retain Bybit as
+# their data lineage, while this logical source keeps research failures separate
+# from the required BTC/ETH market-data run.
+BYBIT_STABLECOIN_RESEARCH = SourceSeed(
+    code="bybit_stablecoin_research",
+    name="Bybit USDC/USDT Research Collector",
+    base_url="https://api.bybit.com/v5/market",
+    terms_url=BYBIT.terms_url,
+    expected_frequency="intraday",
+    max_staleness_seconds=2 * 3600,
+)
+
 NEWS_SOURCES = (
     NewsSourceSeed(
         code="fed_news",

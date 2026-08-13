@@ -41,7 +41,8 @@
 - New York Fed GSCPI: `research_source_failures` остаётся отдельным warning;
   отключённый candidate-v15 не должен маскироваться под отказ обязательного
   числового контура и не меняет live stage.
-- Binance USDC/USDT: `research_source_failures` остаётся отдельным warning;
-  Bybit stablecoin-ошибка выводится как `research_errors` и не ухудшает статус
-  обязательных BTC/ETH price/OI/funding запросов. Оба candidate-v16 ряда
-  выключены и не запускают snapshot.
+- Binance/Bybit USDC/USDT: оба сборщика имеют собственный sync-run с
+  `access_type=research_candidate`; их сбои попадают в
+  `research_source_failures`, не ухудшают статус обязательных BTC/ETH
+  price/OI/funding запросов и не теряются после перезапуска. Оба candidate-v16
+  ряда выключены и не запускают snapshot.

@@ -80,6 +80,13 @@ SOURCE_POLICIES = (
         "cross-venue USDC/USDT dislocation; disabled from live scoring pending causal replay",
     ),
     SourcePolicy(
+        "bybit_stablecoin_research", "B",
+        "https://www.bybit.com/en/help-center/article/Bybit-Website-Terms-and-Conditions",
+        "public-market-api", "intraday", "near real-time",
+        "one bounded public book-ticker request per hourly sync", "binance_market",
+        "candidate", "isolated health for disabled Bybit USDC/USDT collector",
+    ),
+    SourcePolicy(
         "fed_news", "A", "https://www.federalreserve.gov/feeds.htm", "official-rss", "intraday",
         "publication time", "bounded polling", None, "active", "US monetary and banking events",
     ),
@@ -153,7 +160,7 @@ SOURCE_POLICIES = (
 
 def source_registry_payload() -> dict:
     return {
-        "version": "2026-08-13.3",
+        "version": "2026-08-14.1",
         "sources": [asdict(item) for item in SOURCE_POLICIES],
         "rules": {
             "official_first": True,

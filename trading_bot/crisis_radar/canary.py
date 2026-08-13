@@ -69,17 +69,18 @@ def collect_database_metrics(
         ).fetchone()
         failed_sources = connection.execute(
             """
-            SELECT count(*) FROM (
-                SELECT run.status
+            SELECT source.code, source.access_type, source.status FROM (
+                SELECT source.id, source.code, source.access_type, run.status
                 FROM cr_sources AS source
                 JOIN cr_sync_runs AS run ON run.id=(
                     SELECT latest.id FROM cr_sync_runs AS latest
                     WHERE latest.source_id=source.id ORDER BY latest.id DESC LIMIT 1
                 )
                 WHERE source.enabled=1 AND run.status IN ('failed', 'partial')
-            )
+            ) AS source
+            ORDER BY source.code
             """
-        ).fetchone()[0]
+        ).fetchall()
         alert_queue = connection.execute(
             """
             SELECT count(*) AS queued,
@@ -120,7 +121,20 @@ def collect_database_metrics(
             "ratio": news["ratio_text"],
             "failed_sources": int(news["failed_source_count"]),
         },
-        "source_failures": int(failed_sources),
+        "source_failures": sum(
+            row["access_type"] != "discovery_api" for row in failed_sources
+        ),
+        "source_failure_codes": [
+            row["code"] for row in failed_sources
+            if row["access_type"] != "discovery_api"
+        ],
+        "discovery_source_failures": sum(
+            row["access_type"] == "discovery_api" for row in failed_sources
+        ),
+        "discovery_source_failure_codes": [
+            row["code"] for row in failed_sources
+            if row["access_type"] == "discovery_api"
+        ],
         "queues": {
             "alerts": int(alert_queue["queued"] or 0),
             "alert_retries": int(alert_queue["retried"] or 0),
@@ -160,7 +174,29 @@ def evaluate_sample(
     if news is None or news.get("status") == "insufficient_data":
         add("news_blackout", "critical", "news coverage is absent or insufficient")
     if metrics.get("source_failures", 0):
-        add("source_failures", "warning", f"count={metrics['source_failures']}")
+        add(
+            "source_failures",
+            "warning",
+            json.dumps(
+                {
+                    "count": metrics["source_failures"],
+                    "codes": metrics.get("source_failure_codes", []),
+                },
+                sort_keys=True,
+            ),
+        )
+    if metrics.get("discovery_source_failures", 0):
+        add(
+            "discovery_source_failures",
+            "warning",
+            json.dumps(
+                {
+                    "count": metrics["discovery_source_failures"],
+                    "codes": metrics.get("discovery_source_failure_codes", []),
+                },
+                sort_keys=True,
+            ),
+        )
     queues = metrics.get("queues") or {}
     if queues.get("alerts", 0) > 100 or queues.get("data_health", 0) > 100:
         add("delivery_queue_growth", "critical", json.dumps(queues, sort_keys=True))

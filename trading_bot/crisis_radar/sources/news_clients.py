@@ -232,12 +232,18 @@ class GdeltDiscoveryClient:
         self,
         *,
         client: httpx.AsyncClient | None = None,
+        attempts: int = 3,
         timeout_seconds: float = 30,
         max_response_bytes: int = 3_000_000,
+        sleep: Sleep = asyncio.sleep,
     ) -> None:
+        if attempts < 1 or attempts > 5:
+            raise ValueError("attempts must be between 1 and 5")
         self._client = client
+        self.attempts = attempts
         self.timeout_seconds = timeout_seconds
         self.max_response_bytes = max_response_bytes
+        self.sleep = sleep
 
     async def fetch(self, *, timespan: str = "1h") -> bytes:
         if timespan not in {"15min", "1h", "6h", "24h"}:
@@ -250,26 +256,49 @@ class GdeltDiscoveryClient:
         owns_client = self._client is None
         client = self._client or httpx.AsyncClient(timeout=self.timeout_seconds)
         try:
-            try:
-                response = await client.get(
-                    "https://api.gdeltproject.org/api/v2/doc/doc",
-                    params={
-                        "query": query,
-                        "mode": "ArtList",
-                        "format": "json",
-                        "maxrecords": "250",
-                        "timespan": timespan,
-                        "sort": "DateDesc",
-                    },
-                    headers={"Accept": "application/json", "User-Agent": "TradingAssistant-CrisisRadar/6"},
+            for attempt in range(1, self.attempts + 1):
+                try:
+                    response = await client.get(
+                        "https://api.gdeltproject.org/api/v2/doc/doc",
+                        params={
+                            "query": query,
+                            "mode": "ArtList",
+                            "format": "json",
+                            "maxrecords": "250",
+                            "timespan": timespan,
+                            "sort": "DateDesc",
+                        },
+                        headers={
+                            "Accept": "application/json",
+                            "User-Agent": "TradingAssistant-CrisisRadar/9",
+                        },
+                    )
+                except httpx.RequestError as exc:
+                    if attempt == self.attempts:
+                        raise NewsSourceError(
+                            "GDELT discovery request failed after retries"
+                        ) from exc
+                    await self.sleep(min(2 ** (attempt - 1), 5))
+                    continue
+                if response.status_code == 200:
+                    if len(response.content) > self.max_response_bytes:
+                        raise NewsSourceError(
+                            "GDELT discovery response exceeds configured size limit"
+                        )
+                    return response.content
+                retryable = response.status_code == 429 or response.status_code >= 500
+                if not retryable or attempt == self.attempts:
+                    raise NewsSourceError(
+                        f"GDELT discovery returned HTTP {response.status_code}"
+                    )
+                retry_after = response.headers.get("Retry-After", "")
+                delay = (
+                    float(retry_after)
+                    if retry_after.replace(".", "", 1).isdigit()
+                    else 2 ** (attempt - 1)
                 )
-            except httpx.RequestError as exc:
-                raise NewsSourceError("GDELT discovery request failed") from exc
-            if response.status_code != 200:
-                raise NewsSourceError(f"GDELT discovery returned HTTP {response.status_code}")
-            if len(response.content) > self.max_response_bytes:
-                raise NewsSourceError("GDELT discovery response exceeds configured size limit")
-            return response.content
+                await self.sleep(min(delay, 5))
         finally:
             if owns_client:
                 await client.aclose()
+        raise NewsSourceError("GDELT discovery request failed")

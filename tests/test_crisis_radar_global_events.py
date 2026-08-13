@@ -144,13 +144,22 @@ def test_gdelt_adapter_and_client_are_bounded_discovery_only() -> None:
     assert items[0].source_tier == "C"
     assert items[0].original_language == "Russian"
 
+    calls = 0
+
     async def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
         assert request.url.params["maxrecords"] == "250"
         assert request.url.params["timespan"] == "1h"
+        if calls == 1:
+            return httpx.Response(429, headers={"Retry-After": "0"})
         return httpx.Response(200, content=payload)
 
     async def scenario() -> bytes:
         async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
-            return await GdeltDiscoveryClient(client=client).fetch()
+            return await GdeltDiscoveryClient(
+                client=client, sleep=lambda _: asyncio.sleep(0)
+            ).fetch()
 
     assert asyncio.run(scenario()) == payload
+    assert calls == 2

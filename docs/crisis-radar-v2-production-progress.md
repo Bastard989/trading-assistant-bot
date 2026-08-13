@@ -130,6 +130,9 @@ initial releases use their actual release dates.
   eight-scenario deterministic context and headline-grounded event safety:
   `468 passed`, one known Starlette/httpx compatibility warning; Ruff and the
   24-source self-host contract passed.
+- Full regression after separating required/discovery canary failures and adding
+  bounded GDELT retries: `469 passed`, one known Starlette/httpx compatibility
+  warning; Ruff passed.
 - Source registry: 24 версионируемых контракта; offline contract gate проходит.
 - Live source contracts: 13/13 scoring FRED v11 series, 10/10 disabled
   next-methodology FRED research series and the previous 12/12 official-news
@@ -241,6 +244,13 @@ initial releases use their actual release dates.
   incidents. One persistent GDELT discovery warning produced one incident, not
   two: live deduplication is therefore verified. The warning does not masquerade
   as healthy official-news coverage and remains visible until it resolves.
+  Read-only inspection on 2026-08-13 at sample `182/1210` confirmed no critical
+  incidents or restart intervals; the only active warning was the latest failed
+  Tier-C `gdelt_discovery` run. A manual bounded request from the same service
+  account then succeeded with 121,954 bytes. The repository candidate now
+  retries transient GDELT `429`/`5xx`, persists a sanitized reason and separates
+  `discovery_source_failures` from failures of required official sources. This
+  candidate is not claimed as active until the consolidated rollout.
 - Server doctor now passes token/owner, DB, schema, release, local verified
   backup and installed `age` checks. It correctly remains red for permanent
   HTTPS, an externally retained age recipient/private identity and a separately

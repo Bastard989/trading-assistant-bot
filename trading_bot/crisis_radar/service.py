@@ -883,7 +883,7 @@ class CrisisRadarService:
                         self.repository.save_event_candidate(saved.news_item_id, candidate)
                         events_written += 1
         except (NewsSourceError, SourcePayloadError) as exc:
-            error = type(exc).__name__
+            error = f"{type(exc).__name__}: {exc}"
         status = "failed" if error else "succeeded"
         self.repository.finish_sync_run(
             sync_run_id,
@@ -945,7 +945,7 @@ class CrisisRadarService:
                     self.repository.save_event_candidate(saved.news_item_id, candidate)
                     events_written += 1
         except (NewsSourceError, SourcePayloadError) as exc:
-            error = type(exc).__name__
+            error = f"{type(exc).__name__}: {exc}"
         status = "failed" if error else "succeeded"
         self.repository.finish_sync_run(
             sync_run_id,

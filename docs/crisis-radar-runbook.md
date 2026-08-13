@@ -35,4 +35,6 @@
 - stale snapshot: проверить job queue, API limits и сетевую доступность;
 - duplicate alerts: проверить unique event key, delivery status и cooldown;
 - ungrounded agent response: сохранить rejection evidence, не показывать как факт;
-- GDELT 429: оставить discovery feed degraded, официальный числовой контур продолжает работу.
+- GDELT 429: bounded retry выполняется автоматически; при исчерпании попыток
+  `discovery_source_failures` остаётся warning, а официальный числовой и
+  official-news coverage продолжают работу.

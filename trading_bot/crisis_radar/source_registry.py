@@ -63,6 +63,12 @@ SOURCE_POLICIES = (
         "cross-region leading cycle",
     ),
     SourcePolicy(
+        "new_york_fed", "A", "https://www.newyorkfed.org/termsofuse", "official-csv",
+        "monthly", "release month is known; exact timestamp is conservatively set to first collection",
+        "one bounded 1 MB request per daily sync", None, "candidate",
+        "global supply-chain pressure; disabled from live scoring pending causal replay",
+    ),
+    SourcePolicy(
         "bybit", "B", "https://www.bybit.com/en/help-center/article/Bybit-Website-Terms-and-Conditions",
         "public-exchange-api", "mixed", "near real-time", "endpoint-specific bounded requests", None, "active",
         "crypto market, price and leverage",
@@ -141,7 +147,7 @@ SOURCE_POLICIES = (
 
 def source_registry_payload() -> dict:
     return {
-        "version": "2026-08-13.1",
+        "version": "2026-08-13.2",
         "sources": [asdict(item) for item in SOURCE_POLICIES],
         "rules": {
             "official_first": True,

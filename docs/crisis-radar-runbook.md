@@ -38,3 +38,6 @@
 - GDELT 429: bounded retry выполняется автоматически; при исчерпании попыток
   `discovery_source_failures` остаётся warning, а официальный числовой и
   official-news coverage продолжают работу.
+- New York Fed GSCPI: `research_source_failures` остаётся отдельным warning;
+  отключённый candidate-v15 не должен маскироваться под отказ обязательного
+  числового контура и не меняет live stage.

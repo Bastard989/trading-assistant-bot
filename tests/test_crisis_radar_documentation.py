@@ -7,8 +7,11 @@ from trading_bot.crisis_radar.catalog import (
     METHODOLOGY_V12_VERSION,
     METHODOLOGY_V13_VERSION,
     METHODOLOGY_V14_VERSION,
+    METHODOLOGY_V15_VERSION,
     V14_INDICATORS,
     V14_SCENARIOS,
+    V15_INDICATORS,
+    V15_SCENARIOS,
     methodology_checksum,
 )
 from trading_bot.crisis_radar.methodology_contract import (
@@ -59,6 +62,9 @@ V13_REPLAY_SUMMARY_PATH = (
 )
 V14_BIS_DEPTH_EVIDENCE_PATH = (
     ROOT / "docs" / "evidence" / "crisis-radar-v14-bis-depth-contract-20260813.json"
+)
+V15_GSCPI_EVIDENCE_PATH = (
+    ROOT / "docs" / "evidence" / "crisis-radar-v15-gscpi-contract-20260813.json"
 )
 NBS_NEWS_EVIDENCE_PATH = (
     ROOT / "docs" / "evidence" / "crisis-radar-nbs-news-contract-20260813.json"
@@ -360,6 +366,41 @@ def test_v14_bis_depth_evidence_is_disabled_and_not_mislabelled_as_causal() -> N
         "probability_emitted": False,
         "raw_provider_archives_distributed": False,
     }
+
+
+def test_v15_gscpi_evidence_is_official_disabled_and_causally_conservative() -> None:
+    evidence = json.loads(V15_GSCPI_EVIDENCE_PATH.read_text(encoding="utf-8"))
+
+    assert evidence["methodology"]["version"] == METHODOLOGY_V15_VERSION
+    assert evidence["methodology"]["checksum"] == methodology_checksum(
+        version=METHODOLOGY_V15_VERSION,
+        indicators=V15_INDICATORS,
+        scenarios=V15_SCENARIOS,
+    )
+    assert evidence["methodology"]["live_enabled"] is False
+    assert evidence["matrix_contract"] == {
+        "vintage_count": 56,
+        "observation_count": 347,
+        "non_missing_value_count": 17892,
+        "latest_vintage": "2026-08",
+        "latest_observation_at": "2026-07-31T00:00:00Z",
+        "latest_value": "0.79",
+        "unit": "standard_deviations",
+        "latest_value_only_ingested": True,
+    }
+    assert evidence["causal_status"]["exact_publication_timestamp_available_in_csv"] is False
+    assert evidence["causal_status"]["released_at_policy"] == (
+        "first_successful_collection_time"
+    )
+    assert evidence["causal_status"]["causal_replay_completed"] is False
+    assert evidence["isolated_ingestion"]["new_indicator_enabled"] is False
+    assert evidence["isolated_ingestion"]["candidate_v15_snapshot_count"] == 0
+    assert evidence["isolated_ingestion"]["sqlite_integrity"] == "ok"
+    assert evidence["isolated_ingestion"]["foreign_key_violations"] == 0
+    assert all(evidence["source_contract"].values())
+    assert evidence["safety"]["working_database_touched"] is False
+    assert evidence["safety"]["production_database_touched"] is False
+    assert evidence["safety"]["probability_emitted"] is False
 
 
 def test_nbs_news_evidence_is_official_bounded_and_cannot_change_numeric_stage() -> None:

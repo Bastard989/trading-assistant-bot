@@ -70,6 +70,10 @@ _GROUP_NAMES = {
     "global_growth": ("Мировой экономический рост", "Global economic growth"),
     "global_leading_cycle": ("Опережающий цикл G20", "G20 leading cycle"),
     "global_credit_cycle": ("Глобальный кредитный цикл", "Global credit cycle"),
+    "global_supply_chain_stress": (
+        "Давление в глобальных цепочках поставок",
+        "Global supply-chain pressure",
+    ),
 }
 
 _REGION_NAMES = {

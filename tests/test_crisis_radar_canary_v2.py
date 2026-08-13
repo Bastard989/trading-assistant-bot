@@ -42,6 +42,8 @@ def _healthy_metrics() -> dict:
         "source_failure_codes": [],
         "discovery_source_failures": 0,
         "discovery_source_failure_codes": [],
+        "research_source_failures": 0,
+        "research_source_failure_codes": [],
         "queues": {"alerts": 0, "alert_retries": 0, "data_health": 0, "data_health_retries": 0},
         "backup": {"status": "healthy", "age_seconds": 60, "checksum_valid": True},
         "disk_bytes": 100,
@@ -86,14 +88,22 @@ def test_canary_collects_real_database_snapshot_and_verifies_backup(tmp_path) ->
     assert metrics["backup"]["checksum_valid"] is True
     assert metrics["source_failures"] == 0
     assert metrics["discovery_source_failures"] == 0
+    assert metrics["research_source_failures"] == 0
 
 
-def test_canary_separates_required_and_discovery_source_failures(tmp_path) -> None:
+def test_canary_separates_required_discovery_and_research_source_failures(tmp_path) -> None:
     database_path = tmp_path / "radar-source-health.sqlite3"
     repository = CrisisRadarRepository(Database(database_path))
-    service = CrisisRadarService(repository)
+    service = CrisisRadarService(
+        repository,
+        feature_flags=CrisisRadarFeatureFlags(
+            thresholds_v2=True,
+            global_sources_v2=True,
+            scoring_v11=True,
+        ),
+    )
     service.bootstrap()
-    for code in ("fred", "gdelt_discovery"):
+    for code in ("fred", "gdelt_discovery", "new_york_fed"):
         run_id = repository.start_sync_run(code, started_at=NOW)
         repository.finish_sync_run(
             run_id,
@@ -125,9 +135,12 @@ def test_canary_separates_required_and_discovery_source_failures(tmp_path) -> No
     assert metrics["source_failure_codes"] == ["fred"]
     assert metrics["discovery_source_failures"] == 1
     assert metrics["discovery_source_failure_codes"] == ["gdelt_discovery"]
+    assert metrics["research_source_failures"] == 1
+    assert metrics["research_source_failure_codes"] == ["new_york_fed"]
     assert {item["code"] for item in incidents} == {
         "source_failures",
         "discovery_source_failures",
+        "research_source_failures",
     }
 
 

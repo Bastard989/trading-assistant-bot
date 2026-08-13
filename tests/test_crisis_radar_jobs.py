@@ -57,6 +57,11 @@ class FakeService:
         self.calls.append("oecd")
         return {"status": "succeeded"}
 
+    async def sync_new_york_fed(self, client, *, recompute_after: bool = False) -> dict:
+        assert recompute_after is False
+        self.calls.append("new_york_fed")
+        return {"status": "succeeded"}
+
     async def sync_news(self, client) -> dict:
         self.calls.append(client.source_code)
         return {"status": "succeeded"}
@@ -315,6 +320,22 @@ def test_locked_jobs_skip_without_starting_parallel_sync() -> None:
 
     asyncio.run(scenario())
     assert service.calls == []
+
+
+def test_global_sync_collects_disabled_gscpi_candidate_when_v11_is_enabled() -> None:
+    service = FakeService()
+    service.feature_flags = SimpleNamespace(scoring_v11=True)
+    jobs = CrisisRadarJobs(service, fred_api_key="")
+
+    asyncio.run(jobs.sync_global(None))
+
+    assert service.calls == [
+        "world_bank",
+        "bis",
+        "oecd",
+        "new_york_fed",
+        "market",
+    ]
 
 
 class SchedulingRepository:

@@ -190,6 +190,7 @@ python -m scripts.crisis_radar sync --source ecb
 python -m scripts.crisis_radar sync --source world_bank
 python -m scripts.crisis_radar sync --source bis
 python -m scripts.crisis_radar sync --source oecd
+python -m scripts.crisis_radar sync --source new_york_fed
 python -m scripts.crisis_radar sync --source news
 python -m scripts.crisis_radar sync --source bybit
 python -m scripts.crisis_radar recompute
@@ -206,7 +207,7 @@ python -m scripts.replay_crisis_radar --scenario financial_stress --from 1998-08
 python -m scripts.soak_check --base-url http://127.0.0.1:8080 --duration-seconds 300
 ```
 
-FRED, BEA, and EIA keys enable their respective live synchronizations. ECB, Eurostat, World Bank, BIS, OECD, Bybit, all configured official RSS feeds, and the HKMA press-release API use public endpoints without keys. World Bank, BIS, and OECD run in a separate daily job because their macro series update slowly and the BIS bulk archive is substantially larger than an ordinary API response. The methodology and UI can be tested entirely offline with fixtures. The dashboard deliberately does not show a single “magic crash probability”: the overview communicates the current market stage and breadth of deterioration, while technical scores and source health stay behind the detailed-mode toggle.
+FRED, BEA, and EIA keys enable their respective live synchronizations. ECB, Eurostat, World Bank, BIS, OECD, New York Fed GSCPI, Bybit, all configured official RSS feeds, and the HKMA press-release API use public endpoints without keys. World Bank, BIS, OECD and the disabled GSCPI research collector run in a separate daily job because their macro series update slowly and the BIS bulk archive is substantially larger than an ordinary API response. GSCPI collection requires `CRISIS_RADAR_SCORING_V11=1`; the indicator remains disabled from live scoring until causal replay and promotion gates pass. The methodology and UI can be tested entirely offline with fixtures. The dashboard deliberately does not show a single “magic crash probability”: the overview communicates the current market stage and breadth of deterioration, while technical scores and source health stay behind the detailed-mode toggle.
 
 FRED exposes only ten years of daily S&P 500 history and identifies that series as S&P Dow Jones copyrighted data. Its vintage/initial-release endpoint rejects this licensed series, so the radar treats S&P 500 as `live_only`: fresh observations can support monitoring but the series is excluded from causal replay. The application keeps fetched observations in the owner's private database; the repository and self-hosted package do not redistribute an S&P dataset.
 

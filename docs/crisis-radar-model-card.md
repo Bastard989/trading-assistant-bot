@@ -15,6 +15,7 @@
 - replay-only depth methodology: `candidate-v12`;
 - replay-only scenario-coverage methodology: `candidate-v13`;
 - disabled BIS depth collection methodology: `candidate-v14`;
+- disabled New York Fed GSCPI collection methodology: `candidate-v15`;
 - indicator scoring: `indicator-score-v2-seed-1`;
 - stage: `independent-stage-v2-seed-1`;
 - dependency graph: `dependency-graph-v2-seed-1`;
@@ -122,6 +123,14 @@ normal-status, дубликаты, будущие периоды и размер
 causal replay evidence и не даёт права включить v14 в live. Регулярный сбор может
 накапливать point-in-time историю с момента подключения.
 
+`candidate-v15` добавляет один отключённый официальный GSCPI New York Fed.
+Строгий CSV-контракт проверяет винтажные колонки и причинную допустимость ячеек;
+в storage поступает только последнее значение последнего винтажа. Поскольку CSV
+даёт месяц, но не точный timestamp публикации, доступность фиксируется первым
+успешным получением с `release_time_estimated`. Ретроспективная матрица не
+выдаётся за точную point-in-time историю. Пороги 1/2/3 стандартных отклонения —
+shadow-зоны, а не вероятность; индикатор не входит в live stage.
+
 ## Known limitations
 
 - causal history has insufficient breadth/depth for v11 promotion;
@@ -129,6 +138,8 @@ causal replay evidence и не даёт права включить v14 в live.
   it is replay-only and cannot emit a calibrated probability;
 - candidate-v14 BIS depth inputs are disabled; current bulk history lacks exact
   historical release vintages and cannot be used as causal replay evidence;
+- candidate-v15 GSCPI is disabled; exact historical release timestamps and
+  causal replay/promotion evidence are still absent;
 - global regions have unequal channel depth;
 - ten additional official FRED depth series are disabled live inputs with
   explicit thresholds only inside immutable replay-only `candidate-v12`; they
@@ -140,7 +151,7 @@ causal replay evidence и не даёт права включить v14 в live.
   proving predictive advantage or authorizing promotion;
 - the licensed FRED S&P 500 series rejects the vintage contract and is explicitly
   live-only, so it cannot contribute historical replay evidence;
-- 13 repository official-news channels do not constitute exhaustive world-news coverage;
+- 14 repository official-news channels do not constitute exhaustive world-news coverage;
 - events and contagion currently do not change numeric v11 stage, so their numeric
   ablation delta is expected to be zero;
 - scorecard MFE/MAE is unavailable without validated asset histories;
@@ -165,12 +176,13 @@ causal replay evidence и не даёт права включить v14 в live.
 - calling candidate-v12 live or promoted while its coverage gate fails.
 - calling candidate-v13 live or promoted while calibration and holdout gates fail.
 - calling candidate-v14 live or promoted before point-in-time replay and canary.
+- calling candidate-v15 live or promoted before causal replay and canary.
 
 ## Monitoring and rollback
 
 The radar-specific canary checks HTTP readiness, snapshot lag, false-stable,
-numeric/news coverage, source failures, queue growth, backup integrity/age and disk
-growth. Manifest continuity survives process restarts. A release needs at least
+numeric/news coverage, required/discovery/research source failures, queue growth,
+backup integrity/age and disk growth. Manifest continuity survives process restarts. A release needs at least
 1210 samples over 14 days with no critical incident. Repeated samples of the same
 active incident do not create duplicates: the manifest records opened, active,
 resolved and reopened transitions while retaining every unique critical opening.

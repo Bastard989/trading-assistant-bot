@@ -122,11 +122,12 @@ def collect_database_metrics(
             "failed_sources": int(news["failed_source_count"]),
         },
         "source_failures": sum(
-            row["access_type"] != "discovery_api" for row in failed_sources
+            row["access_type"] not in {"discovery_api", "research_candidate"}
+            for row in failed_sources
         ),
         "source_failure_codes": [
             row["code"] for row in failed_sources
-            if row["access_type"] != "discovery_api"
+            if row["access_type"] not in {"discovery_api", "research_candidate"}
         ],
         "discovery_source_failures": sum(
             row["access_type"] == "discovery_api" for row in failed_sources
@@ -134,6 +135,13 @@ def collect_database_metrics(
         "discovery_source_failure_codes": [
             row["code"] for row in failed_sources
             if row["access_type"] == "discovery_api"
+        ],
+        "research_source_failures": sum(
+            row["access_type"] == "research_candidate" for row in failed_sources
+        ),
+        "research_source_failure_codes": [
+            row["code"] for row in failed_sources
+            if row["access_type"] == "research_candidate"
         ],
         "queues": {
             "alerts": int(alert_queue["queued"] or 0),
@@ -193,6 +201,18 @@ def evaluate_sample(
                 {
                     "count": metrics["discovery_source_failures"],
                     "codes": metrics.get("discovery_source_failure_codes", []),
+                },
+                sort_keys=True,
+            ),
+        )
+    if metrics.get("research_source_failures", 0):
+        add(
+            "research_source_failures",
+            "warning",
+            json.dumps(
+                {
+                    "count": metrics["research_source_failures"],
+                    "codes": metrics.get("research_source_failure_codes", []),
                 },
                 sort_keys=True,
             ),

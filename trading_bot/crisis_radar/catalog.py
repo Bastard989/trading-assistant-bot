@@ -25,6 +25,7 @@ METHODOLOGY_V11_VERSION = "candidate-v11"
 METHODOLOGY_V12_VERSION = "candidate-v12"
 METHODOLOGY_V13_VERSION = "candidate-v13"
 METHODOLOGY_V14_VERSION = "candidate-v14"
+METHODOLOGY_V15_VERSION = "candidate-v15"
 
 
 @dataclass(frozen=True)
@@ -154,6 +155,15 @@ OECD = SourceSeed(
     name="OECD SDMX Data Explorer",
     base_url="https://sdmx.oecd.org/public/rest/v1/data",
     terms_url="https://www.oecd.org/en/about/terms-conditions.html",
+    expected_frequency="monthly",
+    max_staleness_seconds=75 * 86400,
+)
+
+NEW_YORK_FED = SourceSeed(
+    code="new_york_fed",
+    name="Federal Reserve Bank of New York Research Data",
+    base_url="https://www.newyorkfed.org/research/policy/gscpi",
+    terms_url="https://www.newyorkfed.org/termsofuse",
     expected_frequency="monthly",
     max_staleness_seconds=75 * 86400,
 )
@@ -1476,6 +1486,28 @@ V12_INDICATORS = V11_INDICATORS + FRED_V12_CANDIDATE_INDICATORS
 V13_INDICATORS = V12_INDICATORS
 V14_INDICATORS = V13_INDICATORS + BIS_V14_CANDIDATE_INDICATORS
 
+NEW_YORK_FED_V15_CANDIDATE_INDICATORS = (
+    IndicatorSeed(
+        code="global_supply_chain_pressure",
+        provider_series_id="gscpi_interactive_data.csv:latest_vintage",
+        name="Global Supply Chain Pressure Index",
+        name_ru="Индекс давления в глобальных цепочках поставок",
+        group_code="global_supply_chain_stress",
+        region_code="GLOBAL",
+        unit="standard_deviations",
+        frequency="monthly",
+        max_staleness_seconds=75 * 86400,
+        thresholds=IndicatorThresholds(
+            warning=Decimal("1"),
+            danger=Decimal("2"),
+            critical=Decimal("3"),
+            reference=Decimal("0"),
+            direction=RiskDirection.HIGHER_IS_WORSE,
+        ),
+    ),
+)
+V15_INDICATORS = V14_INDICATORS + NEW_YORK_FED_V15_CANDIDATE_INDICATORS
+
 _V11_SCENARIO_EXTRA_GROUPS = {
     "global_recession": ("housing_cre",),
     "financial_stress": ("banking_stress", "dollar_liquidity"),
@@ -1586,6 +1618,26 @@ V14_SCENARIOS = tuple(
     )
     for scenario in V13_SCENARIOS
 )
+V15_SCENARIOS = tuple(
+    replace(
+        scenario,
+        group_codes=(
+            scenario.group_codes + ("global_supply_chain_stress",)
+            if scenario.code in {
+                "global_recession",
+                "oil_stagflation",
+                "commodity_supply_shock",
+            }
+            else scenario.group_codes
+        ),
+        anchor_groups=(
+            scenario.anchor_groups + ("global_supply_chain_stress",)
+            if scenario.code == "commodity_supply_shock"
+            else scenario.anchor_groups
+        ),
+    )
+    for scenario in V14_SCENARIOS
+)
 
 _V2_THRESHOLD_RATIONALE = {
     "sahm_rule": {
@@ -1676,6 +1728,12 @@ _V2_THRESHOLD_RATIONALE = {
         "source_url": "https://fred.stlouisfed.org/series/DHHNGSP",
         "operational_role": "two_sided_energy_shock",
     },
+    "global_supply_chain_pressure": {
+        "ru": "1/2/3 стандартных отклонения — прозрачные shadow-зоны повышенного, сильного и экстремального давления; они не считаются исторически откалиброванной вероятностью.",
+        "en": "1/2/3 standard deviations are transparent shadow bands for elevated, strong and extreme pressure; they are not a calibrated probability.",
+        "source_url": "https://www.newyorkfed.org/research/policy/gscpi",
+        "operational_role": "global_supply_chain_pressure",
+    },
 }
 
 for _slug, _iso, _label, _label_ru in _BIS_V14_REGION_ROWS:
@@ -1725,12 +1783,22 @@ def methodology_checksum(
         and scenarios == SCENARIOS
     ):
         return "741836721273b55035706e237cf5fdfe8559c889e6ccc33cac2bb6a82073d742"
+    methodology_sources = (
+        FRED,
+        BEA,
+        EIA,
+        ECB,
+        EUROSTAT,
+        WORLD_BANK,
+        BIS,
+        OECD,
+        BYBIT,
+    )
+    if version == METHODOLOGY_V15_VERSION:
+        methodology_sources += (NEW_YORK_FED,)
     payload = {
         "methodology": [METHODOLOGY_CODE, version],
-        "sources": [
-            asdict(item)
-            for item in (FRED, BEA, EIA, ECB, EUROSTAT, WORLD_BANK, BIS, OECD, BYBIT)
-        ],
+        "sources": [asdict(item) for item in methodology_sources],
         "indicators": [
             {
                 **asdict(item),
@@ -1755,6 +1823,7 @@ def methodology_checksum(
         METHODOLOGY_V12_VERSION,
         METHODOLOGY_V13_VERSION,
         METHODOLOGY_V14_VERSION,
+        METHODOLOGY_V15_VERSION,
     }:
         payload["indicator_scoring"] = {
             code: {key: str(value) for key, value in asdict(profile).items()}
@@ -1787,6 +1856,7 @@ def _source_code_for_indicator(code: str) -> str:
         (BIS, BIS_GLOBAL_V2_INDICATORS),
         (BIS, BIS_V14_CANDIDATE_INDICATORS),
         (OECD, OECD_GLOBAL_V2_INDICATORS),
+        (NEW_YORK_FED, NEW_YORK_FED_V15_CANDIDATE_INDICATORS),
     ):
         if any(item.code == code for item in indicators):
             return source.code
@@ -1819,6 +1889,8 @@ def _bootstrap_catalog(
             if version == METHODOLOGY_V13_VERSION
             else "2026-08-13T17:25:00+00:00"
             if version == METHODOLOGY_V14_VERSION
+            else "2026-08-13T18:40:00+00:00"
+            if version == METHODOLOGY_V15_VERSION
             else
             "2026-08-04T12:00:00+00:00"
             if version == METHODOLOGY_GLOBAL_V2_VERSION
@@ -1827,12 +1899,20 @@ def _bootstrap_catalog(
             else "2026-07-21T00:00:00+00:00"
         ),
     )
-    for source in (FRED, BEA, EIA, ECB, EUROSTAT, WORLD_BANK, BIS, OECD, BYBIT):
+    catalog_sources = (FRED, BEA, EIA, ECB, EUROSTAT, WORLD_BANK, BIS, OECD, BYBIT)
+    if version == METHODOLOGY_V15_VERSION:
+        catalog_sources += (NEW_YORK_FED,)
+    for source in catalog_sources:
         repository.register_source(
             source.code,
             source.name,
             base_url=source.base_url,
             terms_url=source.terms_url,
+            access_type=(
+                "research_candidate"
+                if source.code == NEW_YORK_FED.code
+                else "api"
+            ),
             expected_frequency=source.expected_frequency,
             max_staleness_seconds=source.max_staleness_seconds,
         )
@@ -1879,6 +1959,7 @@ def _bootstrap_catalog(
             METHODOLOGY_V12_VERSION,
             METHODOLOGY_V13_VERSION,
             METHODOLOGY_V14_VERSION,
+            METHODOLOGY_V15_VERSION,
         }
         profile = profile_for(
             frequency=item.frequency,
@@ -1887,7 +1968,7 @@ def _bootstrap_catalog(
         )
         source = next(
             source
-            for source in (FRED, BEA, EIA, ECB, EUROSTAT, WORLD_BANK, BIS, OECD, BYBIT)
+            for source in catalog_sources
             if source.code == source_code
         )
         repository.register_thresholds(
@@ -1900,6 +1981,7 @@ def _bootstrap_catalog(
                 METHODOLOGY_V12_VERSION,
                 METHODOLOGY_V13_VERSION,
                 METHODOLOGY_V14_VERSION,
+                METHODOLOGY_V15_VERSION,
             } else "legacy",
             promotion_status=promotion_status,
             rationale=rationale if version in {
@@ -1908,6 +1990,7 @@ def _bootstrap_catalog(
                 METHODOLOGY_V12_VERSION,
                 METHODOLOGY_V13_VERSION,
                 METHODOLOGY_V14_VERSION,
+                METHODOLOGY_V15_VERSION,
             } else {},
             source_url=(
                 rationale.get("source_url")
@@ -1933,6 +2016,8 @@ def _bootstrap_catalog(
                 if version == METHODOLOGY_V13_VERSION
                 else "2026-08-13T17:25:00+00:00"
                 if version == METHODOLOGY_V14_VERSION
+                else "2026-08-13T18:40:00+00:00"
+                if version == METHODOLOGY_V15_VERSION
                 else "2026-08-05T12:53:16+00:00"
                 if version == METHODOLOGY_V11_VERSION
                 else ""
@@ -1948,7 +2033,9 @@ def _bootstrap_catalog(
                 entity_type="indicator",
                 entity_code=item.code,
                 metadata_version=(
-                    "v14"
+                    "v15"
+                    if version == METHODOLOGY_V15_VERSION
+                    else "v14"
                     if version == METHODOLOGY_V14_VERSION
                     else "v13"
                     if version == METHODOLOGY_V13_VERSION
@@ -1971,7 +2058,9 @@ def _bootstrap_catalog(
                 entity_type="group",
                 entity_code=item.group_code,
                 metadata_version=(
-                    "v14"
+                    "v15"
+                    if version == METHODOLOGY_V15_VERSION
+                    else "v14"
                     if version == METHODOLOGY_V14_VERSION
                     else "v13"
                     if version == METHODOLOGY_V13_VERSION
@@ -2018,6 +2107,7 @@ def _bootstrap_catalog(
             METHODOLOGY_V12_VERSION,
             METHODOLOGY_V13_VERSION,
             METHODOLOGY_V14_VERSION,
+            METHODOLOGY_V15_VERSION,
         }:
             from trading_bot.crisis_radar.metadata_v11 import scenario_metadata
 
@@ -2025,7 +2115,9 @@ def _bootstrap_catalog(
                 entity_type="scenario",
                 entity_code=scenario.code,
                 metadata_version=(
-                    "v14"
+                    "v15"
+                    if version == METHODOLOGY_V15_VERSION
+                    else "v14"
                     if version == METHODOLOGY_V14_VERSION
                     else "v13"
                     if version == METHODOLOGY_V13_VERSION
@@ -2126,6 +2218,27 @@ def bootstrap_v14_catalog(repository: CrisisRadarRepository) -> dict[str, int | 
         version=METHODOLOGY_V14_VERSION,
         indicators=V14_INDICATORS,
         scenarios=V14_SCENARIOS,
+        promotion_status="candidate",
+        indicator_enabled_overrides={code: False for code in new_codes},
+    )
+
+
+def bootstrap_v15_catalog(repository: CrisisRadarRepository) -> dict[str, int | str]:
+    """Register the official GSCPI input as a disabled collection candidate."""
+
+    new_codes = {
+        item.code
+        for item in (
+            FRED_V12_CANDIDATE_INDICATORS
+            + BIS_V14_CANDIDATE_INDICATORS
+            + NEW_YORK_FED_V15_CANDIDATE_INDICATORS
+        )
+    }
+    return _bootstrap_catalog(
+        repository,
+        version=METHODOLOGY_V15_VERSION,
+        indicators=V15_INDICATORS,
+        scenarios=V15_SCENARIOS,
         promotion_status="candidate",
         indicator_enabled_overrides={code: False for code in new_codes},
     )

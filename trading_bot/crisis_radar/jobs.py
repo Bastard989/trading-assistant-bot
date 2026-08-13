@@ -15,6 +15,7 @@ from trading_bot.crisis_radar.sources.news_clients import (
     GdeltDiscoveryClient,
     news_client_for,
 )
+from trading_bot.crisis_radar.sources.new_york_fed import NewYorkFedClient
 
 
 logger = logging.getLogger(__name__)
@@ -129,6 +130,16 @@ class CrisisRadarJobs:
                     "bis": await self.service.sync_bis(BisClient(), recompute_after=False),
                     "oecd": await self.service.sync_oecd(OecdClient(), recompute_after=False),
                 }
+                if bool(
+                    getattr(
+                        getattr(self.service, "feature_flags", None),
+                        "scoring_v11",
+                        False,
+                    )
+                ):
+                    results["new_york_fed"] = await self.service.sync_new_york_fed(
+                        NewYorkFedClient(), recompute_after=False
+                    )
                 self.service.recompute()
                 if self.alert_user_ids:
                     self.service.repository.enqueue_alert_deliveries(self.alert_user_ids)

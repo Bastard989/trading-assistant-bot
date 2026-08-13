@@ -32,7 +32,7 @@
 | 3. Dependency/group/stage v2 | completed (shadow) | Independent subchannels/clusters, intensity + systemic breadth, anchors, fail-closed coverage, v10/v11 comparison; tests |
 | 4. Signed OI | completed (shadow) | 1d/7d/30d signed OI, leverage build vs liquidation unwind, v10 absolute series preserved; boundary/API/service tests |
 | 5. Threshold registry v11 | completed (candidate) | Immutable metadata/checksum/source/role/profile/promotion evidence for v11; v10 untouched |
-| 6. Numeric depth | in_progress | 13 scoring FRED v11 series plus 10 disabled causal FRED depth series. `candidate-v13` adds fixed scenario-group coverage and mandatory credit/market/funding plus US/other-advanced/emerging classes. Disabled `candidate-v14` adds official BIS debt-service and real-house-price channels for ten economies. Real contract parsing retained 480 DSR-gap and 1,656 housing observations. Current BIS bulk history lacks exact release vintages, so it is collection evidence rather than causal replay evidence. Non-US depth improved materially but labor, banking funding, sovereign, shipping and stablecoin depth remain incomplete |
+| 6. Numeric depth | in_progress | 13 scoring FRED v11 series plus 10 disabled causal FRED depth series. `candidate-v13` adds fixed scenario-group coverage and mandatory credit/market/funding plus US/other-advanced/emerging classes. Disabled `candidate-v14` adds official BIS debt-service and real-house-price channels for ten economies. Disabled `candidate-v15` adds official New York Fed GSCPI as a separate supply-chain subchannel with point-in-time live collection. Real contracts retained 480 DSR-gap, 1,656 housing observations and validated a 56-vintage/347-row GSCPI matrix. BIS bulk history and exact historical GSCPI release timestamps remain insufficient for causal replay. Non-US depth improved materially but labor, banking funding, sovereign, shipping and stablecoin depth remain incomplete |
 | 7. News coverage/lifecycle | in_progress | Separate news coverage, snapshot-time decay, immediate fusion recompute. Repository candidate now has 14 official channels: 13 RSS plus strict HKMA JSON API. NBS contributes a separate CHN region with preserved Chinese evidence. Bank of Korea adds KOR growth, banking, reserves and external-balance context with strict query-preserving URLs and headline-grounded event promotion. Real NBS and BOK contracts each parsed 100 bounded items and produced 0 false crisis events. The active server release still has the previously verified 12 channels until rollout. RBA and IMF endpoints were rejected after reproducible HTTP 403; broader filings/exchange coverage remains |
 | 8. Evidence memory profiles | completed (optional advanced) | Basic SQLite FTS5 works without embeddings. Advanced pgvector has schema, continuous ingestion, embedding queue/fallback, hybrid search, health API and a real local PostgreSQL/pgvector verification with relational evidence ID |
 | 9. Scenarios/recovery/diff | completed (shadow seed) | 11 Crisis Playbooks, causal chain, anchors, invalidation, recovery, evidence IDs and persisted causal diff; historical calibration remains stage 12 |
@@ -80,6 +80,10 @@ initial releases use their actual release dates.
 - `candidate-v14` является отдельно checksummed disabled collection-кандидатом.
   Его текущая BIS bulk-история не объявляется point-in-time и не может войти в
   live до накопления/получения причинной истории, replay и canary.
+- `candidate-v15` является отдельно checksummed disabled collection-кандидатом.
+  Он сохраняет только последнее значение официального GSCPI с консервативным
+  временем первой загрузки; ретроспективная матрица не объявляется точной
+  point-in-time историей и не влияет на live stage.
 - Live probability остаётся `null` до победы над baseline.
 - Календарный 14-дневный canary нельзя объявлять завершённым заранее.
 
@@ -133,7 +137,11 @@ initial releases use their actual release dates.
 - Full regression after separating required/discovery canary failures and adding
   bounded GDELT retries: `469 passed`, one known Starlette/httpx compatibility
   warning; Ruff passed.
-- Source registry: 24 версионируемых контракта; offline contract gate проходит.
+- Full regression after immutable disabled `candidate-v15`, strict streamed
+  New York Fed GSCPI vintage contract and separate research-source canary
+  diagnostics: `481 passed`, one known Starlette/httpx compatibility warning;
+  Ruff passed.
+- Source registry: 25 версионируемых контрактов; offline contract gate проходит.
 - Live source contracts: 13/13 scoring FRED v11 series, 10/10 disabled
   next-methodology FRED research series and the previous 12/12 official-news
   server channels returned valid data on 2026-08-11. The 13th repository channel,
@@ -185,6 +193,18 @@ initial releases use their actual release dates.
   They remain disabled because current bulk revisions do not prove historical
   release time. Evidence:
   `docs/evidence/crisis-radar-v14-bis-depth-contract-20260813.json`.
+- Disabled `candidate-v15` adds the official New York Fed GSCPI as one distinct
+  supply-chain subchannel. The live official CSV contained 56 monthly vintages,
+  347 observation rows and 17,892 finite cells; latest vintage `2026-08`, latest
+  observation `2026-07-31`, value `0.79`, SHA-256
+  `61b83279f4cc3a5c1f6a3af739c3527529e3f1411daca9c307928ee6782da58f`.
+  The streamed client enforces a 1 MB limit and the adapter rejects future
+  vintages, dates and causal cell leaks. Isolated ingestion wrote one disabled
+  point, created zero v15 snapshots, passed SQLite integrity/FK checks and did
+  not touch working or production data. Exact publication timestamps are absent,
+  so first successful collection is the conservative availability boundary and
+  the full retrospective matrix is not replay evidence. Evidence:
+  `docs/evidence/crisis-radar-v15-gscpi-contract-20260813.json`.
 - Official NBS China RSS candidate fetched 4,558,474 bytes from the documented
   HTTPS endpoint, matched SHA-256
   `948a3fe01901a7c46530f5bea65a2981ad8f68ced4289fab1ab3fff137585646`,

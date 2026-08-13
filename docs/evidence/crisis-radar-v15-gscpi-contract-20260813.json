@@ -1,0 +1,93 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-08-13T18:40:00Z",
+  "purpose": "Admit the official New York Fed Global Supply Chain Pressure Index as a disabled point-in-time collection candidate without changing live scoring.",
+  "methodology": {
+    "version": "candidate-v15",
+    "checksum": "897930146f268238b8a39eef244583f28c119a757adad8971594297189f15a01",
+    "previous_version": "candidate-v14",
+    "previous_checksum": "5aa975fc8a3abadc1fca56e3eebd6ee22892df75631901099a87664f9a57ba6b",
+    "indicator_count": 103,
+    "new_indicator_count": 1,
+    "scenario_count": 11,
+    "live_enabled": false,
+    "promotion_status": "candidate"
+  },
+  "official_source": {
+    "publisher": "Federal Reserve Bank of New York",
+    "dataset": "Global Supply Chain Pressure Index vintage matrix",
+    "landing_page": "https://www.newyorkfed.org/research/policy/gscpi",
+    "data_url": "https://www.newyorkfed.org/medialibrary/research/interactives/data/gscpi/gscpi_interactive_data.csv",
+    "terms": "https://www.newyorkfed.org/termsofuse",
+    "fetched_at": "2026-08-13T18:40:00Z",
+    "payload_bytes": 113610,
+    "payload_sha256": "61b83279f4cc3a5c1f6a3af739c3527529e3f1411daca9c307928ee6782da58f"
+  },
+  "matrix_contract": {
+    "vintage_count": 56,
+    "observation_count": 347,
+    "non_missing_value_count": 17892,
+    "latest_vintage": "2026-08",
+    "latest_observation_at": "2026-07-31T00:00:00Z",
+    "latest_value": "0.79",
+    "unit": "standard_deviations",
+    "latest_value_only_ingested": true
+  },
+  "threshold_basis": {
+    "warning": "1",
+    "danger": "2",
+    "critical": "3",
+    "reference": "0",
+    "direction": "higher_is_worse",
+    "status": "transparent_shadow_bands_require_replay",
+    "probability_interpretation_allowed": false
+  },
+  "source_contract": {
+    "official_https_endpoint_exact": true,
+    "bounded_timeout_retry_and_payload_size": true,
+    "utf8_and_csv_schema_validated": true,
+    "vintage_headers_unique_ordered_and_not_future": true,
+    "observation_dates_unique_ordered_and_not_future": true,
+    "vintage_cells_reject_future_unavailable_observations": true,
+    "finite_decimals_only": true,
+    "latest_vintage_must_contain_data": true,
+    "content_hash_persisted": true,
+    "offline_fixture_and_failure_tests": true
+  },
+  "causal_status": {
+    "release_month_available": true,
+    "exact_publication_timestamp_available_in_csv": false,
+    "released_at_policy": "first_successful_collection_time",
+    "quality_flag": "release_time_estimated",
+    "retrospective_matrix_ingested_as_exact_point_in_time_history": false,
+    "future_live_collection_can_build_point_in_time_history": true,
+    "causal_replay_completed": false
+  },
+  "isolated_ingestion": {
+    "sync_status": "succeeded",
+    "rows_fetched": 1,
+    "rows_written": 1,
+    "registered_source_count": 25,
+    "registered_indicator_count": 111,
+    "new_indicator_enabled": false,
+    "candidate_v15_snapshot_count": 0,
+    "sqlite_integrity": "ok",
+    "foreign_key_violations": 0
+  },
+  "safety": {
+    "candidate_v14_checksum_changed": false,
+    "candidate_v15_entered_live_snapshot_calculation": false,
+    "working_database_touched": false,
+    "production_database_touched": false,
+    "raw_provider_csv_distributed": false,
+    "historical_revisions_claimed_as_exact_live_history": false,
+    "probability_emitted": false
+  },
+  "limitations": [
+    "candidate-v15 is disabled and cannot change the displayed market stage, scenarios, alerts or opportunities.",
+    "The CSV identifies a release vintage by month but does not prove an exact historical publication timestamp, so first successful collection is the conservative availability boundary.",
+    "Only the latest value of the latest vintage is ingested; the retrospective matrix is retained only as contract evidence until a causal vintage replay policy is independently validated.",
+    "The 1/2/3 standard-deviation thresholds are transparent monitoring candidates, not a crisis probability or a proven trading edge.",
+    "One supply-chain series deepens the commodity channel but does not by itself satisfy the production requirement for deep independent scenario coverage."
+  ]
+}

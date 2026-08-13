@@ -28,6 +28,7 @@ from trading_bot.crisis_radar.catalog import (
     bootstrap_v2_catalog,
     bootstrap_v11_catalog,
     bootstrap_v14_catalog,
+    bootstrap_v15_catalog,
 )
 from trading_bot.crisis_radar.coverage import (
     DEFAULT_REQUIRED_REGIONS,
@@ -87,6 +88,11 @@ from trading_bot.crisis_radar.sources.news_clients import (
     GdeltDiscoveryClient,
     NewsClient,
     NewsSourceError,
+)
+from trading_bot.crisis_radar.sources.new_york_fed import (
+    NewYorkFedAdapter,
+    NewYorkFedClient,
+    NewYorkFedSourceError,
 )
 from trading_bot.crisis_radar.sources.official_clients import BeaClient, EiaClient, OfficialSourceError
 from trading_bot.crisis_radar.stability import STABILITY_POLICY, stabilize_indicator_state
@@ -149,6 +155,7 @@ class CrisisRadarService:
         if self.feature_flags.scoring_v11:
             result["shadow_v11"] = bootstrap_v11_catalog(self.repository)
             result["research_v14"] = bootstrap_v14_catalog(self.repository)
+            result["research_v15"] = bootstrap_v15_catalog(self.repository)
         return result
 
     def derive_crypto_event_catalog(
@@ -768,6 +775,56 @@ class CrisisRadarService:
             rows_written=rows_written,
             error_code="source_errors" if errors else "",
             error_detail=",".join(errors),
+        )
+        overview = self.recompute(snapshot_at=now) if rows_fetched and recompute_after else None
+        return {
+            "sync_run_id": sync_run_id,
+            "status": status,
+            "rows_fetched": rows_fetched,
+            "rows_written": rows_written,
+            "stage": None if overview is None else overview.stage.value,
+        }
+
+    async def sync_new_york_fed(
+        self,
+        client: NewYorkFedClient,
+        *,
+        fetched_at: datetime | None = None,
+        recompute_after: bool = False,
+    ) -> dict[str, int | str | None]:
+        """Collect the latest official GSCPI vintage without enabling it in live scoring."""
+
+        self.bootstrap()
+        now = fetched_at or datetime.now(timezone.utc)
+        if now.tzinfo is None or now.utcoffset() is None:
+            raise ValueError("fetched_at must be timezone-aware")
+        sync_run_id = self.repository.start_sync_run("new_york_fed", started_at=now)
+        rows_fetched = 0
+        rows_written = 0
+        error = ""
+        try:
+            observation = NewYorkFedAdapter().normalize_latest(
+                await client.fetch_gscpi(), fetched_at=now
+            )
+            rows_fetched = 1
+            rows_written = int(
+                self.repository.save_observation(
+                    observation,
+                    sync_run_id=sync_run_id,
+                    preserve_vintage=True,
+                ).inserted
+            )
+        except (NewYorkFedSourceError, SourcePayloadError) as exc:
+            error = type(exc).__name__
+        status = "failed" if error else "succeeded"
+        self.repository.finish_sync_run(
+            sync_run_id,
+            finished_at=datetime.now(timezone.utc),
+            status=status,
+            rows_fetched=rows_fetched,
+            rows_written=rows_written,
+            error_code="source_error" if error else "",
+            error_detail=error,
         )
         overview = self.recompute(snapshot_at=now) if rows_fetched and recompute_after else None
         return {

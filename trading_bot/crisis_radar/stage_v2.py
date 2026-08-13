@@ -156,9 +156,13 @@ def dependency_for(*, code: str, group_code: str, region_code: str) -> Dependenc
             else "crypto_price" if "drawdown" in code
             else group_code
         )
-    elif group_code == "inflation_commodities":
+    elif group_code in {"inflation_commodities", "global_supply_chain_stress"}:
         cluster, anchor = "commodities_supply", None
-        subchannel = group_code
+        subchannel = (
+            "supply_chain_pressure"
+            if group_code == "global_supply_chain_stress"
+            else group_code
+        )
     elif group_code == "housing_cre" or group_code.endswith("_housing_cycle"):
         cluster, anchor = "housing_cre", None
         subchannel = (

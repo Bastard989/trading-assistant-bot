@@ -88,9 +88,10 @@ coverage, source failures, notification queues, backup checksum/age, database an
 disk growth. The manifest deduplicates an incident while it remains active,
 records its resolution, and counts it again only if it reopens. It never turns
 elapsed time into a simulated pass.
-Required-source failures and discovery-only aggregator failures are recorded as
-separate incident codes. A GDELT outage therefore remains visible but cannot be
-misread as failure of an official coverage channel. The GDELT client retries
-only bounded `429`/`5xx` responses and stores a sanitized failure reason.
+Required-source, discovery-only aggregator and disabled research-collector
+failures are recorded as separate incident codes. A GDELT or GSCPI candidate
+outage therefore remains visible but cannot be misread as failure of an official
+live coverage channel. Both clients use bounded retries; stored failure reasons
+are sanitized.
 
 For the first 24 hours, inspect authenticated Crisis Radar source health after each scheduled macro/global sync and confirm that the snapshot timestamp advances without duplicate alert deliveries. For fourteen days, review backup sidecars, source failures, restart counts, Telegram delivery retries, and disk growth daily. A future observation period cannot be claimed as passed in advance; record its actual start/end and incidents in the private operations log.

@@ -233,6 +233,12 @@ NEWS_SOURCES = (
         terms_url="https://www.stats.gov.cn/wzgl/rss/202302/t20230217_1912859.html",
     ),
     NewsSourceSeed(
+        code="bok_news",
+        name="Bank of Korea Press Releases RSS",
+        base_url="https://www.bok.or.kr/eng/bbs/E0000634/news.rss?menuNo=400069",
+        terms_url="https://www.bok.or.kr/static/view/eng/popup/rss_popup.html",
+    ),
+    NewsSourceSeed(
         code="ofac_news",
         name="OFAC Recent Actions GovDelivery RSS",
         base_url="https://public.govdelivery.com/topics/USTREAS_61/feed.rss",

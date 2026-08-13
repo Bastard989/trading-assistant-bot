@@ -63,6 +63,9 @@ V14_BIS_DEPTH_EVIDENCE_PATH = (
 NBS_NEWS_EVIDENCE_PATH = (
     ROOT / "docs" / "evidence" / "crisis-radar-nbs-news-contract-20260813.json"
 )
+BOK_NEWS_EVIDENCE_PATH = (
+    ROOT / "docs" / "evidence" / "crisis-radar-bok-news-contract-20260813.json"
+)
 
 
 def test_documented_runtime_versions_match_code() -> None:
@@ -386,6 +389,45 @@ def test_nbs_news_evidence_is_official_bounded_and_cannot_change_numeric_stage()
         "rows_fetched": 100,
         "rows_written": 100,
         "scenario_evidence_written": 108,
+        "crisis_events_written": 0,
+        "sqlite_integrity": "ok",
+        "foreign_key_errors": 0,
+        "working_database_touched": False,
+        "production_database_touched": False,
+    }
+
+
+def test_bok_news_evidence_is_official_strict_and_context_only() -> None:
+    evidence = json.loads(BOK_NEWS_EVIDENCE_PATH.read_text(encoding="utf-8"))
+
+    assert evidence["evidence_version"] == "bok-official-news-contract-v1"
+    assert evidence["source"]["tier"] == "A"
+    assert evidence["source"]["endpoint"] == (
+        "https://www.bok.or.kr/eng/bbs/E0000634/news.rss?menuNo=400069"
+    )
+    assert evidence["live_contract"]["payload_bytes"] <= 1_000_000
+    assert len(evidence["live_contract"]["payload_sha256"]) == 64
+    assert evidence["live_contract"]["adapter_result"] == "passed"
+    assert evidence["safety_contract"]["allowlisted_item_host"] == "www.bok.or.kr"
+    assert evidence["safety_contract"]["required_query_parameters"] == {
+        "nttId": "ASCII digits",
+        "menuNo": "400069",
+    }
+    assert evidence["safety_contract"]["nested_html_removed"] is True
+    assert evidence["analysis_contract"]["normal_release_items_checked"] == 100
+    assert (
+        evidence["analysis_contract"][
+            "normal_release_items_promoted_to_crisis_events"
+        ]
+        == 0
+    )
+    assert evidence["analysis_contract"]["changes_numeric_market_stage"] is False
+    assert evidence["analysis_contract"]["creates_crisis_probability"] is False
+    assert evidence["isolated_ingestion"] == {
+        "status": "succeeded",
+        "rows_fetched": 100,
+        "rows_written": 100,
+        "scenario_evidence_written": 85,
         "crisis_events_written": 0,
         "sqlite_integrity": "ok",
         "foreign_key_errors": 0,

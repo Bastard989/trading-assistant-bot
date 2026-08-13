@@ -153,7 +153,7 @@ class CrisisRadarJobs:
                         "fed_news", "ecb_news", "sec_news", "cftc_news",
                         "bis_news", "boj_news", "rbi_news",
                         "boe_news", "boc_news", "fdic_news", "hkma_news",
-                        "nbs_news", "ofac_news",
+                        "nbs_news", "bok_news", "ofac_news",
                     )
                     if news_events_v2
                     else ("fed_news", "ecb_news")

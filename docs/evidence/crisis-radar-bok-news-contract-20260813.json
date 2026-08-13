@@ -1,0 +1,77 @@
+{
+  "evidence_version": "bok-official-news-contract-v1",
+  "verified_at": "2026-08-13T18:09:42Z",
+  "source": {
+    "code": "bok_news",
+    "publisher": "Bank of Korea",
+    "tier": "A",
+    "endpoint": "https://www.bok.or.kr/eng/bbs/E0000634/news.rss?menuNo=400069",
+    "official_rss_documentation": "https://www.bok.or.kr/static/view/eng/popup/rss_popup.html",
+    "access_type": "official-rss"
+  },
+  "live_contract": {
+    "http_fetch_succeeded": true,
+    "payload_bytes": 269929,
+    "payload_sha256": "fb3b1c9a7a30d9f5ff2862b328d41372f9a2884ad8f0b5eabf636e5ee9ea6d38",
+    "feed_item_count": 100,
+    "bounded_items_parsed": 100,
+    "earliest_parsed_publication_utc": "2026-01-19T21:00:00+00:00",
+    "latest_parsed_publication_utc": "2026-08-05T23:00:00+00:00",
+    "latest_item_url": "https://www.bok.or.kr/eng/bbs/E0000634/view.do?nttId=11063549&menuNo=400069",
+    "adapter_result": "passed"
+  },
+  "safety_contract": {
+    "exact_https_endpoint": true,
+    "allowlisted_item_host": "www.bok.or.kr",
+    "allowlisted_item_path": "/eng/bbs/E0000634/view.do",
+    "required_query_parameters": {
+      "nttId": "ASCII digits",
+      "menuNo": "400069"
+    },
+    "extra_or_duplicate_query_parameters_rejected": true,
+    "max_response_bytes": 1000000,
+    "timeout_seconds": 25,
+    "max_attempts": 3,
+    "dtd_and_external_entities_rejected": true,
+    "provider_timezone_preserved_then_converted_to_utc": true,
+    "future_items_ignored": true,
+    "nested_html_removed": true,
+    "prompt_like_text_never_executed": true
+  },
+  "analysis_contract": {
+    "deterministic_rules": true,
+    "scenario_context_counts": {
+      "regional_recession": 25,
+      "financial_stress": 18,
+      "sovereign_currency_crisis": 15,
+      "global_recession": 9,
+      "oil_stagflation": 8,
+      "tech_ai_repricing": 5,
+      "banking_crisis": 4,
+      "china_hard_landing": 1
+    },
+    "normal_release_items_checked": 100,
+    "normal_release_items_promoted_to_crisis_events": 0,
+    "headline_grounding_required_for_event_candidates": true,
+    "changes_numeric_market_stage": false,
+    "creates_crisis_probability": false,
+    "can_confirm_event_alone": false
+  },
+  "isolated_ingestion": {
+    "status": "succeeded",
+    "rows_fetched": 100,
+    "rows_written": 100,
+    "scenario_evidence_written": 85,
+    "crisis_events_written": 0,
+    "sqlite_integrity": "ok",
+    "foreign_key_errors": 0,
+    "working_database_touched": false,
+    "production_database_touched": false
+  },
+  "limitations": [
+    "This feed covers official Bank of Korea press releases, not all Korean or world news.",
+    "Normal central-bank reports can mention wars or supply shocks as background; such mentions remain context unless the headline itself states the event.",
+    "Scenario matches are deterministic evidence links and do not change the numeric market stage or create a probability.",
+    "The source is a repository candidate and is not claimed as deployed until the consolidated rollout finishes."
+  ]
+}

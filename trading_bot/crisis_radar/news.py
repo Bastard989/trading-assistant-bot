@@ -10,13 +10,14 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from email.utils import parsedate_to_datetime
 from html.parser import HTMLParser
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from trading_bot.crisis_radar.sources.base import SourcePayloadError
 
 
 NEWS_RULE_VERSION = "official-news-v1"
 _NORMALIZED_WORDS = re.compile(r"[a-zа-яё0-9]{2,}|[一-鿿]", re.IGNORECASE)
+_EMBEDDED_HTML_TAG = re.compile(r"<[a-zA-Z][^>]{0,500}>")
 
 
 @dataclass(frozen=True)
@@ -75,13 +76,19 @@ class _TextExtractor(HTMLParser):
 
 
 def _plain_text(value: str, *, limit: int) -> str:
-    parser = _TextExtractor()
-    try:
-        parser.feed(value)
-        parser.close()
-    except (ValueError, AssertionError) as exc:
-        raise SourcePayloadError("invalid HTML in official news text") from exc
-    normalized = re.sub(r"\s+", " ", html.unescape(" ".join(parser.parts))).strip()
+    normalized = value
+    for _ in range(2):
+        parser = _TextExtractor()
+        try:
+            parser.feed(normalized)
+            parser.close()
+        except (ValueError, AssertionError) as exc:
+            raise SourcePayloadError("invalid HTML in official news text") from exc
+        normalized = re.sub(
+            r"\s+", " ", html.unescape(" ".join(parser.parts))
+        ).strip()
+        if not _EMBEDDED_HTML_TAG.search(normalized):
+            break
     return normalized[:limit]
 
 
@@ -97,6 +104,41 @@ def _canonical_url(value: str, *, allowed_hosts: tuple[str, ...]) -> str:
         raise SourcePayloadError("official news item has an untrusted URL")
     path = re.sub(r"/{2,}", "/", parts.path or "/")
     return urlunsplit(("https", parts.hostname, path, "", ""))
+
+
+def _canonical_bok_url(value: str) -> str:
+    """Preserve only the identifiers required by Bank of Korea article URLs."""
+    parts = urlsplit(value.strip())
+    pairs = parse_qsl(parts.query, keep_blank_values=True)
+    if (
+        parts.scheme.lower() not in {"http", "https"}
+        or parts.hostname != "www.bok.or.kr"
+        or parts.username
+        or parts.password
+        or parts.port is not None
+        or parts.path != "/eng/bbs/E0000634/view.do"
+        or parts.fragment
+        or len(pairs) != 2
+    ):
+        raise SourcePayloadError("Bank of Korea item has an untrusted URL")
+    query = {key: value for key, value in pairs}
+    ntt_id = query.get("nttId", "")
+    if (
+        set(query) != {"nttId", "menuNo"}
+        or not ntt_id.isascii()
+        or not ntt_id.isdigit()
+        or query.get("menuNo") != "400069"
+    ):
+        raise SourcePayloadError("Bank of Korea item has invalid URL identifiers")
+    return urlunsplit(
+        (
+            "https",
+            "www.bok.or.kr",
+            "/eng/bbs/E0000634/view.do",
+            urlencode((("nttId", ntt_id), ("menuNo", "400069"))),
+            "",
+        )
+    )
 
 
 def _normalized_title(value: str) -> str:
@@ -115,6 +157,7 @@ class RssAdapter:
         "boe_news": ("www.bankofengland.co.uk",),
         "boc_news": ("www.bankofcanada.ca",),
         "rba_news": ("www.rba.gov.au",),
+        "bok_news": ("www.bok.or.kr",),
         "fdic_news": (
             "www.fdic.gov", "fdic.gov", "public.govdelivery.com",
             "content.govdelivery.com",
@@ -137,6 +180,7 @@ class RssAdapter:
         "boe_news": "Bank of England",
         "boc_news": "Bank of Canada",
         "rba_news": "Reserve Bank of Australia",
+        "bok_news": "Bank of Korea",
         "fdic_news": "Federal Deposit Insurance Corporation",
         "ofac_news": "U.S. Treasury Office of Foreign Assets Control",
     }
@@ -204,7 +248,11 @@ class RssAdapter:
         if summary.casefold() == title.casefold():
             summary = ""
         category = _plain_text(node.findtext(f"{prefix}category") or "", limit=120)
-        url = _canonical_url(link_raw, allowed_hosts=self._HOSTS[self.source_code])
+        url = (
+            _canonical_bok_url(link_raw)
+            if self.source_code == "bok_news"
+            else _canonical_url(link_raw, allowed_hosts=self._HOSTS[self.source_code])
+        )
         provider_item_id = hashlib.sha256(guid_raw.strip().encode()).hexdigest()
         source_text = " ".join((title, summary, category)).casefold()
         importance = "high" if any(
@@ -532,6 +580,67 @@ _RULES = {
             "国内生产总值",
         ),
     },
+    "regional_recession": {
+        "regional_growth": (
+            "gross domestic product", "economic growth", "economic sentiment",
+            "business survey", "consumer tendency", "industrial production",
+            "retail sales", "recession", "contraction",
+        ),
+        "regional_labor": (
+            "employment", "labour market", "labor market", "unemployment",
+            "temporary employment", "hours worked",
+        ),
+    },
+    "banking_crisis": {
+        "bank_funding": (
+            "bank deposits", "deposit outflow", "bank lending", "loans and deposits",
+            "emergency liquidity", "liquidity assistance", "bank failure", "bank run",
+        ),
+        "bank_resilience": (
+            "financial stability", "banking stress", "capital adequacy",
+            "non-performing loan", "loan delinquency",
+        ),
+    },
+    "sovereign_currency_crisis": {
+        "external_balance": (
+            "balance of payments", "current account", "foreign reserves",
+            "foreign exchange reserves", "capital flows", "external debt",
+        ),
+        "currency_stress": (
+            "currency crisis", "exchange-rate pressure", "exchange rate pressure",
+            "capital controls", "devaluation", "debt restructuring", "sovereign default",
+        ),
+    },
+    "commodity_supply_shock": {
+        "supply_chain": (
+            "supply disruption", "shipping disruption", "port closure", "freight rates",
+            "supply chain", "inventory shortage", "production disruption",
+        ),
+        "commodity_pressure": (
+            "commodity shock", "oil shock", "gas supply", "food shock",
+            "energy supply", "commodity prices",
+        ),
+    },
+    "tech_ai_repricing": {
+        "technology_valuation": (
+            "artificial intelligence", " ai valuation", "technology valuation",
+            "semiconductor", "technology earnings", "nasdaq",
+        ),
+        "technology_funding": (
+            "venture funding", "technology credit", "data-center debt",
+            "data centre debt", "chip export control",
+        ),
+    },
+    "exchange_stablecoin_failure": {
+        "exchange_failure": (
+            "exchange failure", "exchange hack", "withdrawal halt", "trading outage",
+            "reserve attestation failure",
+        ),
+        "stablecoin_failure": (
+            "stablecoin depeg", "stablecoin collapse", "reserve shortfall",
+            "redemption halt",
+        ),
+    },
 }
 
 _REASONS = {
@@ -546,10 +655,26 @@ _REASONS = {
     "inflation": ("инфляционное давление", "inflation pressure"),
     "crypto_assets": ("криптоактивы", "crypto assets"),
     "china": ("экономика Китая", "China's economy"),
+    "regional_growth": ("региональный рост и спрос", "regional growth and demand"),
+    "regional_labor": ("региональный рынок труда", "regional labour market"),
+    "bank_funding": ("банковское фондирование", "bank funding"),
+    "bank_resilience": ("устойчивость банков", "bank resilience"),
+    "external_balance": ("внешний баланс и резервы", "external balance and reserves"),
+    "currency_stress": ("валютное и суверенное давление", "currency and sovereign stress"),
+    "supply_chain": ("цепочки поставок", "supply chains"),
+    "commodity_pressure": ("сырьевое давление", "commodity pressure"),
+    "technology_valuation": ("оценка технологического сектора", "technology valuation"),
+    "technology_funding": ("финансирование технологического сектора", "technology funding"),
+    "exchange_failure": ("устойчивость криптобирж", "crypto-exchange resilience"),
+    "stablecoin_failure": ("устойчивость стейблкоинов", "stablecoin resilience"),
 }
 
 
-def classify_news(item: NewsItem) -> tuple[NewsEvidence, ...]:
+def classify_news(
+    item: NewsItem,
+    *,
+    available_scenario_codes: frozenset[str] | None = None,
+) -> tuple[NewsEvidence, ...]:
     text = " ".join((item.title, item.summary, item.category)).casefold()
     urgent = any(
         term in text
@@ -560,6 +685,11 @@ def classify_news(item: NewsItem) -> tuple[NewsEvidence, ...]:
     )
     result = []
     for scenario_code, groups in _RULES.items():
+        if (
+            available_scenario_codes is not None
+            and scenario_code not in available_scenario_codes
+        ):
+            continue
         matched = tuple(
             rule_code
             for rule_code, phrases in groups.items()

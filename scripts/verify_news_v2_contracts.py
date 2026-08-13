@@ -26,6 +26,7 @@ SOURCES = (
     "fdic_news",
     "hkma_news",
     "nbs_news",
+    "bok_news",
     "ofac_news",
 )
 

@@ -861,7 +861,13 @@ class CrisisRadarService:
                         memory_ingested += 1
                     except Exception:
                         memory_errors += 1
-                for evidence in classify_news(item):
+                available_scenario_codes = frozenset(
+                    definition.code for definition in self.scenarios
+                )
+                for evidence in classify_news(
+                    item,
+                    available_scenario_codes=available_scenario_codes,
+                ):
                     evidence_written += int(
                         self.repository.save_news_evidence(
                             saved.news_item_id,

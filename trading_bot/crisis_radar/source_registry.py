@@ -121,6 +121,12 @@ SOURCE_POLICIES = (
         "official China growth, labor, inflation, industry, demand and housing releases",
     ),
     SourcePolicy(
+        "bok_news", "A", "https://www.bok.or.kr/static/view/eng/popup/rss_popup.html",
+        "official-rss", "intraday", "official Korea Standard Time publication timestamp",
+        "one bounded 1 MB feed request per polling interval", None, "candidate",
+        "Korea growth, labor, monetary policy, banking, reserves and external balance releases",
+    ),
+    SourcePolicy(
         "ofac_news", "A", "https://ofac.treasury.gov/recent-actions",
         "official-govdelivery-rss", "intraday", "publication time", "bounded polling",
         None, "candidate", "US Treasury sanctions, designations and restrictions",
@@ -135,7 +141,7 @@ SOURCE_POLICIES = (
 
 def source_registry_payload() -> dict:
     return {
-        "version": "2026-08-13",
+        "version": "2026-08-13.1",
         "sources": [asdict(item) for item in SOURCE_POLICIES],
         "rules": {
             "official_first": True,

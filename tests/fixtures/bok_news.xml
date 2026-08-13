@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>Press Releases | The Bank of Korea</title>
+    <link>https://www.bok.or.kr/</link>
+    <description>Press Releases | The Bank of Korea</description>
+    <language>ko</language>
+    <item>
+      <title>Balance of Payments during May 2026 (preliminary)</title>
+      <link><![CDATA[https://www.bok.or.kr/eng/bbs/E0000634/view.do?nttId=11063549&menuNo=400069]]></link>
+      <description><![CDATA[<p>The Korean current account registered a surplus and net assets increased.</p>]]></description>
+      <pubDate>Wed, 15 Jul 2026 08:00:00 +0900</pubDate>
+      <guid><![CDATA[https://www.bok.or.kr/eng/bbs/E0000634/view.do?nttId=11063549&menuNo=400069]]></guid>
+    </item>
+    <item>
+      <title>Financial Stability Report</title>
+      <link><![CDATA[https://www.bok.or.kr/eng/bbs/E0000634/view.do?menuNo=400069&nttId=11063550]]></link>
+      <description><![CDATA[Bank resilience and capital adequacy remain under review.]]></description>
+      <pubDate>Thu, 16 Jul 2026 08:00:00 +0900</pubDate>
+      <guid><![CDATA[https://www.bok.or.kr/eng/bbs/E0000634/view.do?menuNo=400069&nttId=11063550]]></guid>
+    </item>
+  </channel>
+</rss>

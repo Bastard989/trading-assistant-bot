@@ -1449,6 +1449,7 @@ class CrisisRadarRepository:
             "fdic_news": "US",
             "hkma_news": "HKG",
             "nbs_news": "CHN",
+            "bok_news": "KOR",
             "ofac_news": "GLOBAL",
         }
         covered_regions = {

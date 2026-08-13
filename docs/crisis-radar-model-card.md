@@ -29,10 +29,11 @@
 Входы: causally available numeric observations, thresholds, vintages, official
 news/evidence, source health and open-trade exposure.
 
-Проверенный repository official-news registry содержит 13 каналов:
-12 RSS (Fed, ECB, SEC, CFTC, BIS, BOJ, RBI, BoE, BoC, FDIC, NBS China и OFAC)
-и официальный JSON API HKMA. HKMA добавляет Hong Kong/Greater China
-banking/liquidity evidence, NBS — официальные китайские макрорелизы,
+Проверенный repository official-news registry содержит 14 каналов:
+13 RSS (Fed, ECB, SEC, CFTC, BIS, BOJ, RBI, BoE, BoC, FDIC, NBS China,
+Bank of Korea и OFAC) и официальный JSON API HKMA. HKMA добавляет Hong
+Kong/Greater China banking/liquidity evidence, NBS — официальные китайские
+макрорелизы, Bank of Korea — KOR growth/banking/external-balance evidence,
 OFAC — sanctions events. GDELT остаётся discovery-only и не подтверждает событие
 самостоятельно. Production release остаётся на предыдущих 12 каналах до rollout.
 

@@ -32,6 +32,7 @@ class RssClient:
         "boe_news": "https://www.bankofengland.co.uk/rss/news",
         "boc_news": "https://www.bankofcanada.ca/content_type/press-releases/feed/",
         "rba_news": "https://www.rba.gov.au/rss/rss-cb-media-releases.xml",
+        "bok_news": "https://www.bok.or.kr/eng/bbs/E0000634/news.rss?menuNo=400069",
         "fdic_news": "https://public.govdelivery.com/topics/USFDIC_26/feed.rss",
         "ofac_news": "https://public.govdelivery.com/topics/USTREAS_61/feed.rss",
     }

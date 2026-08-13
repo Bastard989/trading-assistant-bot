@@ -89,6 +89,17 @@ _REGIONS = {
     "CRYPTO": ("crypto", "bitcoin", "ethereum", "stablecoin", "digital asset"),
 }
 
+_SOURCE_REGIONS = {
+    "nbs_news": "CHN",
+    "bok_news": "KOR",
+    "hkma_news": "HKG",
+}
+
+# Statistical/central-bank releases often mention external shocks as background.
+# For these feeds the event itself must be explicit in the headline; otherwise the
+# release remains scenario context and cannot create an event candidate.
+_TITLE_GROUNDED_EVENT_SOURCES = frozenset({"nbs_news", "bok_news"})
+
 _ASSETS = {
     "BTC": ("bitcoin", "btc", "比特币"),
     "ETH": ("ethereum", "ether", "eth", "以太坊"),
@@ -151,7 +162,16 @@ def extract_event_candidate(item: NewsItem) -> EventCandidate | None:
     if not matches:
         return None
     taxonomy, match_count = max(matches, key=lambda pair: (pair[1], pair[0]))
-    regions = tuple(sorted(code for code, phrases in _REGIONS.items() if any(p in text for p in phrases)))
+    if item.source_code in _TITLE_GROUNDED_EVENT_SOURCES:
+        title_text = item.title.casefold()
+        if not any(phrase in title_text for phrase in _TAXONOMY[taxonomy]):
+            return None
+    region_codes = {
+        code for code, phrases in _REGIONS.items() if any(p in text for p in phrases)
+    }
+    if item.source_code in _SOURCE_REGIONS:
+        region_codes.add(_SOURCE_REGIONS[item.source_code])
+    regions = tuple(sorted(region_codes))
     assets = tuple(sorted(code for code, phrases in _ASSETS.items() if any(p in text for p in phrases)))
     entities = tuple(sorted(set(regions + assets)))
     normalized = normalize_title(item.title)

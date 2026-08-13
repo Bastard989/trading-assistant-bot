@@ -153,6 +153,72 @@ def test_nbs_official_rss_preserves_chinese_and_classifies_without_false_crisis(
     assert extract_event_candidate(latest) is None
 
 
+def test_bok_rss_preserves_required_query_and_adds_v2_regional_context() -> None:
+    items = normalize_official_news(
+        "bok_news", (FIXTURES / "bok_news.xml").read_bytes(), fetched_at=NOW
+    )
+
+    assert len(items) == 2
+    balance = items[0]
+    assert balance.publisher == "Bank of Korea"
+    assert balance.published_at == datetime(2026, 7, 14, 23, tzinfo=timezone.utc)
+    assert balance.url == (
+        "https://www.bok.or.kr/eng/bbs/E0000634/view.do?"
+        "nttId=11063549&menuNo=400069"
+    )
+    assert "<p" not in balance.summary
+    evidence = {item.scenario_code: item for item in classify_news(balance)}
+    assert "sovereign_currency_crisis" in evidence
+    assert evidence["sovereign_currency_crisis"].rule_codes == ("external_balance",)
+    assert extract_event_candidate(balance) is None
+    stability = items[1]
+    assert stability.url.endswith("nttId=11063550&menuNo=400069")
+    assert "banking_crisis" in {
+        item.scenario_code for item in classify_news(stability)
+    }
+
+
+def test_bok_background_war_mention_does_not_create_a_crisis_event() -> None:
+    item = NewsItem(
+        source_code="bok_news",
+        provider_item_id="bok-economic-review",
+        published_at=NOW,
+        fetched_at=NOW,
+        title="Recent Economic Developments",
+        summary="Growth may slow because of the war in the Middle East.",
+        url=(
+            "https://www.bok.or.kr/eng/bbs/E0000634/view.do?"
+            "nttId=11063551&menuNo=400069"
+        ),
+        category="Press release",
+        language="en",
+        importance="medium",
+        content_hash="bok-review-hash",
+    )
+
+    assert extract_event_candidate(item) is None
+
+
+@pytest.mark.parametrize(
+    "replacement",
+    (
+        "https://evil.example/eng/bbs/E0000634/view.do?nttId=11063549&menuNo=400069",
+        "https://www.bok.or.kr/eng/bbs/E0000634/view.do?nttId=11063549&menuNo=1",
+        "https://www.bok.or.kr/eng/bbs/E0000634/view.do?nttId=11063549&menuNo=400069&next=evil",
+        "https://www.bok.or.kr/eng/bbs/E0000634/view.do?nttId=11063549&nttId=2&menuNo=400069",
+    ),
+)
+def test_bok_rss_rejects_untrusted_or_ambiguous_article_urls(replacement: str) -> None:
+    payload = (FIXTURES / "bok_news.xml").read_text().replace(
+        "https://www.bok.or.kr/eng/bbs/E0000634/view.do?nttId=11063549&menuNo=400069",
+        replacement,
+        1,
+    )
+
+    with pytest.raises(SourcePayloadError, match="Bank of Korea item"):
+        normalize_official_news("bok_news", payload.encode(), fetched_at=NOW)
+
+
 def test_nbs_adapter_rejects_entities_wrong_language_untrusted_and_duplicate_items() -> None:
     payload = (FIXTURES / "nbs_news.xml").read_text()
     with pytest.raises(SourcePayloadError, match="DTD and entities"):
@@ -268,6 +334,7 @@ def test_hkma_client_retries_uses_bounded_official_api_and_factory() -> None:
     assert calls == 2
     assert isinstance(news_client_for("hkma_news"), HkmaNewsClient)
     assert isinstance(news_client_for("nbs_news"), NbsNewsClient)
+    assert isinstance(news_client_for("bok_news"), RssClient)
     assert isinstance(news_client_for("fed_news"), RssClient)
 
 
@@ -292,6 +359,20 @@ def test_nbs_client_uses_exact_bounded_official_feed_and_retries() -> None:
     assert calls == 2
     with pytest.raises(ValueError, match="between 1 MB and 8 MB"):
         NbsNewsClient(max_response_bytes=9_000_000)
+
+
+def test_bok_client_uses_the_documented_official_feed() -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url == (
+            "https://www.bok.or.kr/eng/bbs/E0000634/news.rss?menuNo=400069"
+        )
+        return httpx.Response(200, content=(FIXTURES / "bok_news.xml").read_bytes())
+
+    async def scenario() -> bytes:
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            return await RssClient("bok_news", client=client).fetch()
+
+    assert asyncio.run(scenario()).startswith(b"<?xml")
 
 
 class StubRssClient:
@@ -361,6 +442,21 @@ def test_news_sync_routes_nbs_multilingual_feed_and_persists_evidence(tmp_path) 
     }
 
 
+def test_news_sync_filters_v2_only_evidence_for_starter_methodology(tmp_path) -> None:
+    repository = CrisisRadarRepository(Database(tmp_path / "bok-starter.sqlite3"))
+    service = CrisisRadarService(repository)
+    client = StubRssClient("bok_news", "bok_news.xml")
+
+    result = asyncio.run(service.sync_news(client, fetched_at=NOW))
+
+    assert result["status"] == "succeeded"
+    assert result["rows_written"] == 2
+    assert result["evidence_written"] == 1
+    payload = service.news(locale="en", days=14, limit=10, as_of=NOW)
+    stability = next(item for item in payload["items"] if "Stability" in item["title"])
+    assert {item["code"] for item in stability["scenarios"]} == {"financial_stress"}
+
+
 def test_news_coverage_is_separate_from_numeric_coverage_and_fails_closed(tmp_path) -> None:
     repository = CrisisRadarRepository(Database(tmp_path / "coverage.sqlite3"))
     service = CrisisRadarService(
@@ -384,8 +480,9 @@ def test_news_coverage_is_separate_from_numeric_coverage_and_fails_closed(tmp_pa
     )
 
     assert coverage["status"] == "insufficient_data"
-    assert coverage["expected_source_count"] == 13
+    assert coverage["expected_source_count"] == 14
     assert coverage["healthy_source_count"] == 1
     assert "EU" in coverage["missing_regions"]
     assert "HKG" in coverage["missing_regions"]
     assert "CHN" in coverage["missing_regions"]
+    assert "KOR" in coverage["missing_regions"]

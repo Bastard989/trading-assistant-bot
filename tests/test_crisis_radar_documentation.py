@@ -9,12 +9,15 @@ from trading_bot.crisis_radar.catalog import (
     METHODOLOGY_V14_VERSION,
     METHODOLOGY_V15_VERSION,
     METHODOLOGY_V16_VERSION,
+    METHODOLOGY_V17_VERSION,
     V14_INDICATORS,
     V14_SCENARIOS,
     V15_INDICATORS,
     V15_SCENARIOS,
     V16_INDICATORS,
     V16_SCENARIOS,
+    V17_INDICATORS,
+    V17_SCENARIOS,
     methodology_checksum,
 )
 from trading_bot.crisis_radar.methodology_contract import (
@@ -74,6 +77,12 @@ V16_STABLECOIN_EVIDENCE_PATH = (
     / "docs"
     / "evidence"
     / "crisis-radar-v16-stablecoin-contract-20260813.json"
+)
+V17_OECD_LABOUR_EVIDENCE_PATH = (
+    ROOT
+    / "docs"
+    / "evidence"
+    / "crisis-radar-v17-oecd-labour-contract-20260814.json"
 )
 NBS_NEWS_EVIDENCE_PATH = (
     ROOT / "docs" / "evidence" / "crisis-radar-nbs-news-contract-20260813.json"
@@ -462,6 +471,37 @@ def test_v16_stablecoin_evidence_is_disabled_relative_and_not_double_counted() -
         "probability_emitted": False,
         "raw_provider_payloads_distributed": False,
     }
+
+
+def test_v17_oecd_labour_evidence_is_disabled_pinned_and_not_double_counted() -> None:
+    evidence = json.loads(V17_OECD_LABOUR_EVIDENCE_PATH.read_text(encoding="utf-8"))
+
+    assert evidence["methodology"]["version"] == METHODOLOGY_V17_VERSION
+    assert evidence["methodology"]["effective_from"] < evidence["collected_at"]
+    assert evidence["methodology"]["checksum"] == methodology_checksum(
+        version=METHODOLOGY_V17_VERSION,
+        indicators=V17_INDICATORS,
+        scenarios=V17_SCENARIOS,
+    )
+    assert evidence["methodology"]["previous_version"] == METHODOLOGY_V16_VERSION
+    assert evidence["methodology"]["live_enabled"] is False
+    assert evidence["formula"]["minimum_contiguous_months"] == 15
+    assert evidence["formula"]["candidate_bands"] == {
+        "warning": "0.3", "danger": "0.5", "critical": "1.0"
+    }
+    assert evidence["official_source"]["dataset"].endswith("4.0")
+    assert len(evidence["official_source"]["payload_sha256"]) == 64
+    assert len(evidence["normalized_observations"]) == 5
+    assert evidence["causal_status"]["historical_final_vintage_is_point_in_time_safe"] is False
+    assert evidence["causal_status"]["eligible_for_probability"] is False
+    assert evidence["isolated_ingestion"]["registered_source_count"] == 28
+    assert all(row["enabled"] == 0 for row in evidence["isolated_ingestion"]["rows"])
+    assert {row["cluster_code"] for row in evidence["isolated_ingestion"]["rows"]} == {"labor"}
+    assert evidence["isolated_ingestion"]["candidate_v17_snapshot_count"] == 0
+    assert evidence["isolated_ingestion"]["sqlite_integrity"] == "ok"
+    assert evidence["isolated_ingestion"]["foreign_key_violations"] == 0
+    assert all(evidence["source_contract"].values())
+    assert all(value is False for value in evidence["safety"].values())
 
 
 def test_nbs_news_evidence_is_official_bounded_and_cannot_change_numeric_stage() -> None:

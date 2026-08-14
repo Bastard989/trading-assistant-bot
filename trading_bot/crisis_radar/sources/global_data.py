@@ -48,6 +48,16 @@ _OECD_AREAS = {
     "USA": "us_cli_6m_change",
 }
 
+_OECD_LABOUR_AREAS = {
+    "CAN": "canada_unemployment_momentum",
+    "GBR": "uk_unemployment_momentum",
+    "JPN": "japan_unemployment_momentum",
+    "KOR": "korea_unemployment_momentum",
+    "MEX": "mexico_unemployment_momentum",
+}
+_OECD_LABOUR_DATAFLOW = "OECD.SDD.STES:DSD_KEI@DF_KEI(4.0)"
+_OECD_LABOUR_MAX_BYTES = 2_000_000
+
 _BIS_DEPTH_COUNTRIES = {
     "US": "us",
     "CA": "canada",
@@ -446,6 +456,146 @@ class OecdAdapter:
         if not observations:
             raise SourcePayloadError("OECD response contains no usable CLI momentum observations")
         return sorted(observations, key=lambda item: (item.indicator_code, item.observed_at))
+
+    def normalize_unemployment_momentum(
+        self, payload: bytes, *, fetched_at: datetime
+    ) -> list[Observation]:
+        """Normalize the latest point-in-time cross-country unemployment momentum.
+
+        The transform mirrors the shape of the US Sahm Rule but is deliberately
+        named generically: current three-month mean minus the minimum three-month
+        mean over the current and preceding twelve months.  Cross-country bands
+        remain disabled candidates until causal replay validates them.
+        """
+
+        if fetched_at.tzinfo is None or fetched_at.utcoffset() is None:
+            raise ValueError("fetched_at must be timezone-aware")
+        if len(payload) > _OECD_LABOUR_MAX_BYTES:
+            raise SourcePayloadError("OECD labour response exceeds configured size limit")
+        try:
+            rows = csv.DictReader(io.StringIO(payload.decode("utf-8-sig")))
+            observations = self._normalize_unemployment_rows(
+                rows,
+                payload=payload,
+                fetched_at=fetched_at,
+            )
+        except (UnicodeDecodeError, csv.Error) as exc:
+            raise SourcePayloadError("invalid OECD labour CSV") from exc
+        return sorted(observations, key=lambda item: item.indicator_code)
+
+    def _normalize_unemployment_rows(
+        self,
+        rows: csv.DictReader,
+        *,
+        payload: bytes,
+        fetched_at: datetime,
+    ) -> list[Observation]:
+        required = {
+            "DATAFLOW",
+            "REF_AREA",
+            "FREQ",
+            "MEASURE",
+            "UNIT_MEASURE",
+            "ACTIVITY",
+            "ADJUSTMENT",
+            "TRANSFORMATION",
+            "TIME_PERIOD",
+            "OBS_VALUE",
+            "OBS_STATUS",
+            "UNIT_MULT",
+        }
+        allowed = required | {"DECIMALS", "BASE_PER"}
+        if rows.fieldnames is None or not required.issubset(rows.fieldnames):
+            raise SourcePayloadError("OECD labour CSV is missing required columns")
+        if not set(rows.fieldnames).issubset(allowed):
+            raise SourcePayloadError("OECD labour CSV contains unexpected columns")
+        values: dict[str, dict[tuple[int, int], Decimal]] = {
+            area: {} for area in _OECD_LABOUR_AREAS
+        }
+        for row in rows:
+            if not any((value or "").strip() for value in row.values()):
+                continue
+            area = row.get("REF_AREA", "")
+            if area not in values:
+                raise SourcePayloadError("unexpected OECD labour reference area")
+            if (
+                row.get("DATAFLOW") != _OECD_LABOUR_DATAFLOW
+                or row.get("FREQ") != "M"
+                or row.get("MEASURE") != "UNEMP"
+                or row.get("UNIT_MEASURE") != "PT_LF"
+                or row.get("ACTIVITY") != "_T"
+                or row.get("ADJUSTMENT") != "Y"
+                or row.get("TRANSFORMATION") != "_Z"
+                or row.get("OBS_STATUS") != "A"
+                or row.get("UNIT_MULT") != "0"
+            ):
+                raise SourcePayloadError("unexpected OECD labour dimensions or status")
+            match = _OECD_MONTH.match(row.get("TIME_PERIOD", ""))
+            if not match:
+                raise SourcePayloadError("invalid OECD labour month")
+            key = (int(match.group(1)), int(match.group(2)))
+            if key in values[area]:
+                raise SourcePayloadError("duplicate OECD labour observation")
+            try:
+                value = Decimal(row["OBS_VALUE"])
+            except (InvalidOperation, KeyError) as exc:
+                raise SourcePayloadError("invalid OECD labour value") from exc
+            if not value.is_finite() or value < 0 or value > 100:
+                raise SourcePayloadError("OECD labour value is outside valid range")
+            observed_at = datetime(
+                key[0], key[1], monthrange(key[0], key[1])[1], tzinfo=timezone.utc
+            )
+            if observed_at <= fetched_at:
+                values[area][key] = value
+
+        def preceding_month(key: tuple[int, int]) -> tuple[int, int]:
+            year, month = key
+            return (year - 1, 12) if month == 1 else (year, month - 1)
+
+        content_hash = hashlib.sha256(payload).hexdigest()
+        vintage = f"{fetched_at.date().isoformat()}:{content_hash[:12]}"
+        result: list[Observation] = []
+        for area, series in values.items():
+            if not series:
+                raise SourcePayloadError(f"OECD labour series is missing for {area}")
+            latest = max(series)
+            required_keys = [latest]
+            for _ in range(14):
+                required_keys.append(preceding_month(required_keys[-1]))
+            required_keys.reverse()
+            if any(key not in series for key in required_keys):
+                raise SourcePayloadError(
+                    f"OECD labour series lacks 15 contiguous months for {area}"
+                )
+            panel = [series[key] for key in required_keys]
+            moving_means = [
+                sum(panel[index : index + 3], Decimal("0")) / Decimal("3")
+                for index in range(13)
+            ]
+            momentum = (moving_means[-1] - min(moving_means)).quantize(
+                Decimal("0.0001")
+            )
+            observed_at = datetime(
+                latest[0],
+                latest[1],
+                monthrange(latest[0], latest[1])[1],
+                tzinfo=timezone.utc,
+            )
+            result.append(
+                Observation(
+                    indicator_code=_OECD_LABOUR_AREAS[area],
+                    source_code=self.source_code,
+                    value=momentum,
+                    unit="percentage_points",
+                    observed_at=observed_at,
+                    released_at=fetched_at,
+                    fetched_at=fetched_at,
+                    vintage=vintage,
+                    quality_flags=frozenset({QualityFlag.RELEASE_TIME_ESTIMATED}),
+                    content_hash=content_hash,
+                )
+            )
+        return result
 
     def _normalize_cli_rows(
         self,

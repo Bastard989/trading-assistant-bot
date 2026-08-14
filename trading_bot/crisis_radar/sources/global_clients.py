@@ -122,6 +122,7 @@ class BisClient(_PublicClient):
 
 class OecdClient(_PublicClient):
     REFERENCE_AREAS = ("G20", "CHN", "CAN", "GBR", "JPN", "KOR", "IND", "BRA", "MEX", "USA")
+    LABOUR_REFERENCE_AREAS = ("CAN", "GBR", "JPN", "KOR", "MEX")
 
     async def fetch_composite_leading_indicators(self, *, as_of: datetime) -> bytes:
         start_year = as_of.year - 3
@@ -130,6 +131,24 @@ class OecdClient(_PublicClient):
                 "https://sdmx.oecd.org/public/rest/v1/data/"
                 "OECD.SDD.STES,DSD_STES@DF_CLI,4.1/"
                 f"{'+'.join(self.REFERENCE_AREAS)}.M.LI...AA...H"
+            ),
+            params={
+                "startPeriod": f"{start_year}-01",
+                "endPeriod": f"{as_of.year}-{as_of.month:02d}",
+                "dimensionAtObservation": "AllDimensions",
+            },
+            accept="text/csv",
+        )
+
+    async def fetch_harmonised_unemployment(self, *, as_of: datetime) -> bytes:
+        """Fetch an explicitly versioned, bounded monthly labour panel."""
+
+        start_year = as_of.year - 2
+        return await self._get(
+            (
+                "https://sdmx.oecd.org/public/rest/v1/data/"
+                "OECD.SDD.STES,DSD_KEI@DF_KEI,4.0/"
+                f"{'+'.join(self.LABOUR_REFERENCE_AREAS)}.M.UNEMP.PT_LF._T.Y._Z"
             ),
             params={
                 "startPeriod": f"{start_year}-01",

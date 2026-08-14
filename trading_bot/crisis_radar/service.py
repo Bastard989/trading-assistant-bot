@@ -9,6 +9,7 @@ from trading_bot.crisis_radar.catalog import (
     BYBIT_RESEARCH_INDICATORS,
     BYBIT_SIGNED_V11_INDICATORS,
     BYBIT_STABLECOIN_RESEARCH,
+    OECD_LABOUR_RESEARCH,
     FRED_INDICATORS,
     FRED_GLOBAL_V2_INDICATORS,
     FRED_HISTORICAL_BACKFILL_MODES,
@@ -31,6 +32,7 @@ from trading_bot.crisis_radar.catalog import (
     bootstrap_v14_catalog,
     bootstrap_v15_catalog,
     bootstrap_v16_catalog,
+    bootstrap_v17_catalog,
 )
 from trading_bot.crisis_radar.coverage import (
     DEFAULT_REQUIRED_REGIONS,
@@ -164,6 +166,7 @@ class CrisisRadarService:
             result["research_v14"] = bootstrap_v14_catalog(self.repository)
             result["research_v15"] = bootstrap_v15_catalog(self.repository)
             result["research_v16"] = bootstrap_v16_catalog(self.repository)
+            result["research_v17"] = bootstrap_v17_catalog(self.repository)
             result["research_bybit_health_source_id"] = self.repository.register_source(
                 BYBIT_STABLECOIN_RESEARCH.code,
                 BYBIT_STABLECOIN_RESEARCH.name,
@@ -174,6 +177,19 @@ class CrisisRadarService:
                 max_staleness_seconds=(
                     BYBIT_STABLECOIN_RESEARCH.max_staleness_seconds
                 ),
+            )
+            result["research_oecd_labour_health_source_id"] = (
+                self.repository.register_source(
+                    OECD_LABOUR_RESEARCH.code,
+                    OECD_LABOUR_RESEARCH.name,
+                    base_url=OECD_LABOUR_RESEARCH.base_url,
+                    terms_url=OECD_LABOUR_RESEARCH.terms_url,
+                    access_type="research_candidate",
+                    expected_frequency=OECD_LABOUR_RESEARCH.expected_frequency,
+                    max_staleness_seconds=(
+                        OECD_LABOUR_RESEARCH.max_staleness_seconds
+                    ),
+                )
             )
         return result
 
@@ -1008,6 +1024,62 @@ class CrisisRadarService:
             "rows_fetched": rows_fetched,
             "rows_written": rows_written,
             "stage": None if overview is None else overview.stage.value,
+        }
+
+    async def sync_oecd_labour(
+        self,
+        client: OecdClient,
+        *,
+        fetched_at: datetime | None = None,
+        recompute_after: bool = False,
+    ) -> dict[str, int | str | None]:
+        """Collect disabled harmonised labour evidence with isolated health."""
+
+        self.bootstrap()
+        if recompute_after:
+            raise ValueError("disabled OECD labour research cannot recompute live stage")
+        now = fetched_at or datetime.now(timezone.utc)
+        if now.tzinfo is None or now.utcoffset() is None:
+            raise ValueError("fetched_at must be timezone-aware")
+        sync_run_id = self.repository.start_sync_run(
+            OECD_LABOUR_RESEARCH.code,
+            started_at=now,
+        )
+        rows_fetched = 0
+        rows_written = 0
+        error = ""
+        try:
+            observations = OecdAdapter().normalize_unemployment_momentum(
+                await client.fetch_harmonised_unemployment(as_of=now),
+                fetched_at=now,
+            )
+            rows_fetched = len(observations)
+            for observation in observations:
+                rows_written += int(
+                    self.repository.save_observation(
+                        observation,
+                        sync_run_id=sync_run_id,
+                        preserve_vintage=True,
+                    ).inserted
+                )
+        except (GlobalSourceError, SourcePayloadError) as exc:
+            error = type(exc).__name__
+        status = "failed" if error else "succeeded"
+        self.repository.finish_sync_run(
+            sync_run_id,
+            finished_at=datetime.now(timezone.utc),
+            status=status,
+            rows_fetched=rows_fetched,
+            rows_written=rows_written,
+            error_code="source_error" if error else "",
+            error_detail=error,
+        )
+        return {
+            "sync_run_id": sync_run_id,
+            "status": status,
+            "rows_fetched": rows_fetched,
+            "rows_written": rows_written,
+            "stage": None,
         }
 
     async def sync_news(

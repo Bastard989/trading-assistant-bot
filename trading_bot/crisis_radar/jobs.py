@@ -158,6 +158,11 @@ class CrisisRadarJobs:
                     results["new_york_fed"] = await self.service.sync_new_york_fed(
                         NewYorkFedClient(), recompute_after=False
                     )
+                    results["oecd_labour_research"] = (
+                        await self.service.sync_oecd_labour(
+                            OecdClient(), recompute_after=False
+                        )
+                    )
                 self.service.recompute()
                 if self.alert_user_ids:
                     self.service.repository.enqueue_alert_deliveries(self.alert_user_ids)

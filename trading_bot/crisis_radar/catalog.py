@@ -11,8 +11,10 @@ from trading_bot.crisis_radar.scoring_v2 import PROFILES, profile_for
 from trading_bot.crisis_radar.scenarios import SCENARIOS, V2_SCENARIOS, ScenarioDefinition
 from trading_bot.crisis_radar.stage_v2 import (
     DEPENDENCY_GRAPH_VERSION,
+    DEPENDENCY_GRAPH_V17_VERSION,
     STAGE_VERSION,
     dependency_for,
+    dependency_for_v17,
 )
 from trading_bot.crisis_radar.stability import STABILITY_POLICY
 
@@ -27,6 +29,7 @@ METHODOLOGY_V13_VERSION = "candidate-v13"
 METHODOLOGY_V14_VERSION = "candidate-v14"
 METHODOLOGY_V15_VERSION = "candidate-v15"
 METHODOLOGY_V16_VERSION = "candidate-v16"
+METHODOLOGY_V17_VERSION = "candidate-v17"
 
 
 @dataclass(frozen=True)
@@ -189,6 +192,18 @@ BYBIT_STABLECOIN_RESEARCH = SourceSeed(
     terms_url=BYBIT.terms_url,
     expected_frequency="intraday",
     max_staleness_seconds=2 * 3600,
+)
+
+# Operational health identity for the disabled OECD labour collector.  The
+# observations keep OECD as their immutable lineage; this logical source makes
+# a failed research query visible without degrading the required OECD CLI run.
+OECD_LABOUR_RESEARCH = SourceSeed(
+    code="oecd_labour_research",
+    name="OECD Harmonised Labour Research Collector",
+    base_url=OECD.base_url,
+    terms_url=OECD.terms_url,
+    expected_frequency="monthly",
+    max_staleness_seconds=75 * 86400,
 )
 
 NEWS_SOURCES = (
@@ -1573,6 +1588,39 @@ STABLECOIN_V16_CANDIDATE_INDICATORS = (
 )
 V16_INDICATORS = V15_INDICATORS + STABLECOIN_V16_CANDIDATE_INDICATORS
 
+OECD_LABOUR_V17_CANDIDATE_INDICATORS = tuple(
+    IndicatorSeed(
+        code=f"{slug}_unemployment_momentum",
+        provider_series_id=(
+            f"DSD_KEI@DF_KEI:4.0:{area}:M:UNEMP:PT_LF:_T:Y:_Z:"
+            "3m_mean_minus_12m_low"
+        ),
+        name=f"{label} Unemployment 3-Month Momentum",
+        name_ru=f"Ускорение безработицы — {label_ru}, среднее за 3 месяца",
+        group_code=f"{slug}_labor",
+        region_code=area,
+        unit="percentage_points",
+        frequency="monthly",
+        max_staleness_seconds=75 * 86400,
+        thresholds=IndicatorThresholds(
+            warning=Decimal("0.3"),
+            danger=Decimal("0.5"),
+            critical=Decimal("1.0"),
+            reference=Decimal("0"),
+            direction=RiskDirection.HIGHER_IS_WORSE,
+        ),
+        transform="current_3m_mean_minus_min_3m_mean_previous_12m",
+    )
+    for slug, area, label, label_ru in (
+        ("canada", "CAN", "Canada", "Канада"),
+        ("uk", "GBR", "United Kingdom", "Великобритания"),
+        ("japan", "JPN", "Japan", "Япония"),
+        ("korea", "KOR", "Korea", "Южная Корея"),
+        ("mexico", "MEX", "Mexico", "Мексика"),
+    )
+)
+V17_INDICATORS = V16_INDICATORS + OECD_LABOUR_V17_CANDIDATE_INDICATORS
+
 _V11_SCENARIO_EXTRA_GROUPS = {
     "global_recession": ("housing_cre",),
     "financial_stress": ("banking_stress", "dollar_liquidity"),
@@ -1722,6 +1770,20 @@ V16_SCENARIOS = tuple(
     )
     for scenario in V15_SCENARIOS
 )
+_OECD_LABOUR_V17_GROUPS = tuple(
+    item.group_code for item in OECD_LABOUR_V17_CANDIDATE_INDICATORS
+)
+V17_SCENARIOS = tuple(
+    replace(
+        scenario,
+        group_codes=(
+            scenario.group_codes + _OECD_LABOUR_V17_GROUPS
+            if scenario.code in {"global_recession", "regional_recession"}
+            else scenario.group_codes
+        ),
+    )
+    for scenario in V16_SCENARIOS
+)
 
 _V2_THRESHOLD_RATIONALE = {
     "sahm_rule": {
@@ -1832,6 +1894,24 @@ _V2_THRESHOLD_RATIONALE = {
     },
 }
 
+for _item in OECD_LABOUR_V17_CANDIDATE_INDICATORS:
+    _V2_THRESHOLD_RATIONALE[_item.code] = {
+        "ru": (
+            "0,3/0,5/1,0 п.п. — кандидатные зоны ускорения безработицы: текущее "
+            "трёхмесячное среднее минус минимум таких средних за текущий и "
+            "предыдущие 12 месяцев. 0,5 напоминает логику Sahm Rule, но перенос "
+            "на другую страну не является официальным триггером и требует replay."
+        ),
+        "en": (
+            "0.3/0.5/1.0 pp are candidate unemployment-acceleration bands: the "
+            "current three-month mean minus the minimum such mean over the current "
+            "and previous 12 months. 0.5 resembles the Sahm Rule logic, but its "
+            "cross-country use is not an official trigger and requires replay."
+        ),
+        "source_url": "https://sdmx.oecd.org/public/rest/v1/data/",
+        "operational_role": "regional_labor_confirmation",
+    }
+
 for _slug, _iso, _label, _label_ru in _BIS_V14_REGION_ROWS:
     _V2_THRESHOLD_RATIONALE[f"{_slug}_debt_service_gap"] = {
         "ru": (
@@ -1892,7 +1972,7 @@ def methodology_checksum(
     )
     if version == METHODOLOGY_V15_VERSION:
         methodology_sources += (NEW_YORK_FED,)
-    elif version == METHODOLOGY_V16_VERSION:
+    elif version in {METHODOLOGY_V16_VERSION, METHODOLOGY_V17_VERSION}:
         methodology_sources += (NEW_YORK_FED, BINANCE_MARKET)
     payload = {
         "methodology": [METHODOLOGY_CODE, version],
@@ -1923,12 +2003,17 @@ def methodology_checksum(
         METHODOLOGY_V14_VERSION,
         METHODOLOGY_V15_VERSION,
         METHODOLOGY_V16_VERSION,
+        METHODOLOGY_V17_VERSION,
     }:
         payload["indicator_scoring"] = {
             code: {key: str(value) for key, value in asdict(profile).items()}
             for code, profile in PROFILES.items()
         }
-        payload["dependency_graph_version"] = DEPENDENCY_GRAPH_VERSION
+        payload["dependency_graph_version"] = (
+            DEPENDENCY_GRAPH_V17_VERSION
+            if version == METHODOLOGY_V17_VERSION
+            else DEPENDENCY_GRAPH_VERSION
+        )
         payload["stage_version"] = STAGE_VERSION
     if version == METHODOLOGY_V13_VERSION:
         payload["replay_coverage_contract"] = V13_REPLAY_COVERAGE_CONTRACT
@@ -1958,6 +2043,7 @@ def _source_code_for_indicator(code: str) -> str:
         (NEW_YORK_FED, NEW_YORK_FED_V15_CANDIDATE_INDICATORS),
         (BYBIT, tuple(item for item in STABLECOIN_V16_CANDIDATE_INDICATORS if item.code.endswith("_bybit"))),
         (BINANCE_MARKET, tuple(item for item in STABLECOIN_V16_CANDIDATE_INDICATORS if item.code.endswith("_binance"))),
+        (OECD, OECD_LABOUR_V17_CANDIDATE_INDICATORS),
     ):
         if any(item.code == code for item in indicators):
             return source.code
@@ -1994,6 +2080,8 @@ def _bootstrap_catalog(
             if version == METHODOLOGY_V15_VERSION
             else "2026-08-13T20:35:00+00:00"
             if version == METHODOLOGY_V16_VERSION
+            else "2026-08-14T00:45:00+00:00"
+            if version == METHODOLOGY_V17_VERSION
             else
             "2026-08-04T12:00:00+00:00"
             if version == METHODOLOGY_GLOBAL_V2_VERSION
@@ -2005,7 +2093,7 @@ def _bootstrap_catalog(
     catalog_sources = (FRED, BEA, EIA, ECB, EUROSTAT, WORLD_BANK, BIS, OECD, BYBIT)
     if version == METHODOLOGY_V15_VERSION:
         catalog_sources += (NEW_YORK_FED,)
-    elif version == METHODOLOGY_V16_VERSION:
+    elif version in {METHODOLOGY_V16_VERSION, METHODOLOGY_V17_VERSION}:
         catalog_sources += (NEW_YORK_FED, BINANCE_MARKET)
     for source in catalog_sources:
         repository.register_source(
@@ -2066,6 +2154,7 @@ def _bootstrap_catalog(
             METHODOLOGY_V14_VERSION,
             METHODOLOGY_V15_VERSION,
             METHODOLOGY_V16_VERSION,
+            METHODOLOGY_V17_VERSION,
         }
         profile = profile_for(
             frequency=item.frequency,
@@ -2089,6 +2178,7 @@ def _bootstrap_catalog(
                 METHODOLOGY_V14_VERSION,
                 METHODOLOGY_V15_VERSION,
                 METHODOLOGY_V16_VERSION,
+                METHODOLOGY_V17_VERSION,
             } else "legacy",
             promotion_status=promotion_status,
             rationale=rationale if version in {
@@ -2099,6 +2189,7 @@ def _bootstrap_catalog(
                 METHODOLOGY_V14_VERSION,
                 METHODOLOGY_V15_VERSION,
                 METHODOLOGY_V16_VERSION,
+                METHODOLOGY_V17_VERSION,
             } else {},
             source_url=(
                 rationale.get("source_url")
@@ -2128,6 +2219,8 @@ def _bootstrap_catalog(
                 if version == METHODOLOGY_V15_VERSION
                 else "2026-08-13T20:35:00+00:00"
                 if version == METHODOLOGY_V16_VERSION
+                else "2026-08-14T00:45:00+00:00"
+                if version == METHODOLOGY_V17_VERSION
                 else "2026-08-05T12:53:16+00:00"
                 if version == METHODOLOGY_V11_VERSION
                 else ""
@@ -2143,7 +2236,9 @@ def _bootstrap_catalog(
                 entity_type="indicator",
                 entity_code=item.code,
                 metadata_version=(
-                    "v16"
+                    "v17"
+                    if version == METHODOLOGY_V17_VERSION
+                    else "v16"
                     if version == METHODOLOGY_V16_VERSION
                     else "v15"
                     if version == METHODOLOGY_V15_VERSION
@@ -2159,18 +2254,32 @@ def _bootstrap_catalog(
             )
             repository.register_dependency_assignment(
                 methodology_id=methodology_id,
-                assignment=dependency_for(
-                    code=item.code,
-                    group_code=item.group_code,
-                    region_code=item.region_code,
+                assignment=(
+                    dependency_for_v17(
+                        code=item.code,
+                        group_code=item.group_code,
+                        region_code=item.region_code,
+                    )
+                    if version == METHODOLOGY_V17_VERSION
+                    else dependency_for(
+                        code=item.code,
+                        group_code=item.group_code,
+                        region_code=item.region_code,
+                    )
                 ),
-                graph_version=DEPENDENCY_GRAPH_VERSION,
+                graph_version=(
+                    DEPENDENCY_GRAPH_V17_VERSION
+                    if version == METHODOLOGY_V17_VERSION
+                    else DEPENDENCY_GRAPH_VERSION
+                ),
             )
             repository.register_entity_metadata(
                 entity_type="group",
                 entity_code=item.group_code,
                 metadata_version=(
-                    "v16"
+                    "v17"
+                    if version == METHODOLOGY_V17_VERSION
+                    else "v16"
                     if version == METHODOLOGY_V16_VERSION
                     else "v15"
                     if version == METHODOLOGY_V15_VERSION
@@ -2223,6 +2332,7 @@ def _bootstrap_catalog(
             METHODOLOGY_V14_VERSION,
             METHODOLOGY_V15_VERSION,
             METHODOLOGY_V16_VERSION,
+            METHODOLOGY_V17_VERSION,
         }:
             from trading_bot.crisis_radar.metadata_v11 import scenario_metadata
 
@@ -2230,7 +2340,9 @@ def _bootstrap_catalog(
                 entity_type="scenario",
                 entity_code=scenario.code,
                 metadata_version=(
-                    "v16"
+                    "v17"
+                    if version == METHODOLOGY_V17_VERSION
+                    else "v16"
                     if version == METHODOLOGY_V16_VERSION
                     else "v15"
                     if version == METHODOLOGY_V15_VERSION
@@ -2378,6 +2490,29 @@ def bootstrap_v16_catalog(repository: CrisisRadarRepository) -> dict[str, int | 
         version=METHODOLOGY_V16_VERSION,
         indicators=V16_INDICATORS,
         scenarios=V16_SCENARIOS,
+        promotion_status="candidate",
+        indicator_enabled_overrides={code: False for code in new_codes},
+    )
+
+
+def bootstrap_v17_catalog(repository: CrisisRadarRepository) -> dict[str, int | str]:
+    """Register harmonised non-US labour momentum as disabled research inputs."""
+
+    new_codes = {
+        item.code
+        for item in (
+            FRED_V12_CANDIDATE_INDICATORS
+            + BIS_V14_CANDIDATE_INDICATORS
+            + NEW_YORK_FED_V15_CANDIDATE_INDICATORS
+            + STABLECOIN_V16_CANDIDATE_INDICATORS
+            + OECD_LABOUR_V17_CANDIDATE_INDICATORS
+        )
+    }
+    return _bootstrap_catalog(
+        repository,
+        version=METHODOLOGY_V17_VERSION,
+        indicators=V17_INDICATORS,
+        scenarios=V17_SCENARIOS,
         promotion_status="candidate",
         indicator_enabled_overrides={code: False for code in new_codes},
     )

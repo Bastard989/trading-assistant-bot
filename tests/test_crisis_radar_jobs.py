@@ -62,6 +62,13 @@ class FakeService:
         self.calls.append("new_york_fed")
         return {"status": "succeeded"}
 
+    async def sync_oecd_labour(
+        self, client, *, recompute_after: bool = False
+    ) -> dict:
+        assert recompute_after is False
+        self.calls.append("oecd_labour_research")
+        return {"status": "succeeded"}
+
     async def sync_binance_stablecoin(
         self, client, *, recompute_after: bool = False
     ) -> dict:
@@ -348,6 +355,7 @@ def test_global_sync_collects_disabled_gscpi_candidate_when_v11_is_enabled() -> 
         "bis",
         "oecd",
         "new_york_fed",
+        "oecd_labour_research",
         "market",
     ]
 

@@ -83,6 +83,7 @@ def main() -> None:
             "world_bank",
             "bis",
             "oecd",
+            "oecd_labour_research",
             "new_york_fed",
             "bybit_stablecoin_research",
             "binance_market",
@@ -181,6 +182,17 @@ def main() -> None:
             if args.source in {"all", "oecd"}:
                 results["oecd"] = await service.sync_oecd(
                     OecdClient(), recompute_after=not combined
+                )
+            if (
+                args.source in {"all", "oecd_labour_research"}
+                and service.feature_flags.scoring_v11
+            ):
+                results["oecd_labour_research"] = await service.sync_oecd_labour(
+                    OecdClient(), recompute_after=False
+                )
+            elif args.source == "oecd_labour_research":
+                raise RuntimeError(
+                    "CRISIS_RADAR_SCORING_V11 must be enabled for the OECD labour research collector"
                 )
             if args.source in {"all", "new_york_fed"} and service.feature_flags.scoring_v11:
                 results["new_york_fed"] = await service.sync_new_york_fed(

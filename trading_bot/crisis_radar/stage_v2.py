@@ -15,6 +15,7 @@ from trading_bot.crisis_radar.scoring_v2 import (
 
 STAGE_VERSION = "independent-stage-v2-seed-1"
 DEPENDENCY_GRAPH_VERSION = "dependency-graph-v2-seed-1"
+DEPENDENCY_GRAPH_V17_VERSION = "dependency-graph-v2-seed-2"
 ZERO = Decimal("0")
 ONE = Decimal("1")
 ACTIVE_SCORE_THRESHOLD = Decimal(".25")
@@ -195,6 +196,29 @@ def dependency_for(*, code: str, group_code: str, region_code: str) -> Dependenc
         region_code=region_code,
         anchor_class=anchor,
     )
+
+
+def dependency_for_v17(
+    *, code: str, group_code: str, region_code: str
+) -> DependencyAssignment:
+    """Extend the frozen graph without changing v11-v16 assignments.
+
+    Regional labour groups remain distinct scenario inputs and regional evidence,
+    while all of them share one systemic cluster.  Five country unemployment
+    series therefore broaden geographic confirmation but cannot masquerade as
+    five independent crisis mechanisms.
+    """
+
+    if group_code.endswith("_labor"):
+        return DependencyAssignment(
+            indicator_code=code,
+            group_code=group_code,
+            subchannel_code=group_code,
+            cluster_code="labor",
+            region_code=region_code,
+            anchor_class=None,
+        )
+    return dependency_for(code=code, group_code=group_code, region_code=region_code)
 
 
 def _quantize(value: Decimal) -> Decimal:

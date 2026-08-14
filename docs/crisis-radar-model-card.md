@@ -1,6 +1,6 @@
 # Crisis Radar model card
 
-Дата: 2026-08-13.
+Дата: 2026-08-14.
 
 ## Назначение
 
@@ -17,9 +17,11 @@
 - disabled BIS depth collection methodology: `candidate-v14`;
 - disabled New York Fed GSCPI collection methodology: `candidate-v15`;
 - disabled cross-venue stablecoin collection methodology: `candidate-v16`;
+- disabled harmonised non-US labour collection methodology: `candidate-v17`;
 - indicator scoring: `indicator-score-v2-seed-1`;
 - stage: `independent-stage-v2-seed-1`;
-- dependency graph: `dependency-graph-v2-seed-1`;
+- dependency graph: `dependency-graph-v2-seed-1`; v17 extension:
+  `dependency-graph-v2-seed-2`;
 - playbook: `crisis-playbook-v2-seed-1`;
 - v10 replay: `historical-replay-v1`;
 - v11 comparison replay: `causal-v11-replay-v1`.
@@ -139,6 +141,15 @@ shadow-зоны, а не вероятность; индикатор не вхо�
 Исторического point-in-time order-book набора для causal replay нет: собирается
 только будущая история, probability остаётся `null`, live stage не меняется.
 
+`candidate-v17` добавляет отключённое ускорение гармонизированной безработицы
+OECD для Канады, Великобритании, Японии, Южной Кореи и Мексики. Формула равна
+текущему трёхмесячному среднему минус минимум трёхмесячных средних за текущий и
+предыдущие 12 месяцев; требуются 15 последовательных значений. Пороги
+0,3/0,5/1,0 п.п. являются кандидатными, а не официальным переносом Sahm Rule.
+Все страны принадлежат одному systemic labor cluster, их точные исторические
+release timestamps не доказаны, поэтому final-vintage история не допускается в
+causal replay и live probability остаётся `null`.
+
 ## Known limitations
 
 - causal history has insufficient breadth/depth for v11 promotion;
@@ -151,6 +162,9 @@ shadow-зоны, а не вероятность; индикатор не вхо�
 - candidate-v16 stablecoin inputs are disabled; they provide relative
   USDC/USDT dislocation rather than identifying the depegged token and have no
   historical point-in-time quote set for causal replay;
+- candidate-v17 OECD labour inputs are disabled; five regions broaden evidence
+  but do not create five independent systemic clusters, and historical final
+  vintages are not point-in-time-safe;
 - global regions have unequal channel depth;
 - ten additional official FRED depth series are disabled live inputs with
   explicit thresholds only inside immutable replay-only `candidate-v12`; they
@@ -189,6 +203,7 @@ shadow-зоны, а не вероятность; индикатор не вхо�
 - calling candidate-v14 live or promoted before point-in-time replay and canary.
 - calling candidate-v15 live or promoted before causal replay and canary.
 - calling candidate-v16 live or promoted before forward history, replay and canary.
+- calling candidate-v17 live or promoted before point-in-time history, regional replay and canary.
 
 ## Monitoring and rollback
 

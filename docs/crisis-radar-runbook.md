@@ -41,6 +41,9 @@
 - New York Fed GSCPI: `research_source_failures` остаётся отдельным warning;
   отключённый candidate-v15 не должен маскироваться под отказ обязательного
   числового контура и не меняет live stage.
+- OECD non-US labour: `oecd_labour_research` остаётся отдельным warning;
+  отключённый candidate-v17 не подменяет здоровье обязательного `oecd`
+  CLI-контура, не пересчитывает snapshot и не выдаёт final-vintage за causal.
 - Binance/Bybit USDC/USDT: оба сборщика имеют собственный sync-run с
   `access_type=research_candidate`; их сбои попадают в
   `research_source_failures`, не ухудшают статус обязательных BTC/ETH

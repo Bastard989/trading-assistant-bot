@@ -1,0 +1,82 @@
+{
+  "evidence_version": "oecd-labour-v17-contract-v1",
+  "collected_at": "2026-08-14T01:01:25.842589Z",
+  "methodology": {
+    "version": "candidate-v17",
+    "effective_from": "2026-08-14T00:45:00Z",
+    "checksum": "86739aa4518a8bb1733d9532cd37763de5ac9df3804c56356f1d16d66a9676dd",
+    "previous_version": "candidate-v16",
+    "previous_checksum": "de14e7d4dca74c25f8e90cc3431453b8cce92db05ab6ecf9a4cb6be4cc504e5a",
+    "dependency_graph_version": "dependency-graph-v2-seed-2",
+    "new_indicator_count": 5,
+    "live_enabled": false
+  },
+  "formula": {
+    "expression": "mean(unemployment[t-2:t]) - min(mean(unemployment[k-2:k]) for k=t-12..t)",
+    "minimum_contiguous_months": 15,
+    "unit": "percentage_points",
+    "candidate_bands": {"warning": "0.3", "danger": "0.5", "critical": "1.0"},
+    "interpretation": "Cross-country unemployment acceleration inspired by, but not equivalent to or officially endorsed as, the US Sahm Rule.",
+    "dependency_contract": "Country groups remain separate regional evidence but share one labour systemic cluster."
+  },
+  "official_source": {
+    "code": "oecd",
+    "operational_health_code": "oecd_labour_research",
+    "tier": "A",
+    "dataset": "OECD.SDD.STES,DSD_KEI@DF_KEI,4.0",
+    "selection": "CAN+GBR+JPN+KOR+MEX.M.UNEMP.PT_LF._T.Y._Z",
+    "endpoint": "https://sdmx.oecd.org/public/rest/v1/data/",
+    "documentation": "https://www.oecd.org/en/data/insights/data-explainers/2024/09/api.html",
+    "terms": "https://www.oecd.org/en/about/terms-conditions.html",
+    "payload_bytes": 12439,
+    "payload_sha256": "af1221caf5425de160efd4f6fd4bf07f70a65723ca86aced6cc520d3d0975ecd",
+    "fetched_at": "2026-08-14T01:01:25.842589Z",
+    "raw_payload_distributed": false
+  },
+  "normalized_observations": [
+    {"indicator_code": "canada_unemployment_momentum", "observed_at": "2026-07-31T00:00:00Z", "momentum_percentage_points": "0.0000", "release_time_estimated": true},
+    {"indicator_code": "japan_unemployment_momentum", "observed_at": "2026-06-30T00:00:00Z", "momentum_percentage_points": "0.0333", "release_time_estimated": true},
+    {"indicator_code": "korea_unemployment_momentum", "observed_at": "2026-06-30T00:00:00Z", "momentum_percentage_points": "0.0667", "release_time_estimated": true},
+    {"indicator_code": "mexico_unemployment_momentum", "observed_at": "2026-06-30T00:00:00Z", "momentum_percentage_points": "0.0917", "release_time_estimated": true},
+    {"indicator_code": "uk_unemployment_momentum", "observed_at": "2026-04-30T00:00:00Z", "momentum_percentage_points": "0.3000", "release_time_estimated": true}
+  ],
+  "causal_status": {
+    "official_release_timestamps_available_in_payload": false,
+    "first_collection_used_as_release_time": true,
+    "historical_final_vintage_is_point_in_time_safe": false,
+    "causal_replay_completed": false,
+    "forward_collection_started": true,
+    "eligible_for_probability": false
+  },
+  "isolated_ingestion": {
+    "bootstrap_methodology_version": "candidate-v17",
+    "registered_source_count": 28,
+    "rows": [
+      {"code": "canada_unemployment_momentum", "enabled": 0, "source_code": "oecd", "value_text": "0.0000", "observed_at": "2026-07-31T00:00:00+00:00", "cluster_code": "labor", "subchannel_code": "canada_labor", "graph_version": "dependency-graph-v2-seed-2"},
+      {"code": "japan_unemployment_momentum", "enabled": 0, "source_code": "oecd", "value_text": "0.0333", "observed_at": "2026-06-30T00:00:00+00:00", "cluster_code": "labor", "subchannel_code": "japan_labor", "graph_version": "dependency-graph-v2-seed-2"},
+      {"code": "korea_unemployment_momentum", "enabled": 0, "source_code": "oecd", "value_text": "0.0667", "observed_at": "2026-06-30T00:00:00+00:00", "cluster_code": "labor", "subchannel_code": "korea_labor", "graph_version": "dependency-graph-v2-seed-2"},
+      {"code": "mexico_unemployment_momentum", "enabled": 0, "source_code": "oecd", "value_text": "0.0917", "observed_at": "2026-06-30T00:00:00+00:00", "cluster_code": "labor", "subchannel_code": "mexico_labor", "graph_version": "dependency-graph-v2-seed-2"},
+      {"code": "uk_unemployment_momentum", "enabled": 0, "source_code": "oecd", "value_text": "0.3000", "observed_at": "2026-04-30T00:00:00+00:00", "cluster_code": "labor", "subchannel_code": "uk_labor", "graph_version": "dependency-graph-v2-seed-2"}
+    ],
+    "candidate_v17_snapshot_count": 0,
+    "sqlite_integrity": "ok",
+    "foreign_key_violations": 0
+  },
+  "source_contract": {
+    "official_machine_readable_endpoint": true,
+    "public_request_requires_no_api_secret": true,
+    "dataset_version_is_pinned": true,
+    "response_size_is_bounded": true,
+    "dimensions_schema_status_and_values_are_strictly_validated": true,
+    "all_five_regions_and_15_contiguous_months_are_required": true,
+    "same_mechanism_is_not_counted_as_five_systemic_clusters": true
+  },
+  "safety": {
+    "new_indicators_enabled": false,
+    "candidate_v17_entered_live_snapshot_calculation": false,
+    "candidate_v16_checksum_changed": false,
+    "working_database_touched": false,
+    "production_database_touched": false,
+    "probability_emitted": false
+  }
+}

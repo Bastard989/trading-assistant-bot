@@ -63,6 +63,13 @@ SOURCE_POLICIES = (
         "cross-region leading cycle",
     ),
     SourcePolicy(
+        "oecd_labour_research", "A",
+        "https://www.oecd.org/en/about/terms-conditions.html", "official-sdmx",
+        "monthly", "provider release schedule; exact timestamp set to first collection",
+        "one version-pinned bounded five-area query per daily sync", "oecd", "candidate",
+        "isolated health for disabled harmonised non-US unemployment momentum",
+    ),
+    SourcePolicy(
         "new_york_fed", "A", "https://www.newyorkfed.org/termsofuse", "official-csv",
         "monthly", "release month is known; exact timestamp is conservatively set to first collection",
         "one bounded 1 MB request per daily sync", None, "candidate",
@@ -160,7 +167,7 @@ SOURCE_POLICIES = (
 
 def source_registry_payload() -> dict:
     return {
-        "version": "2026-08-14.1",
+        "version": "2026-08-14.2",
         "sources": [asdict(item) for item in SOURCE_POLICIES],
         "rules": {
             "official_first": True,

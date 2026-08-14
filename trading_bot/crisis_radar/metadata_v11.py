@@ -100,6 +100,7 @@ def group_names(code: str) -> tuple[str, str]:
         ("_credit_cycle", ("Кредитный цикл", "credit cycle")),
         ("_debt_service", ("Долговая нагрузка", "debt-service vulnerability")),
         ("_housing_cycle", ("Цикл цен на жильё", "housing cycle")),
+        ("_labor", ("Рынок труда", "labor market")),
     ):
         if code.endswith(suffix):
             region = _REGION_NAMES.get(code[: -len(suffix)], (code[: -len(suffix)], code[: -len(suffix)]))

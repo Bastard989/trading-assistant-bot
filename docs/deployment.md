@@ -89,7 +89,7 @@ disk growth. The manifest deduplicates an incident while it remains active,
 records its resolution, and counts it again only if it reopens. It never turns
 elapsed time into a simulated pass.
 Required-source, discovery-only aggregator and disabled research-collector
-failures are recorded as separate incident codes. A GDELT, GSCPI or Binance
+failures are recorded as separate incident codes. A GDELT, GSCPI, OECD labour or Binance
 stablecoin candidate outage therefore remains visible but cannot be misread as
 failure of an official live coverage channel. Bybit stablecoin collection is
 also persisted under its own `research_candidate` health identity instead of the

@@ -1,0 +1,90 @@
+{
+  "evidence_version": "imf-portwatch-v18-contract-v1",
+  "collected_at": "2026-08-21T11:51:34.826525Z",
+  "methodology": {
+    "version": "candidate-v18",
+    "effective_from": "2026-08-14T17:45:00Z",
+    "checksum": "28185bf0c6eaffb8c0d65992e86edea33aa7f74e902d74876413d755f2544369",
+    "previous_version": "candidate-v17",
+    "previous_checksum": "86739aa4518a8bb1733d9532cd37763de5ac9df3804c56356f1d16d66a9676dd",
+    "dependency_graph_version": "dependency-graph-v2-seed-3",
+    "new_indicator_count": 5,
+    "live_enabled": false
+  },
+  "formula": {
+    "expression": "max(0, (1 - mean(latest_7d_n_total) / median(previous_365d_n_total)) * 100)",
+    "current_window_days": 7,
+    "baseline_window_days": 365,
+    "current_window_excluded_from_baseline": true,
+    "unit": "percent_shortfall",
+    "candidate_bands_by_indicator": {
+      "suez_transit_shortfall": {"warning": "20", "danger": "35", "critical": "50"},
+      "panama_transit_shortfall": {"warning": "15", "danger": "25", "critical": "40"},
+      "bab_el_mandeb_transit_shortfall": {"warning": "20", "danger": "35", "critical": "50"},
+      "malacca_transit_shortfall": {"warning": "8", "danger": "12", "critical": "18"},
+      "hormuz_transit_shortfall": {"warning": "25", "danger": "50", "critical": "75"}
+    },
+    "interpretation": "A physical transit disruption signal, not a trade-volume estimate, crisis probability or standalone trading instruction.",
+    "dependency_contract": "Five chokepoint groups remain visible but share one shipping_logistics systemic cluster."
+  },
+  "official_source": {
+    "code": "imf_portwatch",
+    "tier": "A",
+    "item_id": "3da2b9ca97684916b75c4013f95d18ab",
+    "layer": "https://services9.arcgis.com/weJ1QsnbMYJlCHdG/ArcGIS/rest/services/Daily_Chokepoints_Data/FeatureServer/0",
+    "terms": "https://www.imf.org/external/terms.htm",
+    "transport": "official-public-arcgis-api",
+    "payloads": [
+      {"port_id": "chokepoint1", "port_name": "Suez Canal", "bytes": 41025, "sha256": "b04ebf8c89c533d489f58e0ae90e0c88d59011118d045cf6030a5d15df283cb1", "observed_at": "2026-08-16T00:00:00Z", "shortfall_percent": "0.3484"},
+      {"port_id": "chokepoint2", "port_name": "Panama Canal", "bytes": 41857, "sha256": "b3d9dccdcd9e3bc974e7f11376819633bfe20df8be58d08bbd0a1affe1ca4f1a", "observed_at": "2026-08-16T00:00:00Z", "shortfall_percent": "7.1429"},
+      {"port_id": "chokepoint4", "port_name": "Bab el-Mandeb Strait", "bytes": 45185, "sha256": "e8fa8bae80a60e45694a9489292ec0fb72767b70845dec2a807b00b8ef039f0b", "observed_at": "2026-08-16T00:00:00Z", "shortfall_percent": "13.8655"},
+      {"port_id": "chokepoint5", "port_name": "Malacca Strait", "bytes": 43105, "sha256": "b9ecfb4404f5ba6eb86fd14dfb9d28b2057a1d339428db3a3f4f2f7225b09b3f", "observed_at": "2026-08-16T00:00:00Z", "shortfall_percent": "7.6067"},
+      {"port_id": "chokepoint6", "port_name": "Strait of Hormuz", "bytes": 43397, "sha256": "ef00697072547007051ad630c57ed7998d3461d157cbdea126ae477982f5f87c", "observed_at": "2026-08-16T00:00:00Z", "shortfall_percent": "91.8831"}
+    ],
+    "raw_payloads_distributed": false
+  },
+  "causal_status": {
+    "exact_release_timestamps_available_in_payload": false,
+    "first_collection_used_as_release_time": true,
+    "historical_final_vintage_is_point_in_time_safe": false,
+    "forward_transformed_vintages_are_point_in_time_from_collection": true,
+    "causal_replay_completed": false,
+    "forward_collection_started": true,
+    "eligible_for_probability": false
+  },
+  "isolated_ingestion": {
+    "status": "succeeded",
+    "rows_fetched": 5,
+    "rows_written": 5,
+    "registered_source_count": 29,
+    "rows": [
+      {"code": "bab_el_mandeb_transit_shortfall", "enabled": 0, "source_code": "imf_portwatch", "value_text": "13.8655", "observed_at": "2026-08-16T00:00:00+00:00", "cluster_code": "shipping_logistics", "subchannel_code": "bab_el_mandeb_shipping", "graph_version": "dependency-graph-v2-seed-3"},
+      {"code": "hormuz_transit_shortfall", "enabled": 0, "source_code": "imf_portwatch", "value_text": "91.8831", "observed_at": "2026-08-16T00:00:00+00:00", "cluster_code": "shipping_logistics", "subchannel_code": "hormuz_shipping", "graph_version": "dependency-graph-v2-seed-3"},
+      {"code": "malacca_transit_shortfall", "enabled": 0, "source_code": "imf_portwatch", "value_text": "7.6067", "observed_at": "2026-08-16T00:00:00+00:00", "cluster_code": "shipping_logistics", "subchannel_code": "malacca_shipping", "graph_version": "dependency-graph-v2-seed-3"},
+      {"code": "panama_transit_shortfall", "enabled": 0, "source_code": "imf_portwatch", "value_text": "7.1429", "observed_at": "2026-08-16T00:00:00+00:00", "cluster_code": "shipping_logistics", "subchannel_code": "panama_shipping", "graph_version": "dependency-graph-v2-seed-3"},
+      {"code": "suez_transit_shortfall", "enabled": 0, "source_code": "imf_portwatch", "value_text": "0.3484", "observed_at": "2026-08-16T00:00:00+00:00", "cluster_code": "shipping_logistics", "subchannel_code": "suez_shipping", "graph_version": "dependency-graph-v2-seed-3"}
+    ],
+    "candidate_v18_snapshot_count": 0,
+    "sqlite_integrity": "ok",
+    "foreign_key_violations": 0
+  },
+  "source_contract": {
+    "official_public_machine_readable_layer": true,
+    "public_request_requires_no_api_secret": true,
+    "item_and_layer_identifiers_are_allowlisted": true,
+    "five_chokepoint_identities_are_allowlisted": true,
+    "queries_are_parallel_and_individually_bounded": true,
+    "response_schema_size_dates_counts_and_contiguity_are_validated": true,
+    "current_window_is_excluded_from_trailing_baseline": true,
+    "same_mechanism_is_not_counted_as_five_systemic_clusters": true
+  },
+  "safety": {
+    "new_indicators_enabled": false,
+    "candidate_v18_entered_live_snapshot_calculation": false,
+    "candidate_v17_checksum_changed": false,
+    "working_database_touched": false,
+    "production_database_touched": false,
+    "probability_emitted": false,
+    "raw_provider_payloads_distributed": false
+  }
+}

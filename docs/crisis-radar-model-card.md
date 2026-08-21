@@ -1,6 +1,6 @@
 # Crisis Radar model card
 
-Дата: 2026-08-14.
+Дата: 2026-08-21.
 
 ## Назначение
 
@@ -18,10 +18,12 @@
 - disabled New York Fed GSCPI collection methodology: `candidate-v15`;
 - disabled cross-venue stablecoin collection methodology: `candidate-v16`;
 - disabled harmonised non-US labour collection methodology: `candidate-v17`;
+- disabled IMF PortWatch chokepoint collection methodology: `candidate-v18`;
 - indicator scoring: `indicator-score-v2-seed-1`;
 - stage: `independent-stage-v2-seed-1`;
 - dependency graph: `dependency-graph-v2-seed-1`; v17 extension:
-  `dependency-graph-v2-seed-2`;
+  `dependency-graph-v2-seed-2`; v18 extension:
+  `dependency-graph-v2-seed-3`;
 - playbook: `crisis-playbook-v2-seed-1`;
 - v10 replay: `historical-replay-v1`;
 - v11 comparison replay: `causal-v11-replay-v1`.
@@ -150,6 +152,18 @@ OECD для Канады, Великобритании, Японии, Южной
 release timestamps не доказаны, поэтому final-vintage история не допускается в
 causal replay и live probability остаётся `null`.
 
+`candidate-v18` добавляет пять отключённых индикаторов снижения физического
+судоходного потока из официального IMF PortWatch ArcGIS layer. Среднее последних
+семи полных дней сравнивается с медианой предшествующих 365 дней; текущее окно
+не входит в baseline. Суэцкий, Панамский, Баб-эль-Мандебский, Малаккский и
+Ормузский каналы остаются отдельными группами, но имеют один systemic cluster
+`shipping_logistics`. Пороговые зоны различаются по обычной волатильности
+проливов, остаются candidate-значениями и не являются вероятностью. Исторический
+текущий snapshot может пересматриваться и не содержит точных release timestamps,
+поэтому он не допускается как point-in-time replay evidence.
+Новые преобразованные значения фиксируются отдельными vintage с фактического
+времени загрузки и могут сформировать причинную историю только вперёд.
+
 ## Known limitations
 
 - causal history has insufficient breadth/depth for v11 promotion;
@@ -165,6 +179,9 @@ causal replay и live probability остаётся `null`.
 - candidate-v17 OECD labour inputs are disabled; five regions broaden evidence
   but do not create five independent systemic clusters, and historical final
   vintages are not point-in-time-safe;
+- candidate-v18 IMF PortWatch inputs are disabled; five chokepoints share one
+  shipping/logistics systemic cluster, while revised historical snapshots and
+  missing exact release timestamps prevent causal replay or probability;
 - global regions have unequal channel depth;
 - ten additional official FRED depth series are disabled live inputs with
   explicit thresholds only inside immutable replay-only `candidate-v12`; they
@@ -204,6 +221,7 @@ causal replay и live probability остаётся `null`.
 - calling candidate-v15 live or promoted before causal replay and canary.
 - calling candidate-v16 live or promoted before forward history, replay and canary.
 - calling candidate-v17 live or promoted before point-in-time history, regional replay and canary.
+- calling candidate-v18 live or promoted before forward history, causal replay and canary.
 
 ## Monitoring and rollback
 

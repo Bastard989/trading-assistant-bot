@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from dataclasses import replace
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
@@ -33,6 +34,7 @@ from trading_bot.crisis_radar.catalog import (
     bootstrap_v15_catalog,
     bootstrap_v16_catalog,
     bootstrap_v17_catalog,
+    bootstrap_v18_catalog,
 )
 from trading_bot.crisis_radar.coverage import (
     DEFAULT_REQUIRED_REGIONS,
@@ -104,6 +106,12 @@ from trading_bot.crisis_radar.sources.stablecoins import (
     StablecoinDislocationAdapter,
 )
 from trading_bot.crisis_radar.sources.official_clients import BeaClient, EiaClient, OfficialSourceError
+from trading_bot.crisis_radar.sources.portwatch import (
+    PORTWATCH_CHOKEPOINTS,
+    PortWatchAdapter,
+    PortWatchClient,
+    PortWatchSourceError,
+)
 from trading_bot.crisis_radar.stability import STABILITY_POLICY, stabilize_indicator_state
 from trading_bot.crisis_radar.states import build_indicator_state, build_market_overview
 from trading_bot.crisis_radar.stage_v2 import calculate_stage_v2, dependency_for
@@ -167,6 +175,7 @@ class CrisisRadarService:
             result["research_v15"] = bootstrap_v15_catalog(self.repository)
             result["research_v16"] = bootstrap_v16_catalog(self.repository)
             result["research_v17"] = bootstrap_v17_catalog(self.repository)
+            result["research_v18"] = bootstrap_v18_catalog(self.repository)
             result["research_bybit_health_source_id"] = self.repository.register_source(
                 BYBIT_STABLECOIN_RESEARCH.code,
                 BYBIT_STABLECOIN_RESEARCH.name,
@@ -1073,6 +1082,77 @@ class CrisisRadarService:
             rows_written=rows_written,
             error_code="source_error" if error else "",
             error_detail=error,
+        )
+        return {
+            "sync_run_id": sync_run_id,
+            "status": status,
+            "rows_fetched": rows_fetched,
+            "rows_written": rows_written,
+            "stage": None,
+        }
+
+    async def sync_portwatch(
+        self,
+        client: PortWatchClient,
+        *,
+        fetched_at: datetime | None = None,
+        recompute_after: bool = False,
+    ) -> dict[str, int | str | None]:
+        """Collect disabled IMF PortWatch chokepoint evidence."""
+
+        self.bootstrap()
+        if recompute_after:
+            raise ValueError("disabled PortWatch research cannot recompute live stage")
+        now = fetched_at or datetime.now(timezone.utc)
+        if now.tzinfo is None or now.utcoffset() is None:
+            raise ValueError("fetched_at must be timezone-aware")
+        sync_run_id = self.repository.start_sync_run("imf_portwatch", started_at=now)
+        adapter = PortWatchAdapter()
+        rows_fetched = 0
+        rows_written = 0
+        errors: list[str] = []
+        payloads = await asyncio.gather(
+            *(
+                client.fetch_chokepoint(chokepoint.port_id, as_of=now)
+                for chokepoint in PORTWATCH_CHOKEPOINTS
+            ),
+            return_exceptions=True,
+        )
+        for chokepoint, payload in zip(PORTWATCH_CHOKEPOINTS, payloads, strict=True):
+            if isinstance(payload, Exception):
+                error_name = (
+                    type(payload).__name__
+                    if isinstance(payload, (PortWatchSourceError, SourcePayloadError))
+                    else "unexpected_source_error"
+                )
+                errors.append(f"{chokepoint.port_id}:{error_name}")
+                continue
+            try:
+                observation = adapter.normalize_latest(
+                    payload,
+                    port_id=chokepoint.port_id,
+                    fetched_at=now,
+                )
+            except SourcePayloadError as exc:
+                errors.append(f"{chokepoint.port_id}:{type(exc).__name__}")
+                continue
+            rows_fetched += 1
+            rows_written += int(
+                self.repository.save_observation(
+                    observation,
+                    sync_run_id=sync_run_id,
+                    preserve_vintage=True,
+                ).inserted
+            )
+        status = "failed" if errors and not rows_fetched else "partial" if errors else "succeeded"
+        self.repository.finish_sync_run(
+            sync_run_id,
+            finished_at=datetime.now(timezone.utc),
+            status=status,
+            rows_fetched=rows_fetched,
+            rows_written=rows_written,
+            error_code="source_errors" if errors else "",
+            error_detail=",".join(errors),
         )
         return {
             "sync_run_id": sync_run_id,

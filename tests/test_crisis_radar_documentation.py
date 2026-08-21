@@ -10,6 +10,7 @@ from trading_bot.crisis_radar.catalog import (
     METHODOLOGY_V15_VERSION,
     METHODOLOGY_V16_VERSION,
     METHODOLOGY_V17_VERSION,
+    METHODOLOGY_V18_VERSION,
     V14_INDICATORS,
     V14_SCENARIOS,
     V15_INDICATORS,
@@ -18,6 +19,8 @@ from trading_bot.crisis_radar.catalog import (
     V16_SCENARIOS,
     V17_INDICATORS,
     V17_SCENARIOS,
+    V18_INDICATORS,
+    V18_SCENARIOS,
     methodology_checksum,
 )
 from trading_bot.crisis_radar.methodology_contract import (
@@ -31,6 +34,7 @@ from trading_bot.crisis_radar.replay_v2 import (
 from trading_bot.crisis_radar.scoring_v2 import PROFILES, SCORING_VERSION
 from trading_bot.crisis_radar.stage_v2 import (
     DEPENDENCY_GRAPH_VERSION,
+    DEPENDENCY_GRAPH_V18_VERSION,
     STAGE_VERSION,
 )
 
@@ -83,6 +87,12 @@ V17_OECD_LABOUR_EVIDENCE_PATH = (
     / "docs"
     / "evidence"
     / "crisis-radar-v17-oecd-labour-contract-20260814.json"
+)
+V18_PORTWATCH_EVIDENCE_PATH = (
+    ROOT
+    / "docs"
+    / "evidence"
+    / "crisis-radar-v18-portwatch-contract-20260821.json"
 )
 NBS_NEWS_EVIDENCE_PATH = (
     ROOT / "docs" / "evidence" / "crisis-radar-nbs-news-contract-20260813.json"
@@ -498,6 +508,49 @@ def test_v17_oecd_labour_evidence_is_disabled_pinned_and_not_double_counted() ->
     assert all(row["enabled"] == 0 for row in evidence["isolated_ingestion"]["rows"])
     assert {row["cluster_code"] for row in evidence["isolated_ingestion"]["rows"]} == {"labor"}
     assert evidence["isolated_ingestion"]["candidate_v17_snapshot_count"] == 0
+    assert evidence["isolated_ingestion"]["sqlite_integrity"] == "ok"
+    assert evidence["isolated_ingestion"]["foreign_key_violations"] == 0
+    assert all(evidence["source_contract"].values())
+    assert all(value is False for value in evidence["safety"].values())
+
+
+def test_v18_portwatch_evidence_is_disabled_bounded_and_not_double_counted() -> None:
+    evidence = json.loads(V18_PORTWATCH_EVIDENCE_PATH.read_text(encoding="utf-8"))
+
+    assert evidence["methodology"]["version"] == METHODOLOGY_V18_VERSION
+    assert evidence["methodology"]["effective_from"] < evidence["collected_at"]
+    assert evidence["methodology"]["checksum"] == methodology_checksum(
+        version=METHODOLOGY_V18_VERSION,
+        indicators=V18_INDICATORS,
+        scenarios=V18_SCENARIOS,
+    )
+    assert evidence["methodology"]["previous_version"] == METHODOLOGY_V17_VERSION
+    assert evidence["methodology"]["dependency_graph_version"] == (
+        DEPENDENCY_GRAPH_V18_VERSION
+    )
+    assert evidence["methodology"]["live_enabled"] is False
+    assert evidence["formula"]["current_window_days"] == 7
+    assert evidence["formula"]["baseline_window_days"] == 365
+    assert evidence["formula"]["current_window_excluded_from_baseline"] is True
+    assert len(evidence["formula"]["candidate_bands_by_indicator"]) == 5
+    assert len(evidence["official_source"]["payloads"]) == 5
+    assert all(
+        len(item["sha256"]) == 64
+        for item in evidence["official_source"]["payloads"]
+    )
+    assert evidence["causal_status"]["historical_final_vintage_is_point_in_time_safe"] is False
+    assert evidence["causal_status"][
+        "forward_transformed_vintages_are_point_in_time_from_collection"
+    ] is True
+    assert evidence["causal_status"]["eligible_for_probability"] is False
+    assert evidence["isolated_ingestion"]["registered_source_count"] == 29
+    assert evidence["isolated_ingestion"]["status"] == "succeeded"
+    assert evidence["isolated_ingestion"]["rows_written"] == 5
+    assert all(row["enabled"] == 0 for row in evidence["isolated_ingestion"]["rows"])
+    assert {
+        row["cluster_code"] for row in evidence["isolated_ingestion"]["rows"]
+    } == {"shipping_logistics"}
+    assert evidence["isolated_ingestion"]["candidate_v18_snapshot_count"] == 0
     assert evidence["isolated_ingestion"]["sqlite_integrity"] == "ok"
     assert evidence["isolated_ingestion"]["foreign_key_violations"] == 0
     assert all(evidence["source_contract"].values())

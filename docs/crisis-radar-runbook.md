@@ -44,6 +44,11 @@
 - OECD non-US labour: `oecd_labour_research` остаётся отдельным warning;
   отключённый candidate-v17 не подменяет здоровье обязательного `oecd`
   CLI-контура, не пересчитывает snapshot и не выдаёт final-vintage за causal.
+- IMF PortWatch: `imf_portwatch` остаётся отдельным research warning;
+  отключённый candidate-v18 выполняет пять параллельных bounded запросов,
+  не пересчитывает live snapshot и не выдаёт пересматриваемую историю ArcGIS за
+  point-in-time replay. Частичный ответ обязан оставаться `degraded`, а не
+  маскироваться под успех.
 - Binance/Bybit USDC/USDT: оба сборщика имеют собственный sync-run с
   `access_type=research_candidate`; их сбои попадают в
   `research_source_failures`, не ухудшают статус обязательных BTC/ETH

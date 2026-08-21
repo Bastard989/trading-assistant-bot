@@ -70,6 +70,14 @@ SOURCE_POLICIES = (
         "isolated health for disabled harmonised non-US unemployment momentum",
     ),
     SourcePolicy(
+        "imf_portwatch", "A", "https://www.imf.org/external/terms.htm",
+        "official-public-arcgis-api", "daily",
+        "provider processing lag; exact release timestamp set to first collection",
+        "five allowlisted chokepoint queries capped at 500 rows and 512 KB each",
+        None, "candidate",
+        "disabled shipping/logistics shortfall evidence from IMF PortWatch transit calls",
+    ),
+    SourcePolicy(
         "new_york_fed", "A", "https://www.newyorkfed.org/termsofuse", "official-csv",
         "monthly", "release month is known; exact timestamp is conservatively set to first collection",
         "one bounded 1 MB request per daily sync", None, "candidate",
@@ -167,7 +175,7 @@ SOURCE_POLICIES = (
 
 def source_registry_payload() -> dict:
     return {
-        "version": "2026-08-14.2",
+        "version": "2026-08-14.3",
         "sources": [asdict(item) for item in SOURCE_POLICIES],
         "rules": {
             "official_first": True,

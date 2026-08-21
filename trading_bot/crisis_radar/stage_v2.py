@@ -16,6 +16,7 @@ from trading_bot.crisis_radar.scoring_v2 import (
 STAGE_VERSION = "independent-stage-v2-seed-1"
 DEPENDENCY_GRAPH_VERSION = "dependency-graph-v2-seed-1"
 DEPENDENCY_GRAPH_V17_VERSION = "dependency-graph-v2-seed-2"
+DEPENDENCY_GRAPH_V18_VERSION = "dependency-graph-v2-seed-3"
 ZERO = Decimal("0")
 ONE = Decimal("1")
 ACTIVE_SCORE_THRESHOLD = Decimal(".25")
@@ -219,6 +220,33 @@ def dependency_for_v17(
             anchor_class=None,
         )
     return dependency_for(code=code, group_code=group_code, region_code=region_code)
+
+
+def dependency_for_v18(
+    *, code: str, group_code: str, region_code: str
+) -> DependencyAssignment:
+    """Add independent chokepoints without multiplying systemic mechanisms.
+
+    Each chokepoint remains a separate scenario group and subchannel, while all
+    five belong to one shipping/logistics cluster.  Simultaneous closures can
+    therefore increase geographic/group breadth but count as one systemic
+    transmission mechanism in the market-stage calculation.
+    """
+
+    if group_code.endswith("_shipping"):
+        return DependencyAssignment(
+            indicator_code=code,
+            group_code=group_code,
+            subchannel_code=group_code,
+            cluster_code="shipping_logistics",
+            region_code=region_code,
+            anchor_class=None,
+        )
+    return dependency_for_v17(
+        code=code,
+        group_code=group_code,
+        region_code=region_code,
+    )
 
 
 def _quantize(value: Decimal) -> Decimal:

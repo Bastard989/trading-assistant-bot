@@ -69,6 +69,13 @@ class FakeService:
         self.calls.append("oecd_labour_research")
         return {"status": "succeeded"}
 
+    async def sync_portwatch(
+        self, client, *, recompute_after: bool = False
+    ) -> dict:
+        assert recompute_after is False
+        self.calls.append("imf_portwatch")
+        return {"status": "succeeded"}
+
     async def sync_binance_stablecoin(
         self, client, *, recompute_after: bool = False
     ) -> dict:
@@ -356,6 +363,7 @@ def test_global_sync_collects_disabled_gscpi_candidate_when_v11_is_enabled() -> 
         "oecd",
         "new_york_fed",
         "oecd_labour_research",
+        "imf_portwatch",
         "market",
     ]
 

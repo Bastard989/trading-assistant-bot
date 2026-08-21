@@ -12,11 +12,18 @@ from trading_bot.crisis_radar.scenarios import SCENARIOS, V2_SCENARIOS, Scenario
 from trading_bot.crisis_radar.stage_v2 import (
     DEPENDENCY_GRAPH_VERSION,
     DEPENDENCY_GRAPH_V17_VERSION,
+    DEPENDENCY_GRAPH_V18_VERSION,
     STAGE_VERSION,
     dependency_for,
     dependency_for_v17,
+    dependency_for_v18,
 )
 from trading_bot.crisis_radar.stability import STABILITY_POLICY
+from trading_bot.crisis_radar.sources.portwatch import (
+    PORTWATCH_CHOKEPOINTS,
+    PORTWATCH_ITEM_ID,
+    PORTWATCH_LAYER_URL,
+)
 
 
 METHODOLOGY_CODE = "crisis-radar"
@@ -30,6 +37,7 @@ METHODOLOGY_V14_VERSION = "candidate-v14"
 METHODOLOGY_V15_VERSION = "candidate-v15"
 METHODOLOGY_V16_VERSION = "candidate-v16"
 METHODOLOGY_V17_VERSION = "candidate-v17"
+METHODOLOGY_V18_VERSION = "candidate-v18"
 
 
 @dataclass(frozen=True)
@@ -204,6 +212,15 @@ OECD_LABOUR_RESEARCH = SourceSeed(
     terms_url=OECD.terms_url,
     expected_frequency="monthly",
     max_staleness_seconds=75 * 86400,
+)
+
+IMF_PORTWATCH = SourceSeed(
+    code="imf_portwatch",
+    name="IMF PortWatch Daily Chokepoints Data",
+    base_url=PORTWATCH_LAYER_URL,
+    terms_url="https://www.imf.org/external/terms.htm",
+    expected_frequency="daily",
+    max_staleness_seconds=10 * 86400,
 )
 
 NEWS_SOURCES = (
@@ -1621,6 +1638,42 @@ OECD_LABOUR_V17_CANDIDATE_INDICATORS = tuple(
 )
 V17_INDICATORS = V16_INDICATORS + OECD_LABOUR_V17_CANDIDATE_INDICATORS
 
+_PORTWATCH_V18_THRESHOLDS = {
+    "suez": ("20", "35", "50"),
+    "panama": ("15", "25", "40"),
+    "bab_el_mandeb": ("20", "35", "50"),
+    "malacca": ("8", "12", "18"),
+    "hormuz": ("25", "50", "75"),
+}
+PORTWATCH_V18_CANDIDATE_INDICATORS = tuple(
+    IndicatorSeed(
+        code=item.indicator_code,
+        provider_series_id=(
+            f"arcgis-item:{PORTWATCH_ITEM_ID}:layer-0:{item.port_id}:n_total"
+        ),
+        name=f"{item.port_name} 7-Day Transit Shortfall",
+        name_ru=f"Снижение судоходного потока — {item.name_ru}, 7 дней",
+        group_code=item.group_code,
+        region_code="GLOBAL",
+        unit="percent_shortfall",
+        frequency="daily",
+        max_staleness_seconds=10 * 86400,
+        thresholds=IndicatorThresholds(
+            warning=Decimal(_PORTWATCH_V18_THRESHOLDS[item.slug][0]),
+            danger=Decimal(_PORTWATCH_V18_THRESHOLDS[item.slug][1]),
+            critical=Decimal(_PORTWATCH_V18_THRESHOLDS[item.slug][2]),
+            reference=Decimal("0"),
+            direction=RiskDirection.HIGHER_IS_WORSE,
+        ),
+        transform=(
+            "max(0,(1-mean(latest_7d_n_total)/"
+            "median(previous_365d_n_total))*100)"
+        ),
+    )
+    for item in PORTWATCH_CHOKEPOINTS
+)
+V18_INDICATORS = V17_INDICATORS + PORTWATCH_V18_CANDIDATE_INDICATORS
+
 _V11_SCENARIO_EXTRA_GROUPS = {
     "global_recession": ("housing_cre",),
     "financial_stress": ("banking_stress", "dollar_liquidity"),
@@ -1785,6 +1838,33 @@ V17_SCENARIOS = tuple(
     for scenario in V16_SCENARIOS
 )
 
+_PORTWATCH_V18_GROUPS = tuple(
+    item.group_code for item in PORTWATCH_V18_CANDIDATE_INDICATORS
+)
+_PORTWATCH_V18_OIL_GROUPS = (
+    "suez_shipping",
+    "bab_el_mandeb_shipping",
+    "hormuz_shipping",
+)
+V18_SCENARIOS = tuple(
+    replace(
+        scenario,
+        group_codes=(
+            scenario.group_codes + _PORTWATCH_V18_GROUPS
+            if scenario.code in {"global_recession", "commodity_supply_shock"}
+            else scenario.group_codes + _PORTWATCH_V18_OIL_GROUPS
+            if scenario.code == "oil_stagflation"
+            else scenario.group_codes
+        ),
+        anchor_groups=(
+            scenario.anchor_groups + _PORTWATCH_V18_GROUPS
+            if scenario.code == "commodity_supply_shock"
+            else scenario.anchor_groups
+        ),
+    )
+    for scenario in V17_SCENARIOS
+)
+
 _V2_THRESHOLD_RATIONALE = {
     "sahm_rule": {
         "ru": "0,50 — официальный триггер Sahm Rule; 0,25 и 1,00 — внутренние уровни.",
@@ -1912,6 +1992,30 @@ for _item in OECD_LABOUR_V17_CANDIDATE_INDICATORS:
         "operational_role": "regional_labor_confirmation",
     }
 
+for _item in PORTWATCH_V18_CANDIDATE_INDICATORS:
+    _bands = _item.thresholds
+    _V2_THRESHOLD_RATIONALE[_item.code] = {
+        "ru": (
+            f"{_bands.warning}/{_bands.danger}/{_bands.critical}% — кандидатные "
+            "экономические зоны снижения среднего числа проходов судов за последние "
+            "7 полных дней относительно медианы предыдущих 365 дней. Пороги выбраны "
+            "с учётом различий обычной волатильности пяти проливов на доступной "
+            "ретроспективе IMF PortWatch, но ещё не являются откалиброванной вероятностью."
+        ),
+        "en": (
+            f"{_bands.warning}/{_bands.danger}/{_bands.critical}% are candidate "
+            "economic bands for the latest seven complete days' mean transit calls "
+            "relative to the preceding 365-day median. Bands reflect differing normal "
+            "volatility across five chokepoints in available IMF PortWatch history, "
+            "but are not a calibrated probability."
+        ),
+        "source_url": (
+            "https://services9.arcgis.com/weJ1QsnbMYJlCHdG/ArcGIS/rest/services/"
+            "Daily_Chokepoints_Data/FeatureServer/0"
+        ),
+        "operational_role": "shipping_disruption_confirmation",
+    }
+
 for _slug, _iso, _label, _label_ru in _BIS_V14_REGION_ROWS:
     _V2_THRESHOLD_RATIONALE[f"{_slug}_debt_service_gap"] = {
         "ru": (
@@ -1974,6 +2078,8 @@ def methodology_checksum(
         methodology_sources += (NEW_YORK_FED,)
     elif version in {METHODOLOGY_V16_VERSION, METHODOLOGY_V17_VERSION}:
         methodology_sources += (NEW_YORK_FED, BINANCE_MARKET)
+    elif version == METHODOLOGY_V18_VERSION:
+        methodology_sources += (NEW_YORK_FED, BINANCE_MARKET, IMF_PORTWATCH)
     payload = {
         "methodology": [METHODOLOGY_CODE, version],
         "sources": [asdict(item) for item in methodology_sources],
@@ -2004,13 +2110,16 @@ def methodology_checksum(
         METHODOLOGY_V15_VERSION,
         METHODOLOGY_V16_VERSION,
         METHODOLOGY_V17_VERSION,
+        METHODOLOGY_V18_VERSION,
     }:
         payload["indicator_scoring"] = {
             code: {key: str(value) for key, value in asdict(profile).items()}
             for code, profile in PROFILES.items()
         }
         payload["dependency_graph_version"] = (
-            DEPENDENCY_GRAPH_V17_VERSION
+            DEPENDENCY_GRAPH_V18_VERSION
+            if version == METHODOLOGY_V18_VERSION
+            else DEPENDENCY_GRAPH_V17_VERSION
             if version == METHODOLOGY_V17_VERSION
             else DEPENDENCY_GRAPH_VERSION
         )
@@ -2044,6 +2153,7 @@ def _source_code_for_indicator(code: str) -> str:
         (BYBIT, tuple(item for item in STABLECOIN_V16_CANDIDATE_INDICATORS if item.code.endswith("_bybit"))),
         (BINANCE_MARKET, tuple(item for item in STABLECOIN_V16_CANDIDATE_INDICATORS if item.code.endswith("_binance"))),
         (OECD, OECD_LABOUR_V17_CANDIDATE_INDICATORS),
+        (IMF_PORTWATCH, PORTWATCH_V18_CANDIDATE_INDICATORS),
     ):
         if any(item.code == code for item in indicators):
             return source.code
@@ -2082,6 +2192,8 @@ def _bootstrap_catalog(
             if version == METHODOLOGY_V16_VERSION
             else "2026-08-14T00:45:00+00:00"
             if version == METHODOLOGY_V17_VERSION
+            else "2026-08-14T17:45:00+00:00"
+            if version == METHODOLOGY_V18_VERSION
             else
             "2026-08-04T12:00:00+00:00"
             if version == METHODOLOGY_GLOBAL_V2_VERSION
@@ -2095,6 +2207,8 @@ def _bootstrap_catalog(
         catalog_sources += (NEW_YORK_FED,)
     elif version in {METHODOLOGY_V16_VERSION, METHODOLOGY_V17_VERSION}:
         catalog_sources += (NEW_YORK_FED, BINANCE_MARKET)
+    elif version == METHODOLOGY_V18_VERSION:
+        catalog_sources += (NEW_YORK_FED, BINANCE_MARKET, IMF_PORTWATCH)
     for source in catalog_sources:
         repository.register_source(
             source.code,
@@ -2103,7 +2217,11 @@ def _bootstrap_catalog(
             terms_url=source.terms_url,
             access_type=(
                 "research_candidate"
-                if source.code in {NEW_YORK_FED.code, BINANCE_MARKET.code}
+                if source.code in {
+                    NEW_YORK_FED.code,
+                    BINANCE_MARKET.code,
+                    IMF_PORTWATCH.code,
+                }
                 else "api"
             ),
             expected_frequency=source.expected_frequency,
@@ -2155,6 +2273,7 @@ def _bootstrap_catalog(
             METHODOLOGY_V15_VERSION,
             METHODOLOGY_V16_VERSION,
             METHODOLOGY_V17_VERSION,
+            METHODOLOGY_V18_VERSION,
         }
         profile = profile_for(
             frequency=item.frequency,
@@ -2179,6 +2298,7 @@ def _bootstrap_catalog(
                 METHODOLOGY_V15_VERSION,
                 METHODOLOGY_V16_VERSION,
                 METHODOLOGY_V17_VERSION,
+                METHODOLOGY_V18_VERSION,
             } else "legacy",
             promotion_status=promotion_status,
             rationale=rationale if version in {
@@ -2190,6 +2310,7 @@ def _bootstrap_catalog(
                 METHODOLOGY_V15_VERSION,
                 METHODOLOGY_V16_VERSION,
                 METHODOLOGY_V17_VERSION,
+                METHODOLOGY_V18_VERSION,
             } else {},
             source_url=(
                 rationale.get("source_url")
@@ -2221,6 +2342,8 @@ def _bootstrap_catalog(
                 if version == METHODOLOGY_V16_VERSION
                 else "2026-08-14T00:45:00+00:00"
                 if version == METHODOLOGY_V17_VERSION
+                else "2026-08-14T17:45:00+00:00"
+                if version == METHODOLOGY_V18_VERSION
                 else "2026-08-05T12:53:16+00:00"
                 if version == METHODOLOGY_V11_VERSION
                 else ""
@@ -2236,7 +2359,9 @@ def _bootstrap_catalog(
                 entity_type="indicator",
                 entity_code=item.code,
                 metadata_version=(
-                    "v17"
+                    "v18"
+                    if version == METHODOLOGY_V18_VERSION
+                    else "v17"
                     if version == METHODOLOGY_V17_VERSION
                     else "v16"
                     if version == METHODOLOGY_V16_VERSION
@@ -2255,7 +2380,13 @@ def _bootstrap_catalog(
             repository.register_dependency_assignment(
                 methodology_id=methodology_id,
                 assignment=(
-                    dependency_for_v17(
+                    dependency_for_v18(
+                        code=item.code,
+                        group_code=item.group_code,
+                        region_code=item.region_code,
+                    )
+                    if version == METHODOLOGY_V18_VERSION
+                    else dependency_for_v17(
                         code=item.code,
                         group_code=item.group_code,
                         region_code=item.region_code,
@@ -2268,7 +2399,9 @@ def _bootstrap_catalog(
                     )
                 ),
                 graph_version=(
-                    DEPENDENCY_GRAPH_V17_VERSION
+                    DEPENDENCY_GRAPH_V18_VERSION
+                    if version == METHODOLOGY_V18_VERSION
+                    else DEPENDENCY_GRAPH_V17_VERSION
                     if version == METHODOLOGY_V17_VERSION
                     else DEPENDENCY_GRAPH_VERSION
                 ),
@@ -2277,7 +2410,9 @@ def _bootstrap_catalog(
                 entity_type="group",
                 entity_code=item.group_code,
                 metadata_version=(
-                    "v17"
+                    "v18"
+                    if version == METHODOLOGY_V18_VERSION
+                    else "v17"
                     if version == METHODOLOGY_V17_VERSION
                     else "v16"
                     if version == METHODOLOGY_V16_VERSION
@@ -2333,6 +2468,7 @@ def _bootstrap_catalog(
             METHODOLOGY_V15_VERSION,
             METHODOLOGY_V16_VERSION,
             METHODOLOGY_V17_VERSION,
+            METHODOLOGY_V18_VERSION,
         }:
             from trading_bot.crisis_radar.metadata_v11 import scenario_metadata
 
@@ -2340,7 +2476,9 @@ def _bootstrap_catalog(
                 entity_type="scenario",
                 entity_code=scenario.code,
                 metadata_version=(
-                    "v17"
+                    "v18"
+                    if version == METHODOLOGY_V18_VERSION
+                    else "v17"
                     if version == METHODOLOGY_V17_VERSION
                     else "v16"
                     if version == METHODOLOGY_V16_VERSION
@@ -2513,6 +2651,30 @@ def bootstrap_v17_catalog(repository: CrisisRadarRepository) -> dict[str, int | 
         version=METHODOLOGY_V17_VERSION,
         indicators=V17_INDICATORS,
         scenarios=V17_SCENARIOS,
+        promotion_status="candidate",
+        indicator_enabled_overrides={code: False for code in new_codes},
+    )
+
+
+def bootstrap_v18_catalog(repository: CrisisRadarRepository) -> dict[str, int | str]:
+    """Register IMF PortWatch chokepoint shortfalls as disabled research inputs."""
+
+    new_codes = {
+        item.code
+        for item in (
+            FRED_V12_CANDIDATE_INDICATORS
+            + BIS_V14_CANDIDATE_INDICATORS
+            + NEW_YORK_FED_V15_CANDIDATE_INDICATORS
+            + STABLECOIN_V16_CANDIDATE_INDICATORS
+            + OECD_LABOUR_V17_CANDIDATE_INDICATORS
+            + PORTWATCH_V18_CANDIDATE_INDICATORS
+        )
+    }
+    return _bootstrap_catalog(
+        repository,
+        version=METHODOLOGY_V18_VERSION,
+        indicators=V18_INDICATORS,
+        scenarios=V18_SCENARIOS,
         promotion_status="candidate",
         indicator_enabled_overrides={code: False for code in new_codes},
     )

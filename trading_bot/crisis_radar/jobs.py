@@ -16,6 +16,7 @@ from trading_bot.crisis_radar.sources.news_clients import (
     news_client_for,
 )
 from trading_bot.crisis_radar.sources.new_york_fed import NewYorkFedClient
+from trading_bot.crisis_radar.sources.portwatch import PortWatchClient
 from trading_bot.crisis_radar.sources.stablecoins import BinanceMarketClient
 
 
@@ -162,6 +163,9 @@ class CrisisRadarJobs:
                         await self.service.sync_oecd_labour(
                             OecdClient(), recompute_after=False
                         )
+                    )
+                    results["imf_portwatch"] = await self.service.sync_portwatch(
+                        PortWatchClient(), recompute_after=False
                     )
                 self.service.recompute()
                 if self.alert_user_ids:

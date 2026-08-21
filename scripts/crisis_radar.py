@@ -31,6 +31,7 @@ from trading_bot.crisis_radar.sources.global_clients import BisClient, OecdClien
 from trading_bot.crisis_radar.sources.official_clients import BeaClient, EiaClient
 from trading_bot.crisis_radar.sources.news_clients import news_client_for
 from trading_bot.crisis_radar.sources.new_york_fed import NewYorkFedClient
+from trading_bot.crisis_radar.sources.portwatch import PortWatchClient
 from trading_bot.crisis_radar.sources.stablecoins import BinanceMarketClient
 from trading_bot.db import CURRENT_SCHEMA_VERSION, Database
 
@@ -84,6 +85,7 @@ def main() -> None:
             "bis",
             "oecd",
             "oecd_labour_research",
+            "imf_portwatch",
             "new_york_fed",
             "bybit_stablecoin_research",
             "binance_market",
@@ -193,6 +195,17 @@ def main() -> None:
             elif args.source == "oecd_labour_research":
                 raise RuntimeError(
                     "CRISIS_RADAR_SCORING_V11 must be enabled for the OECD labour research collector"
+                )
+            if (
+                args.source in {"all", "imf_portwatch"}
+                and service.feature_flags.scoring_v11
+            ):
+                results["imf_portwatch"] = await service.sync_portwatch(
+                    PortWatchClient(), recompute_after=False
+                )
+            elif args.source == "imf_portwatch":
+                raise RuntimeError(
+                    "CRISIS_RADAR_SCORING_V11 must be enabled for the PortWatch research collector"
                 )
             if args.source in {"all", "new_york_fed"} and service.feature_flags.scoring_v11:
                 results["new_york_fed"] = await service.sync_new_york_fed(

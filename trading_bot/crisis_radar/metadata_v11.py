@@ -89,10 +89,22 @@ _REGION_NAMES = {
     "us": ("США", "United States"),
 }
 
+_SHIPPING_NAMES = {
+    "suez": ("Суэцкий канал", "Suez Canal"),
+    "panama": ("Панамский канал", "Panama Canal"),
+    "bab_el_mandeb": ("Баб-эль-Мандебский пролив", "Bab el-Mandeb Strait"),
+    "malacca": ("Малаккский пролив", "Malacca Strait"),
+    "hormuz": ("Ормузский пролив", "Strait of Hormuz"),
+}
+
 
 def group_names(code: str) -> tuple[str, str]:
     if code in _GROUP_NAMES:
         return _GROUP_NAMES[code]
+    if code.endswith("_shipping"):
+        location = _SHIPPING_NAMES.get(code.removesuffix("_shipping"))
+        if location:
+            return f"Судоходство — {location[0]}", f"Shipping — {location[1]}"
     for suffix, labels in (
         ("_growth", ("Экономический рост", "economic growth")),
         ("_leading_cycle", ("Опережающий цикл", "leading cycle")),
@@ -152,12 +164,19 @@ def scenario_metadata(definition: ScenarioDefinition) -> dict[str, str]:
 
 
 def indicator_metadata(seed: IndicatorSeed, *, source_name: str) -> dict[str, str]:
-    context = GROUP_CONTEXT.get(
-        seed.group_code,
+    context = (
         (
-            "Показатель является одним из независимых элементов мировой картины риска.",
-            "This indicator is one independent component of the global risk picture.",
-        ),
+            "Снижение проходов через ключевой пролив показывает физический сбой мировой логистики, который может передаться в сырьё, сроки поставок и выпуск.",
+            "Fewer transits through a key chokepoint reveal a physical logistics disruption that can propagate into commodities, delivery times and output.",
+        )
+        if seed.group_code.endswith("_shipping")
+        else GROUP_CONTEXT.get(
+            seed.group_code,
+            (
+                "Показатель является одним из независимых элементов мировой картины риска.",
+                "This indicator is one independent component of the global risk picture.",
+            ),
+        )
     )
     worse = {
         RiskDirection.HIGHER_IS_WORSE: (

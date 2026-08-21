@@ -32,7 +32,7 @@
 | 3. Dependency/group/stage v2 | completed (shadow) | Independent subchannels/clusters, intensity + systemic breadth, anchors, fail-closed coverage, v10/v11 comparison; tests |
 | 4. Signed OI | completed (shadow) | 1d/7d/30d signed OI, leverage build vs liquidation unwind, v10 absolute series preserved; boundary/API/service tests |
 | 5. Threshold registry v11 | completed (candidate) | Immutable metadata/checksum/source/role/profile/promotion evidence for v11; v10 untouched |
-| 6. Numeric depth | in_progress | 13 scoring FRED v11 series plus 10 disabled causal FRED depth series. `candidate-v13` adds fixed scenario-group coverage and mandatory credit/market/funding plus US/other-advanced/emerging classes. Disabled `candidate-v14` adds official BIS debt-service and real-house-price channels for ten economies. Disabled `candidate-v15` adds official New York Fed GSCPI as a separate supply-chain subchannel. Disabled `candidate-v16` begins point-in-time USDC/USDT bid/ask collection on Bybit and Binance in one dependency subchannel. Disabled `candidate-v17` begins version-pinned OECD unemployment-momentum collection for Canada, UK, Japan, Korea and Mexico in one systemic labor cluster. Real contracts retained 480 DSR-gap, 1,656 housing observations, validated a 56-vintage/347-row GSCPI matrix, verified both stablecoin venues and five harmonised labour series. Historical GSCPI/labour release timestamps and point-in-time stablecoin books remain unavailable for causal replay. Non-US labor improved materially, but banking funding, sovereign, shipping and broader regional labor depth remain incomplete |
+| 6. Numeric depth | in_progress | 13 scoring FRED v11 series plus 10 disabled causal FRED depth series. `candidate-v13` adds fixed scenario-group coverage and mandatory credit/market/funding plus US/other-advanced/emerging classes. Disabled `candidate-v14` adds official BIS debt-service and real-house-price channels for ten economies. Disabled `candidate-v15` adds official New York Fed GSCPI as a separate supply-chain subchannel. Disabled `candidate-v16` begins point-in-time USDC/USDT bid/ask collection on Bybit and Binance in one dependency subchannel. Disabled `candidate-v17` begins version-pinned OECD unemployment-momentum collection for Canada, UK, Japan, Korea and Mexico in one systemic labor cluster. Disabled `candidate-v18` adds five official IMF PortWatch chokepoint shortfalls as separate groups in one systemic shipping/logistics cluster. Real contracts retained 480 DSR-gap, 1,656 housing observations, validated a 56-vintage/347-row GSCPI matrix, verified both stablecoin venues, five harmonised labour series and five current chokepoint panels. Historical GSCPI/labour/PortWatch release timestamps and point-in-time stablecoin books remain unavailable for causal replay. Non-US labor and physical shipping depth improved materially, but banking funding, sovereign and broader regional labor depth remain incomplete |
 | 7. News coverage/lifecycle | in_progress | Separate news coverage, snapshot-time decay, immediate fusion recompute. Repository candidate now has 14 official channels: 13 RSS plus strict HKMA JSON API. NBS contributes a separate CHN region with preserved Chinese evidence. Bank of Korea adds KOR growth, banking, reserves and external-balance context with strict query-preserving URLs and headline-grounded event promotion. Real NBS and BOK contracts each parsed 100 bounded items and produced 0 false crisis events. The active server release still has the previously verified 12 channels until rollout. RBA and IMF endpoints were rejected after reproducible HTTP 403; broader filings/exchange coverage remains |
 | 8. Evidence memory profiles | completed (optional advanced) | Basic SQLite FTS5 works without embeddings. Advanced pgvector has schema, continuous ingestion, embedding queue/fallback, hybrid search, health API and a real local PostgreSQL/pgvector verification with relational evidence ID |
 | 9. Scenarios/recovery/diff | completed (shadow seed) | 11 Crisis Playbooks, causal chain, anchors, invalidation, recovery, evidence IDs and persisted causal diff; historical calibration remains stage 12 |
@@ -95,10 +95,17 @@ initial releases use their actual release dates.
   системному labor-кластеру. Исторический OECD CSV не содержит точных release
   timestamps, поэтому final-vintage значения не объявляются causal replay и все
   пять рядов остаются `enabled=false`.
+- `candidate-v18` является отдельно checksummed disabled collection-кандидатом
+  с `dependency-graph-v2-seed-3`. Пять ключевых проливов остаются отдельными
+  группами, но принадлежат одному systemic `shipping_logistics` cluster.
+  Семидневное среднее сравнивается только с предыдущей 365-дневной медианой.
+  Исторический ArcGIS snapshot может пересматриваться и не содержит точных
+  release timestamps, поэтому сохраняется лишь новый forward vintage, все пять
+  рядов остаются `enabled=false`, live stage и probability не меняются.
 - Live probability остаётся `null` до победы над baseline.
 - Календарный 14-дневный canary нельзя объявлять завершённым заранее.
 
-## Последнее доказательство (2026-08-14)
+## Последнее доказательство (2026-08-21)
 
 - Repository candidate commits:
   `9dedacb` (v11 shadow core/UI), `5bbd69e` (self-host/CI/canary),
@@ -161,7 +168,7 @@ initial releases use their actual release dates.
   warning; overall coverage `80.95%`, computational core `92.64%`, runtime
   `90.04%`, PostgreSQL memory `96.83%`; Ruff, diff, repeated migration,
   26-source registry and dependency audit passed.
-- Source registry: 28 версионируемых контрактов; offline contract gate проходит.
+- Source registry: 29 версионируемых контрактов; offline contract gate проходит.
   После post-commit аудита Bybit stablecoin collector получил отдельную
   `research_candidate` health identity: его ошибка теперь сохраняется в sync
   journal и попадает в canary, не меняя immutable checksum `candidate-v16` и не
@@ -181,6 +188,22 @@ initial releases use their actual release dates.
   `90.26%`, PostgreSQL memory `96.83%`. Ruff, JavaScript syntax, diff check,
   repeated migrations, 28-source registry and dependency audit passed;
   `pip-audit` found no known vulnerabilities.
+- Full regression after immutable disabled `candidate-v18`, strict IMF PortWatch
+  schema/identity/date/continuity checks, five independent chokepoint groups and
+  one systemic shipping/logistics cluster: `523 passed`, one known
+  Starlette/httpx compatibility warning; overall coverage `81.12%`,
+  computational core `92.12%`, runtime/migrations `90.30%`, PostgreSQL memory
+  `96.83%`. Ruff, JavaScript syntax, diff check, repeated migrations,
+  29-source registry, dependency audit and local secret scan passed.
+- Live IMF PortWatch contract 2026-08-21: пять параллельных allowlisted запросов
+  официального ArcGIS layer прошли строгую проверку schema/identity/size/date,
+  372 последовательных дней и конечных неотрицательных transit counts.
+  Изолированная БД сохранила пять disabled observations, создала 0 snapshots и
+  прошла SQLite integrity/FK. Текущие shortfall: 0,3484% Suez, 7,1429% Panama,
+  13,8655% Bab el-Mandeb, 7,6067% Malacca и 91,8831% Hormuz. Последнее значение
+  является наблюдением официального источника, но не вероятностью кризиса и не
+  торговой командой. Evidence:
+  `docs/evidence/crisis-radar-v18-portwatch-contract-20260821.json`.
 - Live source contracts: 13/13 scoring FRED v11 series, 10/10 disabled
   next-methodology FRED research series and the previous 12/12 official-news
   server channels returned valid data on 2026-08-11. The 13th repository channel,

@@ -20,6 +20,7 @@ from trading_bot.crisis_radar.catalog import (  # noqa: E402
     FRED_INDICATORS,
     FRED_V11_DEPTH_INDICATORS,
     FRED_V12_RESEARCH_INDICATORS,
+    FRED_V19_RESEARCH_INDICATORS,
 )
 from trading_bot.crisis_radar.sources.base import SeriesRequest  # noqa: E402
 from trading_bot.crisis_radar.sources.fred_client import (  # noqa: E402
@@ -57,7 +58,10 @@ def configured_series() -> tuple[tuple[object, str], ...]:
         + FRED_GLOBAL_V2_INDICATORS
         + FRED_V11_DEPTH_INDICATORS
     )
-    research = tuple((item, "disabled_research") for item in FRED_V12_RESEARCH_INDICATORS)
+    research = tuple(
+        (item, "disabled_research")
+        for item in FRED_V12_RESEARCH_INDICATORS + FRED_V19_RESEARCH_INDICATORS
+    )
     unique: dict[str, tuple[object, str]] = {}
     for item, role in active + research:
         unique.setdefault(item.code, (item, role))

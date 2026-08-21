@@ -1,0 +1,97 @@
+{
+  "version": 1,
+  "recorded_at": "2026-08-21T12:53:41+00:00",
+  "release": {
+    "id": "ff55c01",
+    "source_commit": "ff55c011fd7830e46c07a28a735e154786ec5d52",
+    "schema_version": 23,
+    "previous_release": "715384d",
+    "immutable_read_only_for_service": true
+  },
+  "pre_update_backup": {
+    "filename": "pre-update-ff55c01-20260821T1249Z.sqlite3",
+    "sha256": "9015a52f13fa2c543b9b9dfa3f0eaa07bbc1d6b6de3c39fc02478aa0f7d56974",
+    "schema": 23,
+    "integrity": "ok",
+    "foreign_key_violations": 0,
+    "restore_table_counts_match": true
+  },
+  "migration_dry_run": {
+    "schema": 23,
+    "integrity": "ok",
+    "foreign_key_violations": 0,
+    "working_database_changed": false
+  },
+  "derived_snapshot_retention": {
+    "policy": {
+      "keep_all_recent_days": 2,
+      "keep_hourly_through_days": 180,
+      "keep_daily_after_days": 180
+    },
+    "backup": {
+      "filename": "pre-retention-20260821T125137Z.sqlite3",
+      "sha256": "9015a52f13fa2c543b9b9dfa3f0eaa07bbc1d6b6de3c39fc02478aa0f7d56974",
+      "verified": true
+    },
+    "distinct_timestamps_before": 8645,
+    "distinct_timestamps_kept": 2104,
+    "distinct_timestamps_removed": 6541,
+    "protected_event_timestamps": 6,
+    "raw_observations_removed": 0,
+    "news_items_removed": 0,
+    "events_removed": 0,
+    "alerts_removed": 0,
+    "scorecards_removed": 0,
+    "trades_removed": 0,
+    "journal_entries_removed": 0,
+    "database_bytes_before": 2901446656,
+    "database_bytes_after": 673165312,
+    "vacuum_completed": true,
+    "post_apply_integrity": "ok",
+    "post_apply_foreign_key_violations": 0
+  },
+  "runtime": {
+    "api_active": true,
+    "bot_active": true,
+    "internal_live": true,
+    "internal_ready": true,
+    "external_temporary_https_live": true,
+    "external_temporary_https_ready": true
+  },
+  "canary": {
+    "unit": "trading-assistant-canary.timer",
+    "release": "ff55c01",
+    "status": "in_progress",
+    "started_at": "2026-08-21T12:53:38.338491+00:00",
+    "expected_end_at": "2026-09-04T12:53:38.338491+00:00",
+    "interval_minutes": 15,
+    "minimum_samples": 1210,
+    "observed_sample_count": 1,
+    "critical_incident_count": 0,
+    "active_warnings": [
+      "gdelt_discovery_latest_run_failed",
+      "hkma_news_latest_run_failed"
+    ],
+    "warning_context": "GDELT is discovery-only; HKMA had succeeded earlier and the latest failure is treated as a visible source-health warning, not hidden or converted into a crisis signal."
+  },
+  "repository_ci": [
+    {
+      "commit": "8c4dcb2",
+      "run_id": 32482291234,
+      "conclusion": "success",
+      "url": "https://github.com/Bastard989/trading-assistant-bot/actions/runs/32482291234"
+    },
+    {
+      "commit": "ff55c01",
+      "run_id": 32482526915,
+      "conclusion": "success",
+      "url": "https://github.com/Bastard989/trading-assistant-bot/actions/runs/32482526915"
+    }
+  ],
+  "external_blockers": [
+    "permanent_https_firewall_ingress_80_443_or_named_tunnel",
+    "separately_retained_off_host_backup_target",
+    "fourteen_calendar_day_canary",
+    "candidate_v11_historical_promotion_evidence"
+  ]
+}

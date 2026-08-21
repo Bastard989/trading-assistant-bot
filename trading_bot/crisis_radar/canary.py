@@ -11,6 +11,7 @@ CANARY_VERSION = "crisis-radar-canary-v2"
 CANARY_DURATION = timedelta(days=14)
 CANARY_MINIMUM_SAMPLES = 1210  # 90% of a fifteen-minute schedule across 14 days.
 MAX_DATABASE_GROWTH_BYTES_PER_DAY = 256 * 1024 * 1024
+MIN_DATABASE_GROWTH_WINDOW_SECONDS = 6 * 3600
 MAX_BACKUP_DIRECTORY_BYTES = 50 * 1024 * 1024 * 1024
 
 
@@ -186,6 +187,7 @@ def evaluate_sample(
     max_snapshot_lag_seconds: int = 7200,
     max_backup_age_seconds: int = 36 * 3600,
     max_database_growth_bytes_per_day: int = MAX_DATABASE_GROWTH_BYTES_PER_DAY,
+    min_database_growth_window_seconds: int = MIN_DATABASE_GROWTH_WINDOW_SECONDS,
     max_backup_directory_bytes: int = MAX_BACKUP_DIRECTORY_BYTES,
 ) -> tuple[dict, ...]:
     incidents = []
@@ -255,7 +257,11 @@ def evaluate_sample(
     backup_bytes = int(metrics.get("backup_directory_bytes") or 0)
     if backup_bytes > max_backup_directory_bytes:
         add("backup_storage_growth", "warning", f"bytes={backup_bytes}")
-    if previous_metrics is not None and elapsed_seconds is not None and elapsed_seconds >= 300:
+    if (
+        previous_metrics is not None
+        and elapsed_seconds is not None
+        and elapsed_seconds >= min_database_growth_window_seconds
+    ):
         current_bytes = int(metrics.get("database_bytes", metrics.get("disk_bytes", 0)) or 0)
         previous_bytes = int(
             previous_metrics.get("database_bytes", previous_metrics.get("disk_bytes", 0)) or 0
@@ -311,17 +317,45 @@ def update_canary_manifest(
             "incidents": [],
         }
     previous_at = _parse(manifest.get("last_sample_at"))
-    elapsed_seconds = (
+    growth_baseline = manifest.get("database_growth_baseline")
+    growth_baseline_at = (
+        _parse(growth_baseline.get("at"))
+        if isinstance(growth_baseline, dict)
+        else None
+    )
+    growth_baseline_metrics = (
+        {
+            "database_bytes": int(growth_baseline.get("database_bytes", 0)),
+            "derived_snapshot_count": int(
+                growth_baseline.get("derived_snapshot_count", 0)
+            ),
+        }
+        if isinstance(growth_baseline, dict) and growth_baseline_at is not None
+        else None
+    )
+    growth_elapsed_seconds = (
         None
-        if previous_at is None
-        else max(0, int((sample_at - previous_at).total_seconds()))
+        if growth_baseline_at is None
+        else max(0, int((sample_at - growth_baseline_at).total_seconds()))
     )
     incidents = evaluate_sample(
         metrics,
         http_health=http_health,
-        previous_metrics=manifest.get("last_metrics"),
-        elapsed_seconds=elapsed_seconds,
+        previous_metrics=growth_baseline_metrics,
+        elapsed_seconds=growth_elapsed_seconds,
     )
+    if (
+        growth_baseline_at is None
+        or growth_elapsed_seconds is None
+        or growth_elapsed_seconds >= MIN_DATABASE_GROWTH_WINDOW_SECONDS
+    ):
+        manifest["database_growth_baseline"] = {
+            "at": sample_at.isoformat(),
+            "database_bytes": int(
+                metrics.get("database_bytes", metrics.get("disk_bytes", 0)) or 0
+            ),
+            "derived_snapshot_count": int(metrics.get("derived_snapshot_count") or 0),
+        }
     if previous_at is not None and sample_at - previous_at > timedelta(hours=1):
         manifest["restart_intervals"].append(
             {"from": previous_at.isoformat(), "to": sample_at.isoformat()}

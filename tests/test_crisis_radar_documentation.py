@@ -11,6 +11,7 @@ from trading_bot.crisis_radar.catalog import (
     METHODOLOGY_V16_VERSION,
     METHODOLOGY_V17_VERSION,
     METHODOLOGY_V18_VERSION,
+    METHODOLOGY_V19_VERSION,
     V14_INDICATORS,
     V14_SCENARIOS,
     V15_INDICATORS,
@@ -21,6 +22,8 @@ from trading_bot.crisis_radar.catalog import (
     V17_SCENARIOS,
     V18_INDICATORS,
     V18_SCENARIOS,
+    V19_INDICATORS,
+    V19_SCENARIOS,
     methodology_checksum,
 )
 from trading_bot.crisis_radar.methodology_contract import (
@@ -35,6 +38,7 @@ from trading_bot.crisis_radar.scoring_v2 import PROFILES, SCORING_VERSION
 from trading_bot.crisis_radar.stage_v2 import (
     DEPENDENCY_GRAPH_VERSION,
     DEPENDENCY_GRAPH_V18_VERSION,
+    DEPENDENCY_GRAPH_V19_VERSION,
     STAGE_VERSION,
 )
 
@@ -93,6 +97,12 @@ V18_PORTWATCH_EVIDENCE_PATH = (
     / "docs"
     / "evidence"
     / "crisis-radar-v18-portwatch-contract-20260821.json"
+)
+V19_US_FUNDING_EVIDENCE_PATH = (
+    ROOT
+    / "docs"
+    / "evidence"
+    / "crisis-radar-v19-us-funding-contract-20260821.json"
 )
 NBS_NEWS_EVIDENCE_PATH = (
     ROOT / "docs" / "evidence" / "crisis-radar-nbs-news-contract-20260813.json"
@@ -555,6 +565,40 @@ def test_v18_portwatch_evidence_is_disabled_bounded_and_not_double_counted() -> 
     assert evidence["isolated_ingestion"]["foreign_key_violations"] == 0
     assert all(evidence["source_contract"].values())
     assert all(value is False for value in evidence["safety"].values())
+
+
+def test_v19_us_funding_evidence_is_causal_disabled_and_not_double_counted() -> None:
+    evidence = json.loads(V19_US_FUNDING_EVIDENCE_PATH.read_text(encoding="utf-8"))
+
+    methodology = evidence["methodology"]
+    assert methodology["version"] == METHODOLOGY_V19_VERSION
+    assert methodology["checksum"] == methodology_checksum(
+        version=METHODOLOGY_V19_VERSION,
+        indicators=V19_INDICATORS,
+        scenarios=V19_SCENARIOS,
+    )
+    assert methodology["dependency_graph"] == DEPENDENCY_GRAPH_V19_VERSION
+    assert methodology["live_stage_affected"] is False
+    assert methodology["live_probability_affected"] is False
+    assert {item["initial_release_capability"] for item in evidence["source"]["series"]} == {
+        "verified"
+    }
+    dependency = evidence["dependency_contract"]
+    assert dependency["cluster"] == "dollar_liquidity_banks"
+    assert dependency["independent_systemic_mechanism_count"] == 1
+    assert len(set(dependency["subchannels"].values())) == 2
+    backfill = evidence["isolated_causal_backfill"]
+    assert backfill["rows_fetched"] == backfill["rows_written"] == 747
+    assert backfill["retrospective_revised_rows"] == 0
+    assert backfill["estimated_release_rows"] == 0
+    assert backfill["snapshot_count"] == 0
+    assert backfill["integrity"] == "ok"
+    assert backfill["foreign_key_violations"] == 0
+    assert all(len(item) == 64 for item in (
+        methodology["checksum"],
+        methodology["previous_checksum"],
+        backfill["database_sha256"],
+    ))
 
 
 def test_nbs_news_evidence_is_official_bounded_and_cannot_change_numeric_stage() -> None:

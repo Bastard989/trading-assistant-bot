@@ -434,6 +434,12 @@ Seed-матрица для shadow comparison:
 - swap-line/emergency liquidity usage;
 - capital-control events.
 
+Текущая реализация `candidate-v19` добавляет отключённые official-first
+подканалы количества (`WRESBAL`, изменение резервных остатков за 90 дней) и
+цены (`CPFF`, commercial-paper spread) долларового фондирования. Оба имеют
+проверяемые initial-release vintages, но их seed-пороги не продвигаются без
+replay/sensitivity/canary; один systemic cluster исключает двойной счёт.
+
 #### Акции и волатильность
 
 - broad drawdown;

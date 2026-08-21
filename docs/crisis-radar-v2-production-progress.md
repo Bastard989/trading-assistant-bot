@@ -32,15 +32,15 @@
 | 3. Dependency/group/stage v2 | completed (shadow) | Independent subchannels/clusters, intensity + systemic breadth, anchors, fail-closed coverage, v10/v11 comparison; tests |
 | 4. Signed OI | completed (shadow) | 1d/7d/30d signed OI, leverage build vs liquidation unwind, v10 absolute series preserved; boundary/API/service tests |
 | 5. Threshold registry v11 | completed (candidate) | Immutable metadata/checksum/source/role/profile/promotion evidence for v11; v10 untouched |
-| 6. Numeric depth | in_progress | 13 scoring FRED v11 series plus 10 disabled causal FRED depth series. `candidate-v13` adds fixed scenario-group coverage and mandatory credit/market/funding plus US/other-advanced/emerging classes. Disabled `candidate-v14` adds official BIS debt-service and real-house-price channels for ten economies. Disabled `candidate-v15` adds official New York Fed GSCPI as a separate supply-chain subchannel. Disabled `candidate-v16` begins point-in-time USDC/USDT bid/ask collection on Bybit and Binance in one dependency subchannel. Disabled `candidate-v17` begins version-pinned OECD unemployment-momentum collection for Canada, UK, Japan, Korea and Mexico in one systemic labor cluster. Disabled `candidate-v18` adds five official IMF PortWatch chokepoint shortfalls as separate groups in one systemic shipping/logistics cluster. Real contracts retained 480 DSR-gap, 1,656 housing observations, validated a 56-vintage/347-row GSCPI matrix, verified both stablecoin venues, five harmonised labour series and five current chokepoint panels. Historical GSCPI/labour/PortWatch release timestamps and point-in-time stablecoin books remain unavailable for causal replay. Non-US labor and physical shipping depth improved materially, but banking funding, sovereign and broader regional labor depth remain incomplete |
+| 6. Numeric depth | in_progress | 13 scoring FRED v11 series plus 12 disabled causal FRED depth series. `candidate-v13` adds fixed scenario-group coverage and mandatory credit/market/funding plus US/other-advanced/emerging classes. Disabled `candidate-v14` adds official BIS debt-service and real-house-price channels for ten economies. Disabled `candidate-v15` adds official New York Fed GSCPI as a separate supply-chain subchannel. Disabled `candidate-v16` begins point-in-time USDC/USDT bid/ask collection on Bybit and Binance in one dependency subchannel. Disabled `candidate-v17` begins version-pinned OECD unemployment-momentum collection for Canada, UK, Japan, Korea and Mexico in one systemic labor cluster. Disabled `candidate-v18` adds five official IMF PortWatch chokepoint shortfalls as separate groups in one systemic shipping/logistics cluster. Disabled `candidate-v19` adds official US reserve-balance quantity and commercial-paper funding-price subchannels inside one dollar-liquidity cluster; both have verified initial-release history and 747 isolated causal observations. Real contracts retained 480 DSR-gap, 1,656 housing observations, validated a 56-vintage/347-row GSCPI matrix, verified both stablecoin venues, five harmonised labour series and five current chokepoint panels. Historical GSCPI/labour/PortWatch release timestamps and point-in-time stablecoin books remain unavailable for causal replay. US funding depth improved, but non-US banking funding, sovereign and broader regional labor depth remain incomplete |
 | 7. News coverage/lifecycle | in_progress | Separate news coverage, snapshot-time decay, immediate fusion recompute. Repository candidate now has 14 official channels: 13 RSS plus strict HKMA JSON API. NBS contributes a separate CHN region with preserved Chinese evidence. Bank of Korea adds KOR growth, banking, reserves and external-balance context with strict query-preserving URLs and headline-grounded event promotion. Real NBS and BOK contracts each parsed 100 bounded items and produced 0 false crisis events. The active server release still has the previously verified 12 channels until rollout. RBA and IMF endpoints were rejected after reproducible HTTP 403; broader filings/exchange coverage remains |
 | 8. Evidence memory profiles | completed (optional advanced) | Basic SQLite FTS5 works without embeddings. Advanced pgvector has schema, continuous ingestion, embedding queue/fallback, hybrid search, health API and a real local PostgreSQL/pgvector verification with relational evidence ID |
 | 9. Scenarios/recovery/diff | completed (shadow seed) | 11 Crisis Playbooks, causal chain, anchors, invalidation, recovery, evidence IDs and persisted causal diff; historical calibration remains stage 12 |
 | 10. Exposure/scorecard | completed (shadow seed) | Read-only open-trade overlay and persistent signal lifecycle scorecards; outcome/reaction resolution needs live history |
 | 11. UI/help/navigation | completed | RU-first v11 metadata and bands, compact main view, journal subnavigation, models in tools, six analysis tabs, accessible help dialog, scenario expansion, exposure overlay; manually verified in in-app browser at desktop/mobile and automated authenticated Playwright E2E |
 | 12. Replay/calibration | implemented; gate failed honestly | Causal v10/v11/v12/v13 comparisons plus ablations and future-release regression tests. v13 replaces the misleading all-indicator denominator with fixed scenario-group coverage and mandatory independent channels/regions. Real replay evaluated 220 monthly cutoffs: 29 eligible, 20 resolved, only 3 independent positive episodes and 0 calibrated scores. Coverage/horizon sensitivity never passed. v11/v12/v13 remain shadow/replay-only and probability is null |
-| 13. Packaging/E2E/security | completed for repository candidate | Authenticated RU/EN/mobile/degraded Playwright E2E; CI installs Chromium; overall coverage 80.20%; computational core 90.31%, runtime 90.09%, PostgreSQL memory 96.83%; self-host doctor, source contracts, guarded update/rollback, encrypted off-host backup and isolated restore drill are tested |
-| 14. Rollout/canary | in progress on target server | Initial release `7c87903` safely migrated the live DB v20→v23. Active immutable hotfix release `715384d` deduplicates persistent canary incidents; API/bot are active, external temporary HTTPS health is green and all 12 official news channels pass from the server. A fresh radar-specific systemd canary for the active release started `2026-08-11T20:08:48Z` and cannot complete before `2026-08-25T20:08:48Z`. Permanent HTTPS and a real encrypted off-host mount remain external blockers |
+| 13. Packaging/E2E/security | completed for repository candidate | Authenticated RU/EN/mobile/degraded Playwright E2E; CI installs Chromium; overall coverage 81%; computational core 92.16%, runtime 90.32%, PostgreSQL memory 96.83%; self-host doctor, source contracts, guarded update/rollback, encrypted off-host backup and isolated restore drill are tested |
+| 14. Rollout/canary | in progress on target server | Release `ff55c01` is active from an immutable tree after a verified backup, restore drill and migration dry-run. API/bot and temporary external HTTPS are green. A production write-amplification defect was removed; backup-gated retention preserved raw evidence and reduced the live DB from 2.90 GB to 0.67 GB. Because the monitored executable changed, a fresh honest canary started `2026-08-21T12:53:38Z` and cannot complete before `2026-09-04T12:53:38Z`. Permanent HTTPS and a real encrypted off-host target remain external blockers |
 
 Numeric-depth research evidence:
 `docs/evidence/crisis-radar-depth-research-20260811.json`. A disposable database
@@ -102,6 +102,12 @@ initial releases use their actual release dates.
   Исторический ArcGIS snapshot может пересматриваться и не содержит точных
   release timestamps, поэтому сохраняется лишь новый forward vintage, все пять
   рядов остаются `enabled=false`, live stage и probability не меняются.
+- `candidate-v19` является отдельно checksummed disabled collection-кандидатом.
+  Он добавляет два причинно доступных FRED-подканала в один systemic
+  `dollar_liquidity_banks` cluster: 90-дневное изменение резервных остатков
+  банков в ФРС и spread финансовых commercial paper к federal funds. Оба ряда
+  `enabled=false`; seed-пороги не считаются откалиброванными и не влияют на live
+  stage/probability до replay, sensitivity и canary.
 - Live probability остаётся `null` до победы над baseline.
 - Календарный 14-дневный canary нельзя объявлять завершённым заранее.
 
@@ -115,12 +121,17 @@ initial releases use their actual release dates.
   batch, adds database/WAL/backup-size and snapshot-count canary metrics, warns
   above 256 MiB/day database growth or 50 GiB backup staging, and includes a
   backup-gated derived-snapshot retention tool. It keeps all raw observations,
-  news, events, alerts, scorecards, trades and journal data. This hardening is
-  not claimed as active before the post-canary rollout. A read-only production
+  news, events, alerts, scorecards, trades and journal data. This hardening
+  became active in immutable server release `ff55c01`. A read-only production
   dry-run at `2026-08-21T12:30:00Z` found 8,623 distinct snapshot timestamps,
   protected all six event-referenced timestamps and proposed keeping 2,094 while
-  removing 6,529 redundant derived timestamps. The plan was not applied and no
-  production row was deleted.
+  removing 6,529 redundant derived timestamps. The final maintenance-window run
+  observed 8,645 timestamps, retained 2,104 and removed 6,541 redundant derived
+  timestamps after creating and verifying a second online backup. Six exact
+  alert/data-health timestamps were protected; raw observations, news, events,
+  alerts, scorecards, trades and journal entries were not deleted. `VACUUM`
+  reduced the live database from 2,901,446,656 to 673,165,312 bytes; integrity
+  remained `ok` with zero foreign-key violations.
 - Full regression for the storage-hardening candidate: `527 passed`, one known
   Starlette/httpx compatibility warning; overall coverage `81.14%`,
   computational core `92.12%`, runtime/migrations `90.32%`, PostgreSQL memory
@@ -157,6 +168,10 @@ initial releases use their actual release dates.
   including Linux Playwright, coverage gates, dependency audit, migrations and
   gitleaks
   (https://github.com/Bastard989/trading-assistant-bot/actions/runs/32480735604).
+- GitHub Actions CI for bounded snapshot storage `8c4dcb2`: passed
+  (https://github.com/Bastard989/trading-assistant-bot/actions/runs/32482291234).
+- GitHub Actions CI for encrypted backup staging retention `ff55c01`: passed
+  (https://github.com/Bastard989/trading-assistant-bot/actions/runs/32482526915).
 - Targeted replay/scoring/validation: `19 passed`.
 - Targeted UI/i18n/canary: `12 passed`.
 - Authenticated Playwright browser E2E: `1 passed` (RU/EN, six analysis tabs,
@@ -234,7 +249,24 @@ initial releases use their actual release dates.
   является наблюдением официального источника, но не вероятностью кризиса и не
   торговой командой. Evidence:
   `docs/evidence/crisis-radar-v18-portwatch-contract-20260821.json`.
-- Live source contracts: 13/13 scoring FRED v11 series, 10/10 disabled
+- Live FRED funding contract 2026-08-21: `WRESBAL` и `CPFF` прошли metadata,
+  latest-observation и initial-release capability checks. Изолированный causal
+  backfill за 2022-08-22–2026-08-21 сохранил 747 точек: 196 преобразованных
+  reserve-balance и 551 CPFF observations, без `retrospective_revised`,
+  `release_time_estimated` и market snapshots. SQLite integrity `ok`, FK
+  violations `0`; latest values `-6.2077%` и `0.21` п.п. являются наблюдениями,
+  а не вероятностями или торговыми командами. Evidence:
+  `docs/evidence/crisis-radar-v19-us-funding-contract-20260821.json`.
+- Full regression after disabled `candidate-v19` US dollar-funding depth and
+  the six-hour database-growth canary baseline: `532 passed`, one known
+  Starlette/httpx compatibility warning; overall coverage `81%`, computational
+  core `92.16%`, runtime/migrations `90.32%`, PostgreSQL memory `96.83%`.
+  Ruff, JavaScript syntax, diff check, repeated migrations and dependency audit
+  passed; `pip-audit` found no known vulnerabilities. The minimum six-hour
+  baseline prevents a normal 15-minute SQLite page allocation from being
+  extrapolated into a false daily-growth warning while retaining the
+  256 MiB/day production limit.
+- Live source contracts: 13/13 scoring FRED v11 series, 12/12 disabled
   next-methodology FRED research series and the previous 12/12 official-news
   server channels returned valid data on 2026-08-11. The 13th repository channel,
   NBS China RSS, separately passed live fetch and parsing on 2026-08-13; it is not
@@ -389,6 +421,24 @@ initial releases use their actual release dates.
 2. Постоянный HTTPS, age recipient и реально отдельное off-host
    хранилище должны быть настроены и проверены на целевом
    сервере.
-3. Canary должен реально проработать 14 календарных дней; текущий release начал
-   новый период 11 августа и не может пройти этот gate раньше 25 августа 2026
-   года, 20:08 UTC. Этот статус не симулируется тестами.
+3. Canary должен реально проработать 14 календарных дней; активный release
+   `ff55c01` начал новый период 21 августа и не может пройти этот gate раньше
+   4 сентября 2026 года, 12:53 UTC. Этот статус не симулируется тестами.
+
+## Production rollout evidence (2026-08-21)
+
+- Active immutable release: `ff55c01`, schema `23`; previous release `715384d`
+  remains available for guarded rollback.
+- Pre-update backup `pre-update-ff55c01-20260821T1249Z.sqlite3`, SHA-256
+  `9015a52f13fa2c543b9b9dfa3f0eaa07bbc1d6b6de3c39fc02478aa0f7d56974`,
+  passed integrity, foreign-key and isolated restore-table-count checks.
+- Retention backup `pre-retention-20260821T125137Z.sqlite3` has the same verified
+  pre-maintenance checksum. Only redundant derived snapshots were pruned.
+- API and bot are active; internal and temporary external `/health/live` and
+  `/health/ready` are green.
+- Fresh canary window: `2026-08-21T12:53:38.338491Z` through no earlier than
+  `2026-09-04T12:53:38.338491Z`, minimum 1,210 samples. First sample has zero
+  critical incidents and preserves visible warnings for optional GDELT discovery
+  and the latest HKMA source run.
+- Sanitized machine-readable evidence:
+  `docs/evidence/crisis-radar-v2-server-rollout-20260821.json`.

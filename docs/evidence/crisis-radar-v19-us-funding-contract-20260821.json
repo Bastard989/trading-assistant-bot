@@ -1,0 +1,101 @@
+{
+  "version": 1,
+  "recorded_at": "2026-08-21T13:15:00+00:00",
+  "methodology": {
+    "version": "candidate-v19",
+    "checksum": "edbfb44cbc9b140166db6753720f4f7195fac675effdae95188a333f14482b53",
+    "previous_version": "candidate-v18",
+    "previous_checksum": "28185bf0c6eaffb8c0d65992e86edea33aa7f74e902d74876413d755f2544369",
+    "dependency_graph": "dependency-graph-v2-seed-4",
+    "promotion_status": "candidate",
+    "live_stage_affected": false,
+    "live_probability_affected": false
+  },
+  "source": {
+    "code": "fred",
+    "provider": "Federal Reserve Economic Data",
+    "official_observations_contract": "https://fred.stlouisfed.org/docs/api/fred/series_observations.html",
+    "official_vintage_contract": "https://fred.stlouisfed.org/docs/api/fred/series_vintagedates.html",
+    "series": [
+      {
+        "indicator_code": "us_reserve_balances_90d_change",
+        "provider_series_id": "WRESBAL",
+        "source_url": "https://fred.stlouisfed.org/series/WRESBAL",
+        "frequency": "weekly",
+        "unit": "percent",
+        "transform": "change_90d",
+        "initial_release_capability": "verified",
+        "vintages_in_capability_window": 208
+      },
+      {
+        "indicator_code": "us_cpff_spread",
+        "provider_series_id": "CPFF",
+        "source_url": "https://fred.stlouisfed.org/series/CPFF",
+        "frequency": "daily",
+        "unit": "percentage_points",
+        "transform": "identity",
+        "initial_release_capability": "verified",
+        "vintages_in_capability_window": 550
+      }
+    ]
+  },
+  "dependency_contract": {
+    "group": "dollar_liquidity",
+    "cluster": "dollar_liquidity_banks",
+    "anchor_class": "liquidity",
+    "subchannels": {
+      "us_reserve_balances_90d_change": "reserve_balances",
+      "us_cpff_spread": "money_market_funding_spread"
+    },
+    "independent_systemic_mechanism_count": 1,
+    "rationale": "Quantity and price deepen confirmation inside one funding mechanism and cannot double systemic breadth."
+  },
+  "thresholds": {
+    "us_reserve_balances_90d_change": {
+      "warning": "-5",
+      "danger": "-10",
+      "critical": "-20",
+      "direction": "lower_is_worse",
+      "basis": "internal_candidate"
+    },
+    "us_cpff_spread": {
+      "warning": "0.5",
+      "danger": "1",
+      "critical": "2",
+      "direction": "higher_is_worse",
+      "basis": "internal_candidate"
+    }
+  },
+  "isolated_causal_backfill": {
+    "window_start": "2022-08-22",
+    "window_end": "2026-08-21",
+    "rows_fetched": 747,
+    "rows_written": 747,
+    "retrospective_revised_rows": 0,
+    "estimated_release_rows": 0,
+    "integrity": "ok",
+    "foreign_key_violations": 0,
+    "snapshot_count": 0,
+    "database_sha256": "edf841d5c29e10aef6874182d8cf892bcd48bbc9ad421d5c0fa4da6d7ff336ac",
+    "indicators": {
+      "us_reserve_balances_90d_change": {
+        "rows": 196,
+        "start": "2022-11-23T00:00:00+00:00",
+        "end": "2026-08-19T00:00:00+00:00",
+        "latest_value": "-6.2077"
+      },
+      "us_cpff_spread": {
+        "rows": 551,
+        "start": "2022-08-22T00:00:00+00:00",
+        "end": "2026-08-19T00:00:00+00:00",
+        "latest_value": "0.21"
+      }
+    }
+  },
+  "limitations": [
+    "The economic thresholds are transparent candidates, not calibrated crisis probabilities.",
+    "Reserve balances can contract for non-crisis operational reasons and require independent price or credit confirmation.",
+    "CPFF is a US financial-commercial-paper spread and does not represent every global funding market.",
+    "Both indicators remain disabled until replay, sensitivity and a future live canary pass."
+  ]
+}

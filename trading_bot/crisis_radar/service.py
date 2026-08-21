@@ -16,6 +16,7 @@ from trading_bot.crisis_radar.catalog import (
     FRED_HISTORICAL_BACKFILL_MODES,
     FRED_V11_DEPTH_INDICATORS,
     FRED_V12_RESEARCH_INDICATORS,
+    FRED_V19_RESEARCH_INDICATORS,
     METHODOLOGY_CODE,
     METHODOLOGY_GLOBAL_V2_VERSION,
     METHODOLOGY_VERSION,
@@ -35,6 +36,7 @@ from trading_bot.crisis_radar.catalog import (
     bootstrap_v16_catalog,
     bootstrap_v17_catalog,
     bootstrap_v18_catalog,
+    bootstrap_v19_catalog,
 )
 from trading_bot.crisis_radar.coverage import (
     DEFAULT_REQUIRED_REGIONS,
@@ -126,7 +128,11 @@ def _active_fred_collection_seeds(
     if feature_flags.global_sources_v2 or feature_flags.scoring_v11:
         seeds += FRED_GLOBAL_V2_INDICATORS
     if feature_flags.scoring_v11:
-        seeds += FRED_V11_DEPTH_INDICATORS + FRED_V12_RESEARCH_INDICATORS
+        seeds += (
+            FRED_V11_DEPTH_INDICATORS
+            + FRED_V12_RESEARCH_INDICATORS
+            + FRED_V19_RESEARCH_INDICATORS
+        )
     return seeds
 
 
@@ -135,6 +141,7 @@ _ALL_FRED_COLLECTION_SEEDS = (
     + FRED_GLOBAL_V2_INDICATORS
     + FRED_V11_DEPTH_INDICATORS
     + FRED_V12_RESEARCH_INDICATORS
+    + FRED_V19_RESEARCH_INDICATORS
 )
 
 
@@ -176,6 +183,7 @@ class CrisisRadarService:
             result["research_v16"] = bootstrap_v16_catalog(self.repository)
             result["research_v17"] = bootstrap_v17_catalog(self.repository)
             result["research_v18"] = bootstrap_v18_catalog(self.repository)
+            result["research_v19"] = bootstrap_v19_catalog(self.repository)
             result["research_bybit_health_source_id"] = self.repository.register_source(
                 BYBIT_STABLECOIN_RESEARCH.code,
                 BYBIT_STABLECOIN_RESEARCH.name,
@@ -290,7 +298,10 @@ class CrisisRadarService:
         required_errors: list[str] = []
         research_errors: list[str] = []
         fred_seeds = _active_fred_collection_seeds(self.feature_flags)
-        research_codes = {item.code for item in FRED_V12_RESEARCH_INDICATORS}
+        research_codes = {
+            item.code
+            for item in FRED_V12_RESEARCH_INDICATORS + FRED_V19_RESEARCH_INDICATORS
+        }
         for seed in fred_seeds:
             request = SeriesRequest(seed.code, seed.provider_series_id, seed.unit)
             try:

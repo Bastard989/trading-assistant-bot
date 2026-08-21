@@ -17,6 +17,7 @@ STAGE_VERSION = "independent-stage-v2-seed-1"
 DEPENDENCY_GRAPH_VERSION = "dependency-graph-v2-seed-1"
 DEPENDENCY_GRAPH_V17_VERSION = "dependency-graph-v2-seed-2"
 DEPENDENCY_GRAPH_V18_VERSION = "dependency-graph-v2-seed-3"
+DEPENDENCY_GRAPH_V19_VERSION = "dependency-graph-v2-seed-4"
 ZERO = Decimal("0")
 ONE = Decimal("1")
 ACTIVE_SCORE_THRESHOLD = Decimal(".25")
@@ -243,6 +244,37 @@ def dependency_for_v18(
             anchor_class=None,
         )
     return dependency_for_v17(
+        code=code,
+        group_code=group_code,
+        region_code=region_code,
+    )
+
+
+def dependency_for_v19(
+    *, code: str, group_code: str, region_code: str
+) -> DependencyAssignment:
+    """Add two distinct US dollar-funding subchannels to the frozen v18 graph.
+
+    Reserve balances measure the quantity of immediately available central-bank
+    liquidity, while the commercial-paper spread measures its market price.
+    They share one systemic cluster and therefore deepen confirmation without
+    pretending to be two independent crisis mechanisms.
+    """
+
+    subchannels = {
+        "us_reserve_balances_90d_change": "reserve_balances",
+        "us_cpff_spread": "money_market_funding_spread",
+    }
+    if code in subchannels:
+        return DependencyAssignment(
+            indicator_code=code,
+            group_code=group_code,
+            subchannel_code=subchannels[code],
+            cluster_code="dollar_liquidity_banks",
+            region_code=region_code,
+            anchor_class="liquidity",
+        )
+    return dependency_for_v18(
         code=code,
         group_code=group_code,
         region_code=region_code,

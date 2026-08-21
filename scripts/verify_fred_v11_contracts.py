@@ -15,6 +15,7 @@ from dotenv import load_dotenv  # noqa: E402
 from trading_bot.crisis_radar.catalog import (  # noqa: E402
     FRED_V11_DEPTH_INDICATORS,
     FRED_V12_RESEARCH_INDICATORS,
+    FRED_V19_RESEARCH_INDICATORS,
 )
 from trading_bot.crisis_radar.sources.base import SeriesRequest  # noqa: E402
 from trading_bot.crisis_radar.sources.fred_client import FredClient  # noqa: E402
@@ -22,7 +23,11 @@ from trading_bot.crisis_radar.sources.fred_client import FredClient  # noqa: E40
 
 SERIES_IDS = tuple(
     item.provider_series_id
-    for item in FRED_V11_DEPTH_INDICATORS + FRED_V12_RESEARCH_INDICATORS
+    for item in (
+        FRED_V11_DEPTH_INDICATORS
+        + FRED_V12_RESEARCH_INDICATORS
+        + FRED_V19_RESEARCH_INDICATORS
+    )
 )
 
 

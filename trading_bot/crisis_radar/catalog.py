@@ -13,10 +13,12 @@ from trading_bot.crisis_radar.stage_v2 import (
     DEPENDENCY_GRAPH_VERSION,
     DEPENDENCY_GRAPH_V17_VERSION,
     DEPENDENCY_GRAPH_V18_VERSION,
+    DEPENDENCY_GRAPH_V19_VERSION,
     STAGE_VERSION,
     dependency_for,
     dependency_for_v17,
     dependency_for_v18,
+    dependency_for_v19,
 )
 from trading_bot.crisis_radar.stability import STABILITY_POLICY
 from trading_bot.crisis_radar.sources.portwatch import (
@@ -38,6 +40,7 @@ METHODOLOGY_V15_VERSION = "candidate-v15"
 METHODOLOGY_V16_VERSION = "candidate-v16"
 METHODOLOGY_V17_VERSION = "candidate-v17"
 METHODOLOGY_V18_VERSION = "candidate-v18"
+METHODOLOGY_V19_VERSION = "candidate-v19"
 
 
 @dataclass(frozen=True)
@@ -789,6 +792,34 @@ FRED_V12_RESEARCH_INDICATORS = (
         frequency="daily",
         max_staleness_seconds=10 * 86400,
         transform="change_90d",
+    ),
+)
+
+
+# Two official Federal Reserve/FRED series collected as disabled forward and
+# causal-replay inputs for candidate-v19. They deepen one dollar-funding group
+# through independent quantity and price subchannels without mutating v11-v18.
+FRED_V19_RESEARCH_INDICATORS = (
+    ResearchIndicatorSeed(
+        code="us_reserve_balances_90d_change",
+        provider_series_id="WRESBAL",
+        name="US Reserve Balances 90-Day Change",
+        group_code="dollar_liquidity_research",
+        region_code="US",
+        unit="percent",
+        frequency="weekly",
+        max_staleness_seconds=14 * 86400,
+        transform="change_90d",
+    ),
+    ResearchIndicatorSeed(
+        code="us_cpff_spread",
+        provider_series_id="CPFF",
+        name="US 3-Month Financial Commercial Paper Minus Federal Funds Rate",
+        group_code="dollar_liquidity_research",
+        region_code="US",
+        unit="percentage_points",
+        frequency="daily",
+        max_staleness_seconds=7 * 86400,
     ),
 )
 
@@ -1674,6 +1705,47 @@ PORTWATCH_V18_CANDIDATE_INDICATORS = tuple(
 )
 V18_INDICATORS = V17_INDICATORS + PORTWATCH_V18_CANDIDATE_INDICATORS
 
+FRED_V19_CANDIDATE_INDICATORS = (
+    IndicatorSeed(
+        code="us_reserve_balances_90d_change",
+        provider_series_id="WRESBAL",
+        name="US Reserve Balances 90-Day Change",
+        name_ru="Изменение резервных остатков банков в ФРС за 90 дней",
+        group_code="dollar_liquidity",
+        region_code="US",
+        unit="percent",
+        frequency="weekly",
+        max_staleness_seconds=14 * 86400,
+        thresholds=IndicatorThresholds(
+            warning=Decimal("-5"),
+            danger=Decimal("-10"),
+            critical=Decimal("-20"),
+            reference=Decimal("5"),
+            direction=RiskDirection.LOWER_IS_WORSE,
+        ),
+        transform="change_90d",
+    ),
+    IndicatorSeed(
+        code="us_cpff_spread",
+        provider_series_id="CPFF",
+        name="US 3-Month Financial Commercial Paper Minus Federal Funds Rate",
+        name_ru="Спред трёхмесячных финансовых коммерческих бумаг к ставке ФРС",
+        group_code="dollar_liquidity",
+        region_code="US",
+        unit="percentage_points",
+        frequency="daily",
+        max_staleness_seconds=7 * 86400,
+        thresholds=IndicatorThresholds(
+            warning=Decimal("0.5"),
+            danger=Decimal("1"),
+            critical=Decimal("2"),
+            reference=Decimal("0"),
+            direction=RiskDirection.HIGHER_IS_WORSE,
+        ),
+    ),
+)
+V19_INDICATORS = V18_INDICATORS + FRED_V19_CANDIDATE_INDICATORS
+
 _V11_SCENARIO_EXTRA_GROUPS = {
     "global_recession": ("housing_cre",),
     "financial_stress": ("banking_stress", "dollar_liquidity"),
@@ -1864,6 +1936,7 @@ V18_SCENARIOS = tuple(
     )
     for scenario in V17_SCENARIOS
 )
+V19_SCENARIOS = V18_SCENARIOS
 
 _V2_THRESHOLD_RATIONALE = {
     "sahm_rule": {
@@ -2016,6 +2089,37 @@ for _item in PORTWATCH_V18_CANDIDATE_INDICATORS:
         "operational_role": "shipping_disruption_confirmation",
     }
 
+_V2_THRESHOLD_RATIONALE["us_reserve_balances_90d_change"] = {
+    "ru": (
+        "−5/−10/−20% — кандидатные зоны быстрого сокращения резервных остатков "
+        "банков в ФРС за 90 дней. Ряд измеряет количество долларовой ликвидности, "
+        "но сам по себе не доказывает дефицит фондирования и требует подтверждения "
+        "ценовыми спредами, кредитом или экстренным заимствованием."
+    ),
+    "en": (
+        "-5%/-10%/-20% are candidate bands for a rapid 90-day contraction in "
+        "reserve balances at Federal Reserve Banks. The series measures the "
+        "quantity of dollar liquidity, but does not alone prove funding stress."
+    ),
+    "source_url": "https://fred.stlouisfed.org/series/WRESBAL",
+    "operational_role": "reserve_liquidity_quantity",
+}
+_V2_THRESHOLD_RATIONALE["us_cpff_spread"] = {
+    "ru": (
+        "0,5/1/2 п.п. — прозрачные кандидатные зоны удорожания краткосрочного "
+        "необеспеченного фондирования финансовых компаний относительно ставки "
+        "федеральных фондов. Пороги требуют причинного replay и не являются "
+        "вероятностью кризиса."
+    ),
+    "en": (
+        "0.5/1/2 pp are transparent candidate bands for more expensive short-term "
+        "unsecured financial-company funding relative to the federal funds rate. "
+        "They require causal replay and are not crisis probabilities."
+    ),
+    "source_url": "https://fred.stlouisfed.org/series/CPFF",
+    "operational_role": "money_market_funding_price",
+}
+
 for _slug, _iso, _label, _label_ru in _BIS_V14_REGION_ROWS:
     _V2_THRESHOLD_RATIONALE[f"{_slug}_debt_service_gap"] = {
         "ru": (
@@ -2078,7 +2182,7 @@ def methodology_checksum(
         methodology_sources += (NEW_YORK_FED,)
     elif version in {METHODOLOGY_V16_VERSION, METHODOLOGY_V17_VERSION}:
         methodology_sources += (NEW_YORK_FED, BINANCE_MARKET)
-    elif version == METHODOLOGY_V18_VERSION:
+    elif version in {METHODOLOGY_V18_VERSION, METHODOLOGY_V19_VERSION}:
         methodology_sources += (NEW_YORK_FED, BINANCE_MARKET, IMF_PORTWATCH)
     payload = {
         "methodology": [METHODOLOGY_CODE, version],
@@ -2111,13 +2215,16 @@ def methodology_checksum(
         METHODOLOGY_V16_VERSION,
         METHODOLOGY_V17_VERSION,
         METHODOLOGY_V18_VERSION,
+        METHODOLOGY_V19_VERSION,
     }:
         payload["indicator_scoring"] = {
             code: {key: str(value) for key, value in asdict(profile).items()}
             for code, profile in PROFILES.items()
         }
         payload["dependency_graph_version"] = (
-            DEPENDENCY_GRAPH_V18_VERSION
+            DEPENDENCY_GRAPH_V19_VERSION
+            if version == METHODOLOGY_V19_VERSION
+            else DEPENDENCY_GRAPH_V18_VERSION
             if version == METHODOLOGY_V18_VERSION
             else DEPENDENCY_GRAPH_V17_VERSION
             if version == METHODOLOGY_V17_VERSION
@@ -2136,6 +2243,7 @@ def _source_code_for_indicator(code: str) -> str:
         (FRED, FRED_GLOBAL_V2_INDICATORS),
         (FRED, FRED_V11_DEPTH_INDICATORS),
         (FRED, FRED_V12_CANDIDATE_INDICATORS),
+        (FRED, FRED_V19_CANDIDATE_INDICATORS),
         (BEA, BEA_INDICATORS),
         (EIA, EIA_INDICATORS),
         (ECB, ECB_INDICATORS),
@@ -2194,6 +2302,8 @@ def _bootstrap_catalog(
             if version == METHODOLOGY_V17_VERSION
             else "2026-08-14T17:45:00+00:00"
             if version == METHODOLOGY_V18_VERSION
+            else "2026-08-21T13:15:00+00:00"
+            if version == METHODOLOGY_V19_VERSION
             else
             "2026-08-04T12:00:00+00:00"
             if version == METHODOLOGY_GLOBAL_V2_VERSION
@@ -2207,7 +2317,7 @@ def _bootstrap_catalog(
         catalog_sources += (NEW_YORK_FED,)
     elif version in {METHODOLOGY_V16_VERSION, METHODOLOGY_V17_VERSION}:
         catalog_sources += (NEW_YORK_FED, BINANCE_MARKET)
-    elif version == METHODOLOGY_V18_VERSION:
+    elif version in {METHODOLOGY_V18_VERSION, METHODOLOGY_V19_VERSION}:
         catalog_sources += (NEW_YORK_FED, BINANCE_MARKET, IMF_PORTWATCH)
     for source in catalog_sources:
         repository.register_source(
@@ -2274,6 +2384,7 @@ def _bootstrap_catalog(
             METHODOLOGY_V16_VERSION,
             METHODOLOGY_V17_VERSION,
             METHODOLOGY_V18_VERSION,
+            METHODOLOGY_V19_VERSION,
         }
         profile = profile_for(
             frequency=item.frequency,
@@ -2299,6 +2410,7 @@ def _bootstrap_catalog(
                 METHODOLOGY_V16_VERSION,
                 METHODOLOGY_V17_VERSION,
                 METHODOLOGY_V18_VERSION,
+                METHODOLOGY_V19_VERSION,
             } else "legacy",
             promotion_status=promotion_status,
             rationale=rationale if version in {
@@ -2311,6 +2423,7 @@ def _bootstrap_catalog(
                 METHODOLOGY_V16_VERSION,
                 METHODOLOGY_V17_VERSION,
                 METHODOLOGY_V18_VERSION,
+                METHODOLOGY_V19_VERSION,
             } else {},
             source_url=(
                 rationale.get("source_url")
@@ -2344,6 +2457,8 @@ def _bootstrap_catalog(
                 if version == METHODOLOGY_V17_VERSION
                 else "2026-08-14T17:45:00+00:00"
                 if version == METHODOLOGY_V18_VERSION
+                else "2026-08-21T13:15:00+00:00"
+                if version == METHODOLOGY_V19_VERSION
                 else "2026-08-05T12:53:16+00:00"
                 if version == METHODOLOGY_V11_VERSION
                 else ""
@@ -2359,7 +2474,9 @@ def _bootstrap_catalog(
                 entity_type="indicator",
                 entity_code=item.code,
                 metadata_version=(
-                    "v18"
+                    "v19"
+                    if version == METHODOLOGY_V19_VERSION
+                    else "v18"
                     if version == METHODOLOGY_V18_VERSION
                     else "v17"
                     if version == METHODOLOGY_V17_VERSION
@@ -2380,7 +2497,13 @@ def _bootstrap_catalog(
             repository.register_dependency_assignment(
                 methodology_id=methodology_id,
                 assignment=(
-                    dependency_for_v18(
+                    dependency_for_v19(
+                        code=item.code,
+                        group_code=item.group_code,
+                        region_code=item.region_code,
+                    )
+                    if version == METHODOLOGY_V19_VERSION
+                    else dependency_for_v18(
                         code=item.code,
                         group_code=item.group_code,
                         region_code=item.region_code,
@@ -2399,7 +2522,9 @@ def _bootstrap_catalog(
                     )
                 ),
                 graph_version=(
-                    DEPENDENCY_GRAPH_V18_VERSION
+                    DEPENDENCY_GRAPH_V19_VERSION
+                    if version == METHODOLOGY_V19_VERSION
+                    else DEPENDENCY_GRAPH_V18_VERSION
                     if version == METHODOLOGY_V18_VERSION
                     else DEPENDENCY_GRAPH_V17_VERSION
                     if version == METHODOLOGY_V17_VERSION
@@ -2410,7 +2535,9 @@ def _bootstrap_catalog(
                 entity_type="group",
                 entity_code=item.group_code,
                 metadata_version=(
-                    "v18"
+                    "v19"
+                    if version == METHODOLOGY_V19_VERSION
+                    else "v18"
                     if version == METHODOLOGY_V18_VERSION
                     else "v17"
                     if version == METHODOLOGY_V17_VERSION
@@ -2469,6 +2596,7 @@ def _bootstrap_catalog(
             METHODOLOGY_V16_VERSION,
             METHODOLOGY_V17_VERSION,
             METHODOLOGY_V18_VERSION,
+            METHODOLOGY_V19_VERSION,
         }:
             from trading_bot.crisis_radar.metadata_v11 import scenario_metadata
 
@@ -2476,7 +2604,9 @@ def _bootstrap_catalog(
                 entity_type="scenario",
                 entity_code=scenario.code,
                 metadata_version=(
-                    "v18"
+                    "v19"
+                    if version == METHODOLOGY_V19_VERSION
+                    else "v18"
                     if version == METHODOLOGY_V18_VERSION
                     else "v17"
                     if version == METHODOLOGY_V17_VERSION
@@ -2675,6 +2805,31 @@ def bootstrap_v18_catalog(repository: CrisisRadarRepository) -> dict[str, int | 
         version=METHODOLOGY_V18_VERSION,
         indicators=V18_INDICATORS,
         scenarios=V18_SCENARIOS,
+        promotion_status="candidate",
+        indicator_enabled_overrides={code: False for code in new_codes},
+    )
+
+
+def bootstrap_v19_catalog(repository: CrisisRadarRepository) -> dict[str, int | str]:
+    """Register official US dollar-funding depth as disabled research inputs."""
+
+    new_codes = {
+        item.code
+        for item in (
+            FRED_V12_CANDIDATE_INDICATORS
+            + BIS_V14_CANDIDATE_INDICATORS
+            + NEW_YORK_FED_V15_CANDIDATE_INDICATORS
+            + STABLECOIN_V16_CANDIDATE_INDICATORS
+            + OECD_LABOUR_V17_CANDIDATE_INDICATORS
+            + PORTWATCH_V18_CANDIDATE_INDICATORS
+            + FRED_V19_CANDIDATE_INDICATORS
+        )
+    }
+    return _bootstrap_catalog(
+        repository,
+        version=METHODOLOGY_V19_VERSION,
+        indicators=V19_INDICATORS,
+        scenarios=V19_SCENARIOS,
         promotion_status="candidate",
         indicator_enabled_overrides={code: False for code in new_codes},
     )

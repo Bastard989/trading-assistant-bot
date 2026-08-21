@@ -19,11 +19,13 @@
 - disabled cross-venue stablecoin collection methodology: `candidate-v16`;
 - disabled harmonised non-US labour collection methodology: `candidate-v17`;
 - disabled IMF PortWatch chokepoint collection methodology: `candidate-v18`;
+- disabled US dollar-funding depth methodology: `candidate-v19`;
 - indicator scoring: `indicator-score-v2-seed-1`;
 - stage: `independent-stage-v2-seed-1`;
 - dependency graph: `dependency-graph-v2-seed-1`; v17 extension:
   `dependency-graph-v2-seed-2`; v18 extension:
-  `dependency-graph-v2-seed-3`;
+  `dependency-graph-v2-seed-3`; v19 extension:
+  `dependency-graph-v2-seed-4`;
 - playbook: `crisis-playbook-v2-seed-1`;
 - v10 replay: `historical-replay-v1`;
 - v11 comparison replay: `causal-v11-replay-v1`.
@@ -164,6 +166,16 @@ causal replay и live probability остаётся `null`.
 Новые преобразованные значения фиксируются отдельными vintage с фактического
 времени загрузки и могут сформировать причинную историю только вперёд.
 
+`candidate-v19` добавляет два отключённых официальных FRED-индикатора:
+90-дневное изменение резервных остатков банков в ФРС (`WRESBAL`) и спред
+трёхмесячных финансовых commercial paper к federal funds (`CPFF`). Первый
+измеряет количество резервной ликвидности, второй — цену краткосрочного
+фондирования. Они имеют разные dependency-подканалы, но один cluster
+`dollar_liquidity_banks`. Initial-release capability проверена для обоих рядов;
+747 причинно доступных точек 2022–2026 сохранены только в изолированной БД.
+Seed-пороги остаются `internal_candidate`, индикаторы `enabled=false`, live
+stage и probability не меняются.
+
 ## Known limitations
 
 - causal history has insufficient breadth/depth for v11 promotion;
@@ -182,8 +194,10 @@ causal replay и live probability остаётся `null`.
 - candidate-v18 IMF PortWatch inputs are disabled; five chokepoints share one
   shipping/logistics systemic cluster, while revised historical snapshots and
   missing exact release timestamps prevent causal replay or probability;
+- candidate-v19 US funding inputs are disabled; their initial-release history
+  is causal, but seed thresholds have not passed replay, sensitivity or canary;
 - global regions have unequal channel depth;
-- ten additional official FRED depth series are disabled live inputs with
+- twelve additional official FRED depth series are disabled live inputs with
   explicit thresholds only inside immutable replay-only `candidate-v12`; they
   cannot affect the live stage until that methodology passes replay, sensitivity
   and canary gates; their
@@ -222,6 +236,7 @@ causal replay и live probability остаётся `null`.
 - calling candidate-v16 live or promoted before forward history, replay and canary.
 - calling candidate-v17 live or promoted before point-in-time history, regional replay and canary.
 - calling candidate-v18 live or promoted before forward history, causal replay and canary.
+- calling candidate-v19 live or promoted before causal replay, sensitivity and canary.
 
 ## Monitoring and rollback
 

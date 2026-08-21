@@ -216,9 +216,30 @@ def test_canary_detects_database_and_backup_storage_growth() -> None:
     previous = _healthy_metrics()
     current = {
         **_healthy_metrics(),
-        "database_bytes": previous["database_bytes"] + 4 * 1024 * 1024,
+        "database_bytes": previous["database_bytes"] + 80 * 1024 * 1024,
         "backup_directory_bytes": 51 * 1024 * 1024 * 1024,
         "derived_snapshot_count": 1000,
+    }
+
+    incidents = evaluate_sample(
+        current,
+        previous_metrics=previous,
+        elapsed_seconds=6 * 3600,
+        http_health={"live": True, "ready": True},
+    )
+
+    assert {item["code"] for item in incidents} == {
+        "database_growth_rate",
+        "backup_storage_growth",
+    }
+
+
+def test_canary_does_not_extrapolate_short_database_growth_window() -> None:
+    previous = _healthy_metrics()
+    current = {
+        **_healthy_metrics(),
+        "database_bytes": previous["database_bytes"] + 4 * 1024 * 1024,
+        "derived_snapshot_count": 2,
     }
 
     incidents = evaluate_sample(
@@ -228,10 +249,7 @@ def test_canary_detects_database_and_backup_storage_growth() -> None:
         http_health={"live": True, "ready": True},
     )
 
-    assert {item["code"] for item in incidents} == {
-        "database_growth_rate",
-        "backup_storage_growth",
-    }
+    assert "database_growth_rate" not in {item["code"] for item in incidents}
 
 
 def test_canary_deduplicates_active_incidents_and_records_resolution(tmp_path) -> None:

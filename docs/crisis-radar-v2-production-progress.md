@@ -126,6 +126,12 @@ initial releases use their actual release dates.
   computational core `92.12%`, runtime/migrations `90.32%`, PostgreSQL memory
   `96.83%`. Ruff, diff check, direct-entrypoint checks and dependency audit
   passed; `pip-audit` found no known vulnerabilities.
+- Backup staging hardening now applies retention independently to the local
+  encrypted set and the verified off-host set. The production unit removes the
+  newly created plaintext staging copy only after encryption, off-host copy and
+  checksum verification succeed; any earlier failure preserves the plaintext
+  recovery copy. Targeted backup/canary/jobs/retention/entrypoint regression:
+  `29 passed`.
 
 - Repository candidate commits:
   `9dedacb` (v11 shadow core/UI), `5bbd69e` (self-host/CI/canary),

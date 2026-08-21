@@ -29,12 +29,16 @@ retention policy:
   --directory /var/lib/trading-assistant/backups \
   --age-recipient "$BACKUP_AGE_RECIPIENT" \
   --off-host-directory /var/lib/trading-assistant/off-host-backups \
-  --apply-retention --daily 7 --weekly 4
+  --apply-retention --remove-local-plaintext-after-off-host \
+  --daily 7 --weekly 4
 ```
 
-The retention command refuses an empty/unverified set and never deletes every
-copy. It accepts only backups with valid checksum sidecars. Test the plan before
-applying it:
+After the encrypted off-host copy and its checksum are verified, the production
+unit removes only the new local plaintext staging file. Both the local encrypted
+set and the off-host encrypted set receive the 7-daily/4-weekly policy. A failed
+encryption/copy never reaches plaintext removal. The retention command refuses an
+empty/unverified set and never deletes every copy. It accepts only backups with
+valid checksum sidecars. Test the plan before applying it:
 
 ```bash
 python -m scripts.self_host retention-plan \

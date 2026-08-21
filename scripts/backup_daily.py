@@ -25,6 +25,7 @@ def main() -> None:
     parser.add_argument("--age-recipient", default=os.getenv("BACKUP_AGE_RECIPIENT"))
     parser.add_argument("--off-host-directory", type=Path, default=os.getenv("OFF_HOST_BACKUP_DIRECTORY"))
     parser.add_argument("--apply-retention", action="store_true")
+    parser.add_argument("--remove-local-plaintext-after-off-host", action="store_true")
     parser.add_argument("--daily", type=int, default=7)
     parser.add_argument("--weekly", type=int, default=4)
     args = parser.parse_args()
@@ -42,9 +43,17 @@ def main() -> None:
         if args.off_host_directory:
             payload["off_host"] = copy_verified_off_host(encrypted, args.off_host_directory)
             if args.apply_retention:
-                payload["retention"] = apply_retention(
+                payload["local_retention"] = apply_retention(
+                    args.directory, daily=args.daily, weekly=args.weekly
+                )
+                payload["off_host_retention"] = apply_retention(
                     args.off_host_directory, daily=args.daily, weekly=args.weekly
                 )
+            if args.remove_local_plaintext_after_off_host:
+                sidecar = target.with_suffix(target.suffix + ".sha256")
+                target.unlink()
+                sidecar.unlink()
+                payload["local_plaintext_removed"] = True
     print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
 
 

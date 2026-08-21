@@ -49,6 +49,51 @@ def test_daily_backup_cli_creates_verified_files(tmp_path, monkeypatch) -> None:
     assert backups[0].with_suffix(".sqlite3.sha256").exists()
 
 
+def test_daily_backup_removes_plaintext_only_after_verified_off_host_copy(
+    tmp_path, monkeypatch
+) -> None:
+    source = tmp_path / "source.sqlite3"
+    local = tmp_path / "local"
+    off_host = tmp_path / "off-host"
+    with sqlite3.connect(source) as connection:
+        connection.execute("CREATE TABLE sample(value TEXT)")
+        connection.execute("INSERT INTO sample VALUES ('preserved')")
+
+    def fake_encrypt(source_path, destination, *, recipient):
+        assert recipient == "age1recipient"
+        destination.write_bytes(b"encrypted")
+        digest = sha256_file(destination)
+        destination.with_suffix(destination.suffix + ".sha256").write_text(
+            f"{digest}  {destination.name}\n", encoding="ascii"
+        )
+        return {"ok": True, "sha256": digest}
+
+    monkeypatch.setattr(backup_daily, "encrypt_backup_age", fake_encrypt)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "backup_daily.py",
+            "--source",
+            str(source),
+            "--directory",
+            str(local),
+            "--age-recipient",
+            "age1recipient",
+            "--off-host-directory",
+            str(off_host),
+            "--apply-retention",
+            "--remove-local-plaintext-after-off-host",
+        ],
+    )
+
+    backup_daily.main()
+
+    assert not list(local.glob("*.sqlite3"))
+    assert len(list(local.glob("*.sqlite3.age"))) == 1
+    assert len(list(off_host.glob("*.sqlite3.age"))) == 1
+
+
 def test_verify_and_restore_drill_detect_content_and_counts(tmp_path) -> None:
     source = tmp_path / "source.sqlite3"
     backup = tmp_path / "trading-assistant-20260811T100000Z.sqlite3"

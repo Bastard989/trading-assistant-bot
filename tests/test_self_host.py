@@ -17,6 +17,7 @@ def test_production_entrypoints_support_direct_execution() -> None:
         "scripts/backup_postgres_daily.py",
         "scripts/release_manifest.py",
         "scripts/radar_canary.py",
+        "scripts/radar_snapshot_retention.py",
         "scripts/merge_crisis_replay_history.py",
         "scripts/replay_crisis_radar_v11.py",
         "scripts/self_host.py",

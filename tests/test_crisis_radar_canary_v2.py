@@ -5,6 +5,7 @@ import pytest
 
 from scripts.backup_sqlite import online_backup
 from trading_bot.crisis_radar.canary import (
+    _sha256_file,
     collect_database_metrics,
     evaluate_sample,
     update_canary_manifest,
@@ -17,6 +18,14 @@ from trading_bot.db import Database
 
 
 NOW = datetime(2026, 8, 5, 12, tzinfo=timezone.utc)
+
+
+def test_canary_hashes_backup_as_a_stream(tmp_path, monkeypatch) -> None:
+    path = tmp_path / "large-backup.sqlite3"
+    path.write_bytes(b"a" * (2 * 1024 * 1024 + 17))
+    monkeypatch.setattr(type(path), "read_bytes", lambda _self: (_ for _ in ()).throw(AssertionError))
+
+    assert len(_sha256_file(path)) == 64
 
 
 def _healthy_metrics() -> dict:
@@ -47,6 +56,9 @@ def _healthy_metrics() -> dict:
         "queues": {"alerts": 0, "alert_retries": 0, "data_health": 0, "data_health_retries": 0},
         "backup": {"status": "healthy", "age_seconds": 60, "checksum_valid": True},
         "disk_bytes": 100,
+        "database_bytes": 100,
+        "backup_directory_bytes": 100,
+        "derived_snapshot_count": 1,
     }
 
 
@@ -89,6 +101,8 @@ def test_canary_collects_real_database_snapshot_and_verifies_backup(tmp_path) ->
     assert metrics["source_failures"] == 0
     assert metrics["discovery_source_failures"] == 0
     assert metrics["research_source_failures"] == 0
+    assert metrics["database_bytes"] > 0
+    assert metrics["derived_snapshot_count"] == 1
 
 
 def test_canary_separates_required_discovery_and_research_source_failures(tmp_path) -> None:
@@ -196,6 +210,28 @@ def test_canary_detects_false_stable_and_persists_fourteen_day_manifest(tmp_path
             metrics=_healthy_metrics(),
             http_health={"live": True, "ready": True},
         )
+
+
+def test_canary_detects_database_and_backup_storage_growth() -> None:
+    previous = _healthy_metrics()
+    current = {
+        **_healthy_metrics(),
+        "database_bytes": previous["database_bytes"] + 4 * 1024 * 1024,
+        "backup_directory_bytes": 51 * 1024 * 1024 * 1024,
+        "derived_snapshot_count": 1000,
+    }
+
+    incidents = evaluate_sample(
+        current,
+        previous_metrics=previous,
+        elapsed_seconds=15 * 60,
+        http_health={"live": True, "ready": True},
+    )
+
+    assert {item["code"] for item in incidents} == {
+        "database_growth_rate",
+        "backup_storage_growth",
+    }
 
 
 def test_canary_deduplicates_active_incidents_and_records_resolution(tmp_path) -> None:

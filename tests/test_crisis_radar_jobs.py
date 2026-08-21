@@ -90,7 +90,8 @@ class FakeService:
         self.calls.append("bybit_stablecoin_research")
         return {"status": "succeeded"}
 
-    async def sync_news(self, client) -> dict:
+    async def sync_news(self, client, *, recompute_after: bool = True) -> dict:
+        assert recompute_after is False
         self.calls.append(client.source_code)
         return {"status": "succeeded"}
 
@@ -175,7 +176,7 @@ def test_scheduler_syncs_official_news_feeds_every_fifteen_minutes() -> None:
 
     asyncio.run(application.job_queue.registrations[1]["callback"](None))
 
-    assert service.calls == ["fed_news", "ecb_news"]
+    assert service.calls == ["fed_news", "ecb_news", "market"]
 
 
 def test_scheduler_syncs_slow_global_sources_once_in_daily_job() -> None:

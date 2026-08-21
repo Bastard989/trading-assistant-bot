@@ -10,6 +10,16 @@ from pathlib import Path
 CANARY_VERSION = "crisis-radar-canary-v2"
 CANARY_DURATION = timedelta(days=14)
 CANARY_MINIMUM_SAMPLES = 1210  # 90% of a fifteen-minute schedule across 14 days.
+MAX_DATABASE_GROWTH_BYTES_PER_DAY = 256 * 1024 * 1024
+MAX_BACKUP_DIRECTORY_BYTES = 50 * 1024 * 1024 * 1024
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def _aware(value: datetime, field: str) -> None:
@@ -32,7 +42,7 @@ def _latest_verified_backup(directory: Path, *, now: datetime) -> dict:
     expected = ""
     if sidecar.exists():
         expected = sidecar.read_text(encoding="ascii").split(maxsplit=1)[0].strip()
-    actual = hashlib.sha256(backup.read_bytes()).hexdigest()
+    actual = _sha256_file(backup)
     age = max(0, int((now - datetime.fromtimestamp(backup.stat().st_mtime, timezone.utc)).total_seconds()))
     return {
         "status": "healthy" if expected == actual else "invalid",
@@ -95,6 +105,9 @@ def collect_database_metrics(
             FROM cr_data_health_deliveries WHERE status IN ('pending', 'failed')
             """
         ).fetchone()
+        derived_snapshot_count = int(
+            connection.execute("SELECT count(*) FROM cr_market_snapshots").fetchone()[0]
+        )
     snapshot_at = None if snapshot is None else _parse(snapshot["snapshot_at"])
     news_at = None if news is None else _parse(news["snapshot_at"])
     snapshot_lag = None if snapshot_at is None else max(0, int((now - snapshot_at).total_seconds()))
@@ -151,6 +164,16 @@ def collect_database_metrics(
         },
         "backup": _latest_verified_backup(backup_directory, now=now),
         "disk_bytes": database_path.stat().st_size,
+        "database_bytes": database_path.stat().st_size,
+        "database_wal_bytes": database_path.with_name(database_path.name + "-wal").stat().st_size
+        if database_path.with_name(database_path.name + "-wal").exists()
+        else 0,
+        "backup_directory_bytes": sum(
+            item.stat().st_size for item in backup_directory.iterdir() if item.is_file()
+        )
+        if backup_directory.exists()
+        else 0,
+        "derived_snapshot_count": derived_snapshot_count,
     }
 
 
@@ -158,8 +181,12 @@ def evaluate_sample(
     metrics: dict,
     *,
     http_health: dict,
+    previous_metrics: dict | None = None,
+    elapsed_seconds: int | None = None,
     max_snapshot_lag_seconds: int = 7200,
     max_backup_age_seconds: int = 36 * 3600,
+    max_database_growth_bytes_per_day: int = MAX_DATABASE_GROWTH_BYTES_PER_DAY,
+    max_backup_directory_bytes: int = MAX_BACKUP_DIRECTORY_BYTES,
 ) -> tuple[dict, ...]:
     incidents = []
 
@@ -225,6 +252,28 @@ def evaluate_sample(
         add("backup_invalid", "critical", str(backup.get("status")))
     elif backup.get("age_seconds") is None or backup["age_seconds"] > max_backup_age_seconds:
         add("backup_stale", "critical", f"age_seconds={backup.get('age_seconds')}")
+    backup_bytes = int(metrics.get("backup_directory_bytes") or 0)
+    if backup_bytes > max_backup_directory_bytes:
+        add("backup_storage_growth", "warning", f"bytes={backup_bytes}")
+    if previous_metrics is not None and elapsed_seconds is not None and elapsed_seconds >= 300:
+        current_bytes = int(metrics.get("database_bytes", metrics.get("disk_bytes", 0)) or 0)
+        previous_bytes = int(
+            previous_metrics.get("database_bytes", previous_metrics.get("disk_bytes", 0)) or 0
+        )
+        growth = max(0, current_bytes - previous_bytes)
+        growth_per_day = int(growth * 86400 / elapsed_seconds)
+        if growth_per_day > max_database_growth_bytes_per_day:
+            add(
+                "database_growth_rate",
+                "warning",
+                json.dumps(
+                    {
+                        "bytes_per_day": growth_per_day,
+                        "derived_snapshot_count": metrics.get("derived_snapshot_count"),
+                    },
+                    sort_keys=True,
+                ),
+            )
     return tuple(incidents)
 
 
@@ -261,8 +310,18 @@ def update_canary_manifest(
             "restart_intervals": [],
             "incidents": [],
         }
-    incidents = evaluate_sample(metrics, http_health=http_health)
     previous_at = _parse(manifest.get("last_sample_at"))
+    elapsed_seconds = (
+        None
+        if previous_at is None
+        else max(0, int((sample_at - previous_at).total_seconds()))
+    )
+    incidents = evaluate_sample(
+        metrics,
+        http_health=http_health,
+        previous_metrics=manifest.get("last_metrics"),
+        elapsed_seconds=elapsed_seconds,
+    )
     if previous_at is not None and sample_at - previous_at > timedelta(hours=1):
         manifest["restart_intervals"].append(
             {"from": previous_at.isoformat(), "to": sample_at.isoformat()}

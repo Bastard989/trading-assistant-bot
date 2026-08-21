@@ -197,13 +197,21 @@ class CrisisRadarJobs:
                     else ("fed_news", "ecb_news")
                 )
                 results = {
-                    source_code: await self.service.sync_news(news_client_for(source_code))
+                    source_code: await self.service.sync_news(
+                        news_client_for(source_code), recompute_after=False
+                    )
                     for source_code in source_codes
                 }
                 if news_events_v2:
                     results["gdelt_discovery"] = await self.service.sync_gdelt_discovery(
                         GdeltDiscoveryClient()
                     )
+                # A feed batch is one analytical event. Recomputing after every
+                # individual source used to persist 14 complete snapshot graphs
+                # every 15 minutes even when every news item was unchanged.
+                # Recompute exactly once after the full batch so event decay and
+                # news-coverage failures are still reflected immediately.
+                self.service.recompute()
                 logger.info("Crisis Radar news sync completed: sources=%s", sorted(results))
             except Exception:
                 logger.exception("Crisis Radar news scheduled sync failed")

@@ -107,6 +107,26 @@ initial releases use their actual release dates.
 
 ## Последнее доказательство (2026-08-21)
 
+- Production storage audit found a real write-amplification defect: the active
+  release persisted one complete calculation graph after each individual news
+  source. The server accumulated 8,623 market snapshots; the database reached
+  about 2.9 GB and local backup staging about 15 GB. No data was deleted. The
+  repository candidate now performs one recompute per complete 15-minute news
+  batch, adds database/WAL/backup-size and snapshot-count canary metrics, warns
+  above 256 MiB/day database growth or 50 GiB backup staging, and includes a
+  backup-gated derived-snapshot retention tool. It keeps all raw observations,
+  news, events, alerts, scorecards, trades and journal data. This hardening is
+  not claimed as active before the post-canary rollout. A read-only production
+  dry-run at `2026-08-21T12:30:00Z` found 8,623 distinct snapshot timestamps,
+  protected all six event-referenced timestamps and proposed keeping 2,094 while
+  removing 6,529 redundant derived timestamps. The plan was not applied and no
+  production row was deleted.
+- Full regression for the storage-hardening candidate: `527 passed`, one known
+  Starlette/httpx compatibility warning; overall coverage `81.14%`,
+  computational core `92.12%`, runtime/migrations `90.32%`, PostgreSQL memory
+  `96.83%`. Ruff, diff check, direct-entrypoint checks and dependency audit
+  passed; `pip-audit` found no known vulnerabilities.
+
 - Repository candidate commits:
   `9dedacb` (v11 shadow core/UI), `5bbd69e` (self-host/CI/canary),
   `9ac3d9f` (runtime-aligned documentation), `de15e10` (official HKMA news API),
@@ -127,6 +147,10 @@ initial releases use their actual release dates.
 - GitHub Actions CI for disabled GSCPI candidate `d211ea3`: passed, including
   Linux Playwright, coverage gates, dependency audit, migrations and gitleaks
   (https://github.com/Bastard989/trading-assistant-bot/actions/runs/31740463162).
+- GitHub Actions CI for disabled IMF PortWatch candidate `e81af4e`: passed,
+  including Linux Playwright, coverage gates, dependency audit, migrations and
+  gitleaks
+  (https://github.com/Bastard989/trading-assistant-bot/actions/runs/32480735604).
 - Targeted replay/scoring/validation: `19 passed`.
 - Targeted UI/i18n/canary: `12 passed`.
 - Authenticated Playwright browser E2E: `1 passed` (RU/EN, six analysis tabs,

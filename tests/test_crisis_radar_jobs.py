@@ -3,6 +3,7 @@ from types import SimpleNamespace
 
 from trading_bot.crisis_radar.jobs import CrisisRadarJobs
 from trading_bot.crisis_radar.repositories import AlertDelivery, DataHealthDelivery, ReportDelivery
+from trading_bot.db import Database
 
 
 class FakeService:
@@ -155,6 +156,26 @@ def test_official_scheduler_registers_one_serial_job_for_all_sources() -> None:
     assert service.calls == [
         "fred", "fred_calendar", "bea", "eia", "ecb", "eurostat", "bybit", "market"
     ]
+
+
+def test_crypto_scheduler_tolerates_short_event_loop_delays(tmp_path) -> None:
+    service = FakeService()
+    service.repository = SimpleNamespace(db=Database(tmp_path / "jobs.sqlite3"))
+    application = FakeApplication()
+    jobs = CrisisRadarJobs(service, fred_api_key="")
+
+    jobs.register(application, interval_seconds=3600)
+
+    registration = next(
+        item for item in application.job_queue.registrations
+        if item["name"] == "crisis-radar-crypto-momentum"
+    )
+    assert registration["interval"] == 900
+    assert registration["job_kwargs"] == {
+        "misfire_grace_time": 300,
+        "coalesce": True,
+        "max_instances": 1,
+    }
 
 
 def test_scheduler_uses_public_europe_sources_without_private_keys() -> None:

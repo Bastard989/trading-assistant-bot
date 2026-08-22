@@ -73,6 +73,11 @@ class CrisisRadarJobs:
                 interval=900,
                 first=75,
                 name="crisis-radar-crypto-momentum",
+                job_kwargs={
+                    "misfire_grace_time": 300,
+                    "coalesce": True,
+                    "max_instances": 1,
+                },
             )
         application.job_queue.run_daily(
             self.sync_global,

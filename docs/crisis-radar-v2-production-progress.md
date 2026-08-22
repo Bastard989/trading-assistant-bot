@@ -40,7 +40,7 @@
 | 11. UI/help/navigation | completed | RU-first v11 metadata and bands, compact main view, journal subnavigation, models in tools, six analysis tabs, accessible help dialog, scenario expansion, exposure overlay; manually verified in in-app browser at desktop/mobile and automated authenticated Playwright E2E |
 | 12. Replay/calibration | implemented; gate failed honestly | Causal v10/v11/v12/v13 comparisons plus ablations and future-release regression tests. v13 replaces the misleading all-indicator denominator with fixed scenario-group coverage and mandatory independent channels/regions. Real replay evaluated 220 monthly cutoffs: 29 eligible, 20 resolved, only 3 independent positive episodes and 0 calibrated scores. Coverage/horizon sensitivity never passed. v11/v12/v13 remain shadow/replay-only and probability is null |
 | 13. Packaging/E2E/security | completed for repository candidate | Authenticated RU/EN/mobile/degraded Playwright E2E; CI installs Chromium; overall coverage 81%; computational core 92.16%, runtime 90.32%, PostgreSQL memory 96.83%; self-host doctor, source contracts, guarded update/rollback, encrypted off-host backup and isolated restore drill are tested |
-| 14. Rollout/canary | in progress on target server | Release `ff55c01` is active from an immutable tree after a verified backup, restore drill and migration dry-run. API/bot and temporary external HTTPS are green. A production write-amplification defect was removed; backup-gated retention preserved raw evidence and reduced the live DB from 2.90 GB to 0.67 GB. Because the monitored executable changed, a fresh honest canary started `2026-08-21T12:53:38Z` and cannot complete before `2026-09-04T12:53:38Z`. Permanent HTTPS and a real encrypted off-host target remain external blockers |
+| 14. Rollout/canary | in progress on target server | Release `0f65e0a` is active from an immutable tree after green CI, verified backup/restore drill and migration dry-run. API, bot and temporary external HTTPS are green. Live candidate-v19 collection succeeded without changing the live stage. The canary now uses a six-hour growth baseline; its clean release window started `2026-08-22T00:17:48Z` and cannot complete before `2026-09-05T00:17:48Z`. Permanent HTTPS and a real encrypted off-host target remain external blockers |
 
 Numeric-depth research evidence:
 `docs/evidence/crisis-radar-depth-research-20260811.json`. A disposable database
@@ -172,6 +172,9 @@ initial releases use their actual release dates.
   (https://github.com/Bastard989/trading-assistant-bot/actions/runs/32482291234).
 - GitHub Actions CI for encrypted backup staging retention `ff55c01`: passed
   (https://github.com/Bastard989/trading-assistant-bot/actions/runs/32482526915).
+- GitHub Actions CI for candidate-v19 funding depth and canary growth-baseline
+  hardening `0f65e0a`: passed
+  (https://github.com/Bastard989/trading-assistant-bot/actions/runs/32530578154).
 - Targeted replay/scoring/validation: `19 passed`.
 - Targeted UI/i18n/canary: `12 passed`.
 - Authenticated Playwright browser E2E: `1 passed` (RU/EN, six analysis tabs,
@@ -422,8 +425,8 @@ initial releases use their actual release dates.
    хранилище должны быть настроены и проверены на целевом
    сервере.
 3. Canary должен реально проработать 14 календарных дней; активный release
-   `ff55c01` начал новый период 21 августа и не может пройти этот gate раньше
-   4 сентября 2026 года, 12:53 UTC. Этот статус не симулируется тестами.
+   `0f65e0a` начал новый период 22 августа и не может пройти этот gate раньше
+   5 сентября 2026 года, 00:17 UTC. Этот статус не симулируется тестами.
 
 ## Production rollout evidence (2026-08-21)
 
@@ -442,3 +445,24 @@ initial releases use their actual release dates.
   and the latest HKMA source run.
 - Sanitized machine-readable evidence:
   `docs/evidence/crisis-radar-v2-server-rollout-20260821.json`.
+
+## Production rollout evidence (2026-08-22)
+
+- Active immutable release: `0f65e0a`, source commit
+  `0f65e0a71514958ee7da1317a24eed490ec7a168`; `ff55c01` remains the guarded
+  rollback target. GitHub CI run `32530578154` passed every repository gate.
+- Pre-update backup `pre-update-0f65e0a-20260822T001553Z.sqlite3`, SHA-256
+  `c1b16ab2f3284ea50d2f460712b1be8d6d7fc78d3f3f91c12fea2bfe7afb7c4a`,
+  passed integrity, foreign-key and isolated restore-table-count checks.
+- API, Telegram bot, canary timer and temporary external HTTPS are green. The
+  database remains schema `23`, integrity `ok`, with zero FK violations.
+- The live disabled candidate-v19 collector stored 16 CPFF and 127 transformed
+  reserve-balance observations from FRED. They remain excluded from live stage
+  and probability. The latest live stage remained `warning`; numeric coverage
+  was `degraded`, so no false confidence was introduced.
+- The new canary started `2026-08-22T00:17:48.895497Z`, has a valid verified
+  backup and a six-hour database-growth baseline, and recorded zero critical
+  incidents in its first clean sample. Its earliest possible completion is
+  `2026-09-05T00:17:48.895497Z` after at least 1,210 samples.
+- Sanitized machine-readable evidence:
+  `docs/evidence/crisis-radar-v2-server-rollout-20260822.json`.

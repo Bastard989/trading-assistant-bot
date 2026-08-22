@@ -50,6 +50,9 @@ RUNTIME_CONTRACT_PATH = ROOT / "docs" / "crisis-radar-v2-runtime-contract.json"
 ROLLOUT_EVIDENCE_PATH = (
     ROOT / "docs" / "evidence" / "crisis-radar-v2-server-rollout-20260811.json"
 )
+LATEST_ROLLOUT_EVIDENCE_PATH = (
+    ROOT / "docs" / "evidence" / "crisis-radar-v2-server-rollout-20260822.json"
+)
 DEPTH_EVIDENCE_PATH = (
     ROOT / "docs" / "evidence" / "crisis-radar-depth-research-20260811.json"
 )
@@ -182,6 +185,36 @@ def test_server_rollout_evidence_is_sanitized_and_keeps_external_gates_open() ->
         "permanent_https",
         "backup_age_recipient",
         "off_host_backup_directory",
+    ]
+
+
+def test_latest_server_rollout_matches_release_and_preserves_honest_gates() -> None:
+    evidence = json.loads(LATEST_ROLLOUT_EVIDENCE_PATH.read_text(encoding="utf-8"))
+
+    assert evidence["release"] == {
+        "id": "0f65e0a",
+        "source_commit": "0f65e0a71514958ee7da1317a24eed490ec7a168",
+        "schema_version": 23,
+        "previous_release": "ff55c01",
+        "immutable_read_only_for_service": True,
+    }
+    assert evidence["repository_ci"]["conclusion"] == "success"
+    assert evidence["pre_update_backup"]["integrity"] == "ok"
+    assert evidence["pre_update_backup"]["restore_table_counts_match"] is True
+    assert evidence["migration_dry_run"]["working_database_changed"] is False
+    assert evidence["runtime"]["api_active"] is True
+    assert evidence["runtime"]["bot_active"] is True
+    assert evidence["candidate_v19_live_collection"]["affects_live_stage"] is False
+    assert evidence["candidate_v19_live_collection"]["affects_live_probability"] is False
+    assert evidence["canary"]["release"] == evidence["release"]["id"]
+    assert evidence["canary"]["status"] == "in_progress"
+    assert evidence["canary"]["critical_incident_count"] == 0
+    assert evidence["canary"]["database_growth_baseline_present"] is True
+    assert evidence["canary"]["short_window_growth_false_positive_present"] is False
+    assert evidence["canary"]["backup_checksum_valid"] is True
+    assert "fourteen_calendar_day_canary" in evidence["external_blockers"]
+    assert "separately_retained_encrypted_off_host_backup_target" in evidence[
+        "external_blockers"
     ]
     serialized = json.dumps(evidence, sort_keys=True).lower()
     assert "telegram_bot_token" not in serialized

@@ -1,0 +1,108 @@
+{
+  "version": 1,
+  "recorded_at": "2026-08-22T00:19:50+00:00",
+  "release": {
+    "id": "0f65e0a",
+    "source_commit": "0f65e0a71514958ee7da1317a24eed490ec7a168",
+    "schema_version": 23,
+    "previous_release": "ff55c01",
+    "immutable_read_only_for_service": true
+  },
+  "repository_ci": {
+    "run_id": 32530578154,
+    "conclusion": "success",
+    "url": "https://github.com/Bastard989/trading-assistant-bot/actions/runs/32530578154",
+    "gates": [
+      "gitleaks",
+      "ruff",
+      "javascript_syntax",
+      "pytest_and_coverage",
+      "critical_coverage_gates",
+      "authenticated_playwright",
+      "pip_audit",
+      "repeatable_migrations"
+    ]
+  },
+  "pre_update_backup": {
+    "filename": "pre-update-0f65e0a-20260822T001553Z.sqlite3",
+    "sha256": "c1b16ab2f3284ea50d2f460712b1be8d6d7fc78d3f3f91c12fea2bfe7afb7c4a",
+    "schema": 23,
+    "integrity": "ok",
+    "foreign_key_violations": 0,
+    "restore_table_counts_match": true
+  },
+  "migration_dry_run": {
+    "schema": 23,
+    "integrity": "ok",
+    "foreign_key_violations": 0,
+    "working_database_changed": false
+  },
+  "runtime": {
+    "api_active": true,
+    "bot_active": true,
+    "canary_timer_active": true,
+    "internal_live": true,
+    "internal_ready": true,
+    "external_temporary_https_live": true,
+    "external_temporary_https_ready": true,
+    "database_integrity": "ok",
+    "database_foreign_key_violations": 0,
+    "database_bytes": 693784576
+  },
+  "candidate_v19_live_collection": {
+    "affects_live_stage": false,
+    "affects_live_probability": false,
+    "series": [
+      {
+        "code": "us_cpff_spread",
+        "rows": 16,
+        "latest_observed_at": "2026-08-20T00:00:00+00:00",
+        "fetched_at": "2026-08-22T00:17:49.676535+00:00"
+      },
+      {
+        "code": "us_reserve_balances_90d_change",
+        "rows": 127,
+        "latest_observed_at": "2026-08-19T00:00:00+00:00",
+        "fetched_at": "2026-08-22T00:17:49.676535+00:00"
+      }
+    ]
+  },
+  "live_radar": {
+    "snapshot_at": "2026-08-22T00:14:52.541254+00:00",
+    "stage": "warning",
+    "calculated_stage": "warning",
+    "coverage_status": "degraded",
+    "stress_intensity": "50.88",
+    "systemic_breadth": "52.05",
+    "values_are_not_calibrated_crisis_probabilities": true
+  },
+  "canary": {
+    "release": "0f65e0a",
+    "status": "in_progress",
+    "started_at": "2026-08-22T00:17:48.895497+00:00",
+    "expected_end_at": "2026-09-05T00:17:48.895497+00:00",
+    "minimum_samples": 1210,
+    "observed_sample_count": 1,
+    "critical_incident_count": 0,
+    "database_growth_baseline_present": true,
+    "short_window_growth_false_positive_present": false,
+    "backup_checksum_valid": true,
+    "active_warning_codes": [
+      "discovery_source_failures",
+      "source_failures"
+    ],
+    "warning_context": "GDELT discovery and the latest HKMA run remain visible source-health warnings; they are not hidden, converted into numerical crisis risk or treated as a critical runtime failure."
+  },
+  "cleanup": {
+    "superseded_ff55c01_canary_archived": true,
+    "failed_first_0f65e0a_startup_manifest_archived": true,
+    "disposable_restore_copy_removed_after_successful_drill": true,
+    "verified_source_backup_preserved": true
+  },
+  "external_blockers": [
+    "permanent_https_firewall_ingress_80_443_or_named_tunnel",
+    "separately_retained_encrypted_off_host_backup_target",
+    "fourteen_calendar_day_canary",
+    "candidate_v11_historical_promotion_evidence"
+  ]
+}

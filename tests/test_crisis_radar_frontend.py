@@ -16,6 +16,7 @@ def test_crisis_radar_is_a_first_class_mini_app_tab() -> None:
     assert "/api/crisis-radar/world" in APP_JS
     assert "/api/crisis-radar/sources/health" in APP_JS
     assert "/api/crisis-radar/opportunities" in APP_JS
+    assert "/api/crisis-radar/crypto-momentum" in APP_JS
     assert "/api/crisis-radar/events" in APP_JS
     assert "/api/crisis-radar/scenarios/fusion" in APP_JS
     assert "/api/crisis-radar/trends" in APP_JS
@@ -30,6 +31,8 @@ def test_crisis_radar_is_a_first_class_mini_app_tab() -> None:
     assert 'id="crisisNews"' in INDEX_HTML
     assert 'id="crisisWorld"' in INDEX_HTML
     assert 'id="crisisOpportunities"' in INDEX_HTML
+    assert 'id="crisisCryptoToday"' in INDEX_HTML
+    assert 'id="crisisCryptoMomentum"' in INDEX_HTML
 
 
 def test_crisis_radar_supports_ru_en_and_progressive_disclosure() -> None:
@@ -115,6 +118,8 @@ def test_world_and_opportunity_views_are_honest_and_calculator_connected() -> No
     assert ".crisis-opportunity-grid" in STYLES
     assert ".crisis-world-grid" in STYLES
     assert "No trade is opened automatically" in APP_JS
+    assert "Сила тренда показывает число и качество подтверждений" in APP_JS
+    assert "crypto-state-${state}" in APP_JS
 
 
 def test_model_view_reports_backend_bindings_without_collecting_secrets() -> None:

@@ -163,6 +163,50 @@ class MarketClient:
         ratio = float(row["longShortRatio"])
         return Sentiment(symbol, long_percent, short_percent, ratio, "Binance futures global long/short accounts, 5m")
 
+    async def get_funding_rate(self, symbol: str) -> float:
+        """Return the current USD-M perpetual funding rate in percent."""
+        if self.market != "futures":
+            raise MarketUnavailableError("Funding rate is available for Binance futures only")
+        symbol = normalize_symbol(symbol)
+        data = await self._request_json(
+            "/fapi/v1/premiumIndex", params={"symbol": symbol}, cache=True
+        )
+        try:
+            return float(data["lastFundingRate"]) * 100
+        except (KeyError, TypeError, ValueError) as exc:
+            raise MarketUnavailableError("Binance returned an invalid funding-rate payload") from exc
+
+    async def get_open_interest_change(
+        self,
+        symbol: str,
+        *,
+        period: str = "4h",
+        limit: int = 43,
+    ) -> float:
+        """Return signed open-interest change across the requested public history in percent."""
+        if self.market != "futures":
+            raise MarketUnavailableError("Open interest is available for Binance futures only")
+        if period not in {"5m", "15m", "30m", "1h", "2h", "4h", "6h", "12h", "1d"}:
+            raise ValueError("unsupported open-interest period")
+        if not 2 <= limit <= 500:
+            raise ValueError("open-interest history limit must be between 2 and 500")
+        symbol = normalize_symbol(symbol)
+        data = await self._request_json(
+            "/futures/data/openInterestHist",
+            params={"symbol": symbol, "period": period, "limit": limit},
+            cache=True,
+        )
+        if not isinstance(data, list) or len(data) < 2:
+            raise MarketUnavailableError("Binance returned insufficient open-interest history")
+        try:
+            first = float(data[0]["sumOpenInterest"])
+            last = float(data[-1]["sumOpenInterest"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise MarketUnavailableError("Binance returned an invalid open-interest payload") from exc
+        if first <= 0:
+            raise MarketUnavailableError("Binance returned non-positive open interest")
+        return (last / first - 1) * 100
+
     async def get_klines(
         self,
         symbol: str,

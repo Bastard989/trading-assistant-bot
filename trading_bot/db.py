@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Iterator
 
 
-CURRENT_SCHEMA_VERSION = 23
+CURRENT_SCHEMA_VERSION = 24
 
 
 SCHEMA = """
@@ -783,6 +783,50 @@ CREATE TABLE IF NOT EXISTS cr_signal_scorecards (
     FOREIGN KEY(methodology_id) REFERENCES cr_methodology_versions(id)
 );
 
+CREATE TABLE IF NOT EXISTS cr_crypto_momentum_snapshots (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    symbol TEXT NOT NULL,
+    methodology TEXT NOT NULL,
+    snapshot_at TEXT NOT NULL,
+    state TEXT NOT NULL CHECK(state IN (
+        'insufficient_data', 'bearish', 'neutral', 'early_uptrend',
+        'confirmed_uptrend', 'overheated', 'trend_break'
+    )),
+    score INTEGER NOT NULL CHECK(score BETWEEN 0 AND 100),
+    confidence TEXT NOT NULL CHECK(confidence IN ('low', 'medium', 'high')),
+    data_quality INTEGER NOT NULL CHECK(data_quality BETWEEN 0 AND 100),
+    price_text TEXT,
+    payload TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(symbol, methodology, snapshot_at)
+);
+
+CREATE TABLE IF NOT EXISTS cr_crypto_momentum_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_key TEXT NOT NULL UNIQUE,
+    symbol TEXT NOT NULL,
+    occurred_at TEXT NOT NULL,
+    from_state TEXT NOT NULL,
+    to_state TEXT NOT NULL,
+    severity TEXT NOT NULL CHECK(severity IN ('info', 'warning', 'critical')),
+    payload TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS cr_crypto_momentum_deliveries (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'sent', 'failed')),
+    attempts INTEGER NOT NULL DEFAULT 0 CHECK(attempts >= 0),
+    next_attempt_at TEXT,
+    sent_at TEXT,
+    last_error TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(event_id, user_id),
+    FOREIGN KEY(event_id) REFERENCES cr_crypto_momentum_events(id)
+);
+
 CREATE INDEX IF NOT EXISTS idx_cr_sync_runs_source_started
     ON cr_sync_runs(source_id, started_at DESC);
 CREATE INDEX IF NOT EXISTS idx_cr_observations_indicator_observed
@@ -843,6 +887,12 @@ CREATE INDEX IF NOT EXISTS idx_cr_scenario_states_v2_snapshot
     ON cr_scenario_states_v2(snapshot_at DESC, methodology_id, scenario_code);
 CREATE INDEX IF NOT EXISTS idx_cr_signal_scorecards_status
     ON cr_signal_scorecards(outcome_status, scenario_code, last_seen_at DESC);
+CREATE INDEX IF NOT EXISTS idx_cr_crypto_momentum_symbol_snapshot
+    ON cr_crypto_momentum_snapshots(symbol, snapshot_at DESC);
+CREATE INDEX IF NOT EXISTS idx_cr_crypto_momentum_events_symbol_time
+    ON cr_crypto_momentum_events(symbol, occurred_at DESC);
+CREATE INDEX IF NOT EXISTS idx_cr_crypto_momentum_deliveries_retry
+    ON cr_crypto_momentum_deliveries(status, next_attempt_at, attempts);
 
 CREATE TABLE IF NOT EXISTS idempotency_keys (
     user_id INTEGER NOT NULL,
@@ -1259,6 +1309,7 @@ class Database:
             self._record_migration(connection, 21, "crisis-radar-v11-shadow-core-v21")
             self._record_migration(connection, 22, "crisis-radar-basic-evidence-fts-v22")
             self._record_migration(connection, 23, "crisis-radar-playbooks-scorecards-v23")
+            self._record_migration(connection, 24, "crisis-radar-crypto-momentum-v24")
             connection.commit()
         except Exception:
             connection.rollback()

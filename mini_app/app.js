@@ -39,6 +39,7 @@ let crisisSnapshot = null;
 let crisisWorld = null;
 let crisisSourceHealth = null;
 let crisisOpportunities = null;
+let crisisCryptoMomentum = null;
 let crisisEvents = null;
 let crisisFusion = null;
 let crisisTrends = null;
@@ -266,6 +267,18 @@ const crisisCopy = {
     opportunityLoss: "Диапазон риска",
     opportunityCalculator: "Перенести в калькулятор",
     opportunityDisclaimer: "Диапазоны — сценарная оценка, а не обещание прибыли. Сделки автоматически не создаются.",
+    cryptoEyebrow: "Крипторынок",
+    cryptoTodayTitle: "Рост, перегрев и слом тренда",
+    cryptoMomentumTitle: "Криптоимпульс: BTC, ETH и SOL",
+    cryptoMomentumCopy: "Отдельно отслеживает ранний рост, подтверждённый рост, перегрев и слом тренда по нескольким горизонтам.",
+    cryptoMomentumDisclaimer: "Сила тренда показывает число и качество подтверждений, а не вероятность прибыли. Сделки автоматически не создаются.",
+    cryptoMomentumReady: "живые данные",
+    cryptoMomentumDegraded: "неполные данные",
+    cryptoNext: "Что подтвердит движение",
+    cryptoInvalidation: "Что сломает вывод",
+    cryptoFunding: "Funding",
+    cryptoOi: "OI за 7 дней",
+    cryptoTimeframes: "восходящие горизонты",
     world: "Мировой контур",
     worldCopy: "США, Европа, Китай и глобальные каналы с честными пропусками.",
     available: "доступно",
@@ -443,6 +456,18 @@ const crisisCopy = {
     opportunityLoss: "Risk range",
     opportunityCalculator: "Send to calculator",
     opportunityDisclaimer: "Ranges are scenario estimates, not promised returns. No trade is opened automatically.",
+    cryptoEyebrow: "Crypto market",
+    cryptoTodayTitle: "Uptrend, overheating and trend break",
+    cryptoMomentumTitle: "Crypto momentum: BTC, ETH and SOL",
+    cryptoMomentumCopy: "Separately tracks early uptrends, confirmed uptrends, overheating and trend breaks across multiple horizons.",
+    cryptoMomentumDisclaimer: "Trend strength measures the number and quality of confirmations, not profit probability. No trade is opened automatically.",
+    cryptoMomentumReady: "live data",
+    cryptoMomentumDegraded: "partial data",
+    cryptoNext: "What confirms the move",
+    cryptoInvalidation: "What invalidates the view",
+    cryptoFunding: "Funding",
+    cryptoOi: "7-day OI",
+    cryptoTimeframes: "bullish horizons",
     world: "World contour",
     worldCopy: "United States, Europe, China and global channels with honest missing-data states.",
     available: "available",
@@ -569,6 +594,7 @@ const crisisHelpCopy = {
     groups: ["Каналы риска", "Похожие показатели объединяются в группы, чтобы один и тот же процесс не считался несколько раз.", ["Сильнейший индикатор даёт 70% оценки группы.", "Среднее состояние группы даёт ещё 30%.", "Общая стадия считает группы, а не количество всех сырых рядов."]],
     scenarios: ["Кризисные сценарии", "Сценарий объединяет несколько независимых каналов и конкретный временной горизонт.", ["Наблюдение — раннее сочетание.", "Повышен — ухудшение стало сильнее.", "Подтверждён — несколько необходимых условий сработали совместно."]],
     opportunities: ["Аналитические возможности", "Это условные варианты long, short, hedge или wait, а не готовые сделки и не обещание доходности.", ["Идея появляется только при достаточном подтверждении и качестве данных.", "Диапазон прибыли является сценарием.", "При слабых данных честный результат — ждать."]],
+    momentum: ["Криптоимпульс", "Отдельный симметричный радар для BTC, ETH и SOL: он видит как рост, так и его перегрев или слом.", ["Сравниваются завершённые свечи 15м, 1ч, 4ч и 1д.", "Подтверждённый рост требует совпадения 4ч и 1д плюс funding и подписанный OI.", "Перегрев не считается хорошим входом: он предупреждает о риске ликвидационного сброса.", "Сила 0–100 — не вероятность прибыли."]],
     world: ["Мировой контур", "Показывает покрытие США, Европы, Китая, глобальной экономики и крипторынка.", ["Свежие данные участвуют в расчёте.", "Устаревшие и отсутствующие данные обозначаются отдельно.", "Пропуск не заменяется выдуманным значением."]],
     agent: ["Локальный аналитик", "Модель объясняет уже рассчитанные сигналы простыми словами, но не имеет права менять числа, пороги или стадию.", ["Ответ проходит проверку опоры на данные.", "Модель не открывает сделки.", "При сбое остаётся детерминированное объяснение системы."]],
     news: ["Мировые события", "Официальные и независимо подтверждённые события участвуют в сценарном анализе, но не могут в одиночку объявить кризис.", ["Повторы объединяются в один кластер.", "Discovery-источник даёт лишь слабый наблюдательный сигнал.", "Числовая стадия рынка по-прежнему считается только по измеримым индикаторам."]],
@@ -585,6 +611,7 @@ const crisisHelpCopy = {
     groups: ["Risk channels", "Related indicators are grouped so the same process is not counted several times.", ["The strongest indicator contributes 70%.", "The group mean contributes 30%.", "Market stage counts groups, not every raw series."]],
     scenarios: ["Crisis scenarios", "A scenario combines independent channels with a defined horizon.", ["Watch is an early combination.", "Elevated means broader weakness.", "Confirmed means required conditions aligned."]],
     opportunities: ["Analytical opportunities", "Conditional long, short, hedge or wait views — not orders or promised returns.", ["Ideas require evidence and data quality.", "Return ranges are scenarios.", "Weak data correctly produces wait."]],
+    momentum: ["Crypto momentum", "A separate symmetric radar for BTC, ETH and SOL that detects upside, overheating and trend breaks.", ["It compares completed 15m, 1h, 4h and 1d candles.", "A confirmed uptrend requires aligned 4h and 1d structures plus funding and signed OI.", "Overheating is not treated as a clean entry; it warns about unwind risk.", "The 0–100 strength score is not a profit probability."]],
     world: ["World coverage", "Shows coverage across the US, Europe, China, the global economy and crypto.", ["Fresh data is used.", "Stale and missing data are explicit.", "Missing values are never fabricated."]],
     agent: ["Local analyst", "The model explains calculated signals but cannot change numbers, thresholds or stage.", ["Answers are checked against evidence.", "It cannot open trades.", "A deterministic fallback remains available."]],
     news: ["World events", "Official and independently corroborated events contribute to scenario analysis but cannot declare a crisis on their own.", ["Duplicates are merged into one cluster.", "A discovery-only source contributes only a weak watch signal.", "The numerical market stage remains driven by measurable indicators."]],
@@ -925,6 +952,7 @@ async function loadCrisisRadar() {
       api(`/api/crisis-radar/v2/shadow?locale=${crisisLocale}`),
       api(`/api/crisis-radar/v2/scenarios?locale=${crisisLocale}`),
       api(`/api/crisis-radar/v2/exposure?locale=${crisisLocale}`),
+      api(`/api/crisis-radar/crypto-momentum?locale=${crisisLocale}`),
     ]);
     crisisSnapshot.calendar = requests[0].status === "fulfilled" ? requests[0].value : { ready: false, events: [] };
     crisisSnapshot.news = requests[1].status === "fulfilled" ? requests[1].value : { ready: false, items: [] };
@@ -937,6 +965,7 @@ async function loadCrisisRadar() {
     crisisV2 = requests[8].status === "fulfilled" ? requests[8].value : { ready: false, items: [], groups: [] };
     crisisV2Scenarios = requests[9].status === "fulfilled" ? requests[9].value : { ready: false, items: [] };
     crisisExposure = requests[10].status === "fulfilled" ? requests[10].value : { ready: false, items: [], concentration: [] };
+    crisisCryptoMomentum = requests[11].status === "fulfilled" ? requests[11].value : { ready: false, items: [] };
   } catch {
     crisisSnapshot = { ready: false, stage: "unknown", explanation: copy.unavailable, groups: [], indicators: [], sources: [] };
     crisisWorld = { ready: false, regions: [] };
@@ -948,6 +977,7 @@ async function loadCrisisRadar() {
     crisisV2 = { ready: false, items: [], groups: [] };
     crisisV2Scenarios = { ready: false, items: [] };
     crisisExposure = { ready: false, items: [], concentration: [] };
+    crisisCryptoMomentum = { ready: false, items: [] };
   }
   await loadCrisisAgent();
   renderCrisisRadar();
@@ -1007,6 +1037,14 @@ function renderCrisisToday(snapshot, opportunityPayload, copy) {
   } else {
     document.getElementById("crisisBestOpportunity").innerHTML = `<div class="crisis-today-result-card is-wait"><strong>${escapeHtml(copy.noOpportunity)}</strong></div>`;
   }
+
+  const momentumItems = crisisCryptoMomentum?.items || [];
+  document.getElementById("crisisCryptoToday").innerHTML = momentumItems.map(item => {
+    const state = safeCrisisState(item.state, ["insufficient_data", "bearish", "neutral", "early_uptrend", "confirmed_uptrend", "overheated", "trend_break"], "insufficient_data");
+    const cardClass = ["confirmed_uptrend", "early_uptrend"].includes(state) ? "is-positive"
+      : ["overheated", "trend_break"].includes(state) ? "is-critical" : "is-wait";
+    return `<div class="crisis-today-result-card ${cardClass}"><div class="crisis-today-result-head"><span>${escapeHtml(item.state_label || state)}</span><small>${crisisNumber(item.score, 0)}/100</small></div><strong>${escapeHtml(item.symbol || "—")}</strong><p>${escapeHtml(item.explanation || copy.noData)}</p><small>${escapeHtml(copy.cryptoTimeframes)}: ${escapeHtml((item.bullish_timeframes || []).join(" · ") || "—")}</small></div>`;
+  }).join("") || `<div class="crisis-today-result-card is-wait"><strong>${escapeHtml(copy.noData)}</strong></div>`;
 }
 
 function renderCrisisRadar() {
@@ -1035,6 +1073,11 @@ function renderCrisisRadar() {
   document.getElementById("crisisOpportunitiesTitle").textContent = copy.opportunities;
   document.getElementById("crisisOpportunitiesCopy").textContent = copy.opportunitiesCopy;
   document.getElementById("crisisOpportunityDisclaimer").textContent = copy.opportunityDisclaimer;
+  document.getElementById("crisisCryptoEyebrow").textContent = copy.cryptoEyebrow;
+  document.getElementById("crisisCryptoTodayTitle").textContent = copy.cryptoTodayTitle;
+  document.getElementById("crisisCryptoMomentumTitle").textContent = copy.cryptoMomentumTitle;
+  document.getElementById("crisisCryptoMomentumCopy").textContent = copy.cryptoMomentumCopy;
+  document.getElementById("crisisCryptoMomentumDisclaimer").textContent = copy.cryptoMomentumDisclaimer;
   document.getElementById("crisisWorldTitle").textContent = copy.world;
   document.getElementById("crisisWorldCopy").textContent = copy.worldCopy;
   document.getElementById("crisisNewsTitle").textContent = copy.news;
@@ -1247,6 +1290,21 @@ function renderCrisisRadar() {
       ? `<div class="crisis-opportunity-ranges"><span>${escapeHtml(copy.opportunityRange)}: ${crisisNumber(expectedMin)}%…${crisisNumber(expectedMax)}% · n=${historySize}</span><span>${escapeHtml(copy.opportunityLoss)}: ${crisisNumber(lossMin)}%…${crisisNumber(lossMax)}%</span></div>`
       : "";
     return `<article class="crisis-opportunity side-${side}"><div class="crisis-opportunity-head"><span>${escapeHtml(side === "wait" ? copy.opportunityWait : side.toUpperCase())}</span><small>#${Number(item.rank || 0)} · ${escapeHtml(copy.opportunityScore)} ${crisisNumber(Number(item.score) * 100, 0)}/100</small></div><strong>${escapeHtml(item.symbol || "MARKET")}</strong><p>${escapeHtml(item.rationale || "")}</p>${ranges}<details><summary>${escapeHtml(copy.opportunityTrigger)}</summary><p>${escapeHtml(item.trigger || "—")}</p><b>${escapeHtml(copy.opportunityInvalidation)}</b><p>${escapeHtml(item.invalidation || "—")}</p>${evidence ? `<ul>${evidence}</ul>` : ""}</details>${calculator}</article>`;
+  }).join("") || `<div class="crisis-empty">${escapeHtml(copy.noData)}</div>`;
+
+  const momentumPayload = crisisCryptoMomentum || { ready: false, items: [] };
+  const momentumStatus = document.getElementById("crisisCryptoMomentumStatus");
+  momentumStatus.textContent = momentumPayload.ready ? copy.cryptoMomentumReady : copy.cryptoMomentumDegraded;
+  momentumStatus.className = `live-status ${momentumPayload.ready ? "is-live" : "is-offline"}`;
+  document.getElementById("crisisCryptoMomentum").innerHTML = (momentumPayload.items || []).map(item => {
+    const state = safeCrisisState(item.state, ["insufficient_data", "bearish", "neutral", "early_uptrend", "confirmed_uptrend", "overheated", "trend_break"], "insufficient_data");
+    const funding = item.funding_rate_pct == null ? Number.NaN : Number(item.funding_rate_pct);
+    const oi = item.oi_7d_change_pct == null ? Number.NaN : Number(item.oi_7d_change_pct);
+    const evidence = (item.evidence || []).map(value => `<li>${escapeHtml(value)}</li>`).join("");
+    const next = (item.next_confirmation || []).map(value => `<li>${escapeHtml(value)}</li>`).join("");
+    const invalidation = (item.invalidation || []).map(value => `<li>${escapeHtml(value)}</li>`).join("");
+    const limitations = (item.limitations || []).map(value => `<li>${escapeHtml(value)}</li>`).join("");
+    return `<article class="crisis-opportunity crypto-state-${state}"><div class="crisis-opportunity-head"><span>${escapeHtml(item.state_label || state)}</span><small>${crisisNumber(item.score, 0)}/100 · ${crisisNumber(item.data_quality, 0)}% data</small></div><strong>${escapeHtml(item.symbol || "—")} · ${Number.isFinite(Number(item.price)) ? crisisNumber(item.price, 4) : "—"} USDT</strong><p>${escapeHtml(item.explanation || copy.noData)}</p><div class="crisis-opportunity-ranges"><span>${escapeHtml(copy.cryptoFunding)}: ${Number.isFinite(funding) ? `${crisisSigned(funding)}%` : "—"}</span><span>${escapeHtml(copy.cryptoOi)}: ${Number.isFinite(oi) ? `${crisisSigned(oi)}%` : "—"}</span><span>${escapeHtml(copy.cryptoTimeframes)}: ${escapeHtml((item.bullish_timeframes || []).join(" · ") || "—")}</span></div><details><summary>${escapeHtml(copy.whatMeans)}</summary><ul>${evidence || `<li>${escapeHtml(copy.noData)}</li>`}</ul><b>${escapeHtml(copy.cryptoNext)}</b><ul>${next || `<li>—</li>`}</ul><b>${escapeHtml(copy.cryptoInvalidation)}</b><ul>${invalidation || `<li>—</li>`}</ul>${limitations ? `<b>${escapeHtml(copy.limitations)}</b><ul>${limitations}</ul>` : ""}</details></article>`;
   }).join("") || `<div class="crisis-empty">${escapeHtml(copy.noData)}</div>`;
 
   const worldPayload = crisisWorld || { regions: [] };

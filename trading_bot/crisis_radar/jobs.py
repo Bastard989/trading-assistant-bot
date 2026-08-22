@@ -6,6 +6,10 @@ from datetime import datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from trading_bot.crisis_radar.service import CrisisRadarService
+from trading_bot.crisis_radar.crypto_momentum import (
+    CryptoMomentumMonitor,
+    CryptoMomentumRepository,
+)
 from trading_bot.crisis_radar.sources.bybit import BybitClient
 from trading_bot.crisis_radar.sources.fred_client import FredClient
 from trading_bot.crisis_radar.sources.europe_clients import EcbClient, EurostatClient
@@ -18,6 +22,7 @@ from trading_bot.crisis_radar.sources.news_clients import (
 from trading_bot.crisis_radar.sources.new_york_fed import NewYorkFedClient
 from trading_bot.crisis_radar.sources.portwatch import PortWatchClient
 from trading_bot.crisis_radar.sources.stablecoins import BinanceMarketClient
+from trading_bot.market import MarketClient
 
 
 logger = logging.getLogger(__name__)
@@ -41,6 +46,10 @@ class CrisisRadarJobs:
         self.alert_user_ids = tuple(sorted({int(item) for item in alert_user_ids if int(item) > 0}))
         self.business_timezone = ZoneInfo(business_timezone)
         self._sync_lock = asyncio.Lock()
+        self._momentum_lock = asyncio.Lock()
+        database = getattr(getattr(service, "repository", None), "db", None)
+        self.crypto_repository = CryptoMomentumRepository(database) if database is not None else None
+        self.crypto_monitor = CryptoMomentumMonitor(MarketClient("futures")) if database is not None else None
 
     def register(self, application, *, interval_seconds: int) -> bool:
         self.service.bootstrap()
@@ -58,6 +67,13 @@ class CrisisRadarJobs:
             first=45,
             name="crisis-radar-news-sync",
         )
+        if self.crypto_monitor is not None:
+            application.job_queue.run_repeating(
+                self.sync_crypto_momentum,
+                interval=900,
+                first=75,
+                name="crisis-radar-crypto-momentum",
+            )
         application.job_queue.run_daily(
             self.sync_global,
             time=time(3, 20, tzinfo=self.business_timezone),
@@ -79,6 +95,27 @@ class CrisisRadarJobs:
             name="crisis-radar-weekend-summary",
         )
         return True
+
+    async def sync_crypto_momentum(self, context) -> None:
+        if self.crypto_monitor is None or self.crypto_repository is None:
+            return
+        if self._momentum_lock.locked():
+            logger.info("Crypto momentum sync skipped because the previous run is active")
+            return
+        async with self._momentum_lock:
+            try:
+                previous = self.crypto_repository.latest_states()
+                results = await self.crypto_monitor.analyze_all(previous)
+                transitions = sum(1 for result in results if self.crypto_repository.save(result))
+                if self.alert_user_ids:
+                    self.crypto_repository.enqueue_deliveries(self.alert_user_ids)
+                    await self._deliver_crypto_momentum(context)
+                logger.info(
+                    "Crypto momentum sync completed: symbols=%s transitions=%s",
+                    [result.symbol for result in results], transitions,
+                )
+            except Exception:
+                logger.exception("Crypto momentum scheduled sync failed")
 
     async def sync(self, context) -> None:
         if self._sync_lock.locked():
@@ -319,6 +356,49 @@ class CrisisRadarJobs:
             except Exception as exc:
                 logger.warning("Crisis Radar data-health delivery failed: %s", type(exc).__name__)
                 self.service.repository.mark_data_health_failed(
+                    delivery.delivery_id,
+                    error=type(exc).__name__,
+                    retry_at=datetime.now(timezone.utc) + timedelta(minutes=15),
+                )
+
+    async def _deliver_crypto_momentum(self, context) -> None:
+        if self.crypto_repository is None:
+            return
+        if context is None or getattr(context, "bot", None) is None:
+            logger.warning("Crypto momentum alerts are queued; Telegram is unavailable")
+            return
+        state_names = {
+            "early_uptrend": "РАННИЙ РОСТ",
+            "confirmed_uptrend": "ПОДТВЕРЖДЁННЫЙ РОСТ",
+            "overheated": "ПЕРЕГРЕВ РОСТА",
+            "trend_break": "СЛОМ ВОСХОДЯЩЕГО ТРЕНДА",
+        }
+        for delivery in self.crypto_repository.pending_deliveries():
+            payload = delivery.payload
+            evidence = payload.get("evidence", [])[:4]
+            confirmations = payload.get("next_confirmation", [])[:3]
+            invalidation = payload.get("invalidation", [])[:2]
+            message = (
+                f"Crisis Radar · КРИПТО · {state_names.get(delivery.to_state, delivery.to_state)}\n"
+                f"Инструмент: {delivery.symbol}\n"
+                f"Состояние: {delivery.from_state} → {delivery.to_state}\n"
+                f"Сила тренда: {payload.get('score', 0)}/100 · "
+                f"качество данных: {payload.get('data_quality', 0)}%\n"
+                f"Цена: {payload.get('price') or '—'} USDT\n\n"
+                f"Почему: {payload.get('explanation', '—')}\n"
+                f"Подтверждения: {'; '.join(evidence) or '—'}\n"
+                f"Что нужно дальше: {'; '.join(confirmations) or 'дополнительных подтверждений не требуется'}\n"
+                f"Уровни отмены: {'; '.join(invalidation) or '—'}\n\n"
+                "Это раннее предупреждение и аналитика, а не гарантия прибыли и не команда на сделку."
+            )
+            try:
+                await context.bot.send_message(chat_id=delivery.user_id, text=message[:4096])
+                self.crypto_repository.mark_sent(
+                    delivery.delivery_id, sent_at=datetime.now(timezone.utc)
+                )
+            except Exception as exc:
+                logger.warning("Crypto momentum Telegram delivery failed: %s", type(exc).__name__)
+                self.crypto_repository.mark_failed(
                     delivery.delivery_id,
                     error=type(exc).__name__,
                     retry_at=datetime.now(timezone.utc) + timedelta(minutes=15),

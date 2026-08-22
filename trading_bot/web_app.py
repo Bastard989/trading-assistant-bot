@@ -32,6 +32,10 @@ from trading_bot.crisis_radar.agent import (
     OpenAICompatibleAgentClient,
 )
 from trading_bot.crisis_radar.repositories import CrisisRadarRepository
+from trading_bot.crisis_radar.crypto_momentum import (
+    CryptoMomentumMonitor,
+    CryptoMomentumRepository,
+)
 from trading_bot.crisis_radar.evidence_pipeline import build_evidence_pipeline_from_environment
 from trading_bot.crisis_radar.opportunities import AssetClass, MarketQuote
 from trading_bot.crisis_radar.bybit_options import build_defined_risk_put_spread
@@ -138,6 +142,10 @@ templates = TemplateRepository(db)
 sessions = TradingSessionRepository(db)
 idempotency = IdempotencyRepository(db)
 market = MarketClient(os.getenv("MARKET", "futures").strip().lower())
+crypto_momentum_monitor = CryptoMomentumMonitor(market)
+crypto_momentum_repository = CryptoMomentumRepository(db)
+_crypto_momentum_lock = asyncio.Lock()
+_crypto_momentum_cache: tuple[datetime, tuple] | None = None
 AuthenticatedUser = Annotated[int, Depends(require_telegram_user)]
 rate_limiter = SlidingWindowLimiter()
 
@@ -539,6 +547,44 @@ async def crisis_radar_opportunities(
         },
     }
     return payload
+
+
+@app.get("/api/crisis-radar/crypto-momentum")
+async def crisis_radar_crypto_momentum(
+    user_id: AuthenticatedUser,
+    locale: str = Query(default="ru", pattern="^(ru|en)$"),
+) -> dict:
+    """Independent symmetric crypto trend monitor; it never mutates trades."""
+    global _crypto_momentum_cache
+    if not crisis_radar_enabled:
+        raise HTTPException(status_code=503, detail="Crisis Radar is disabled")
+    now = datetime.now(timezone.utc)
+    cached = _crypto_momentum_cache
+    if cached is None or (now - cached[0]).total_seconds() > 120:
+        async with _crypto_momentum_lock:
+            cached = _crypto_momentum_cache
+            if cached is None or (now - cached[0]).total_seconds() > 120:
+                previous = crypto_momentum_repository.latest_states()
+                results = await crypto_momentum_monitor.analyze_all(previous)
+                _crypto_momentum_cache = (datetime.now(timezone.utc), results)
+                cached = _crypto_momentum_cache
+    results = cached[1]
+    ready = any(result.state != "insufficient_data" for result in results)
+    return {
+        "ready": ready,
+        "as_of": cached[0].astimezone(timezone.utc).isoformat(),
+        "methodology": "crypto-momentum-v1",
+        "items": [result.payload(locale) for result in results],
+        "state_is_probability": False,
+        "score_is_probability": False,
+        "analysis_only": True,
+        "execution_allowed": False,
+        "disclaimer": (
+            "Сила тренда — это совпадение независимых подтверждений, а не вероятность прибыли."
+            if locale == "ru"
+            else "Trend strength measures independent confirmations; it is not a profit probability."
+        ),
+    }
 
 
 @app.get("/api/crisis-radar/calendar")

@@ -1359,6 +1359,14 @@ pre {
 .crisis-opportunity.side-short { border-left-color: var(--red); }
 .crisis-opportunity.side-hedge { border-left-color: var(--violet); }
 .crisis-opportunity.side-wait { border-left-color: var(--amber); }
+.crisis-opportunity.crypto-state-early_uptrend,
+.crisis-opportunity.crypto-state-confirmed_uptrend { border-left-color: var(--green); }
+.crisis-opportunity.crypto-state-overheated { border-left-color: var(--amber); }
+.crisis-opportunity.crypto-state-trend_break,
+.crisis-opportunity.crypto-state-bearish { border-left-color: var(--red); }
+.crisis-opportunity.crypto-state-neutral,
+.crisis-opportunity.crypto-state-insufficient_data { border-left-color: var(--muted); }
+.crisis-today-result-card.is-positive { border-left: 3px solid var(--green); }
 .crisis-opportunity-head { display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
 .crisis-opportunity-head span { color: #d9efff; font-size: 11px; font-weight: 900; letter-spacing: .05em; }
 .crisis-opportunity-head small,

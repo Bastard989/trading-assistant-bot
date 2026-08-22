@@ -101,3 +101,30 @@ def test_circuit_breaker_opens_after_repeated_failures() -> None:
         run(market.get_price("BTC"))
     assert calls == 5
     run(market._client.aclose())
+
+
+def test_public_funding_and_signed_open_interest_are_parsed() -> None:
+    def handler(request):
+        if request.url.path == "/fapi/v1/premiumIndex":
+            return httpx.Response(200, json={"lastFundingRate": "0.000125"}, request=request)
+        assert request.url.path == "/futures/data/openInterestHist"
+        return httpx.Response(
+            200,
+            json=[{"sumOpenInterest": "100"}, {"sumOpenInterest": "112.5"}],
+            request=request,
+        )
+
+    market = client_for(handler)
+    assert run(market.get_funding_rate("BTC")) == pytest.approx(0.0125)
+    assert run(market.get_open_interest_change("BTC", period="4h", limit=43)) == pytest.approx(12.5)
+    run(market._client.aclose())
+
+
+def test_open_interest_requires_signed_history() -> None:
+    def handler(request):
+        return httpx.Response(200, json=[{"sumOpenInterest": "100"}], request=request)
+
+    market = client_for(handler)
+    with pytest.raises(MarketUnavailableError, match="insufficient"):
+        run(market.get_open_interest_change("BTC"))
+    run(market._client.aclose())

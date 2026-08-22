@@ -54,6 +54,14 @@ sudo systemctl start trading-assistant-bot
 
 Install the supplied systemd units and Caddyfile only after reviewing paths/domain. Uvicorn must remain on `127.0.0.1`; only Caddy is public.
 
+For a remotely managed permanent Cloudflare Tunnel, create a tunnel and Public
+Hostname in Cloudflare Zero Trust, route it to `http://127.0.0.1:8080`, and store
+the connector token (not an account API token) at
+`/etc/trading-assistant/cloudflare-tunnel.token` with mode `0600`. Install
+`deploy/systemd/trading-assistant-tunnel.service`, enable it, then replace
+`WEB_APP_URL` with the fixed HTTPS hostname and restart the bot. Never commit the
+token. A `trycloudflare.com` quick tunnel is a temporary fallback only.
+
 ## Rollback
 
 Stop both services and run `python -m scripts.self_host rollback --profile server`.
